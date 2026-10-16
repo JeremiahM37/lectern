@@ -13,6 +13,10 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
 )
 
+// maxEmptyDeleteLines is the most lines one edit may remove without putting
+// any text back.
+const maxEmptyDeleteLines = 10
+
 // editSpec is one string replacement.
 type editSpec struct {
 	Old        string
@@ -45,11 +49,11 @@ func NewWriteFile(undo *UndoStack) tools.Tool {
 				Content string `json:"content"`
 			}
 			if err := tools.Decode(args, &a); err != nil {
-				return fail(err)
+				return failTagged(err)
 			}
 			t, err := resolve(ctx, env, "write_file", a.Path, accessWrite)
 			if err != nil {
-				return fail(err)
+				return failTagged(err)
 			}
 			var before []byte
 			fi, statErr := os.Stat(t.abs)
@@ -60,10 +64,10 @@ func NewWriteFile(undo *UndoStack) tools.Tool {
 			if exists {
 				if env.Files != nil {
 					if !env.Files.WasRead(t.abs) {
-						return tools.Errorf("%s already exists and has not been read this session. Read it first, or use edit_file for a targeted change.", t.rel)
+						return errTag("", "%s already exists and has not been read this session. Read it first, or use edit_file for a targeted change.", t.rel)
 					}
 					if env.Files.StaleSinceRead(t.abs) {
-						return tools.Errorf("%s changed on disk since you read it. Read it again before writing.", t.rel)
+						return errTag("concurrent modification", "%s changed on disk since you read it. Read it again before writing.", t.rel)
 					}
 				}
 				if before, err = os.ReadFile(t.abs); err != nil {
@@ -122,11 +126,11 @@ func NewEditFile(undo *UndoStack) tools.Tool {
 				IfHash     string   `json:"ifHash"`
 			}
 			if err := tools.Decode(args, &a); err != nil {
-				return fail(err)
+				return failTagged(err)
 			}
 			t, err := resolve(ctx, env, "edit_file", a.Path, accessWrite)
 			if err != nil {
-				return fail(err)
+				return failTagged(err)
 			}
 			if _, statErr := os.Stat(t.abs); os.IsNotExist(statErr) {
 				if a.OldString != "" {
@@ -179,7 +183,7 @@ func NewMultiEdit(undo *UndoStack) tools.Tool {
 				Edits json.RawMessage `json:"edits"`
 			}
 			if err := tools.Decode(args, &a); err != nil {
-				return fail(err)
+				return failTagged(err)
 			}
 			var list []struct {
 				OldString  string   `json:"old_string"`
@@ -190,14 +194,14 @@ func NewMultiEdit(undo *UndoStack) tools.Tool {
 				IfHash     string   `json:"ifHash"`
 			}
 			if err := decodeList(a.Edits, &list); err != nil {
-				return fail(err)
+				return failTagged(err)
 			}
 			if len(list) == 0 {
 				return tools.Errorf("edits must contain at least one edit.")
 			}
 			t, err := resolve(ctx, env, "multi_edit", a.Path, accessWrite)
 			if err != nil {
-				return fail(err)
+				return failTagged(err)
 			}
 			specs := make([]editSpec, len(list))
 			for i, e := range list {
@@ -216,7 +220,7 @@ func NewMultiEdit(undo *UndoStack) tools.Tool {
 func editExisting(env *tools.Env, undo *UndoStack, t target, edits []editSpec, multi bool) tools.Result {
 	fi, err := statPath(t)
 	if err != nil {
-		return fail(err)
+		return failTagged(err)
 	}
 	if fi.IsDir() {
 		return tools.Errorf("%s is a directory.", t.rel)
@@ -226,7 +230,7 @@ func editExisting(env *tools.Env, undo *UndoStack, t target, edits []editSpec, m
 			return tools.Errorf("%s has not been read this session. Read it first so the edit is based on its current content.", t.rel)
 		}
 		if env.Files.StaleSinceRead(t.abs) {
-			return tools.Errorf("%s changed on disk since you read it. Read it again, then retry the edit.", t.rel)
+			return errTag("concurrent modification", "%s changed on disk since you read it. Read it again, then retry the edit.", t.rel)
 		}
 	}
 	for _, e := range edits {
@@ -244,7 +248,9 @@ func editExisting(env *tools.Env, undo *UndoStack, t target, edits []editSpec, m
 	crlf := crlfStyle(before)
 	newText, msgs, err := applyEdits(toLF(string(before)), edits, multi)
 	if err != nil {
-		return tools.Errorf("%s: %v", t.rel, err)
+		res := tools.Errorf("%s: %v", t.rel, err)
+		res.Tag = tagOf(err)
+		return res
 	}
 	res := commit(env, undo, t, before, true, fromLF(newText, crlf))
 	if res.IsError {
@@ -326,6 +332,12 @@ func applyOne(content string, e editSpec) (string, string, error) {
 	if old == nw {
 		return "", "", errors.New("old_string and new_string are identical, so there is nothing to change")
 	}
+	// A large block removed with nothing put back is almost always a
+	// mistake (a stale range, or a model that meant to replace it). Make the
+	// model say so with a smaller old_string or a whole-file write.
+	if strings.TrimSpace(nw) == "" && countLines(old) > maxEmptyDeleteLines {
+		return "", "", fmt.Errorf("Refusing to delete %d lines with empty replacement. Keep old_string to the lines that really change, or use write_file to replace the whole file.", countLines(old))
+	}
 
 	lo, hi, ranged, err := e.window(content, old)
 	if err != nil {
@@ -367,7 +379,7 @@ func applyOne(content string, e editSpec) (string, string, error) {
 		}
 	}
 
-	spans := fuzzySpans(content, old)
+	spans, tier := fuzzyMatch(content, old)
 	var inSpans []fuzzySpan
 	for _, s := range spans {
 		if inWindow(s.line, s.line+s.n-1) {
@@ -412,8 +424,12 @@ func applyOne(content string, e editSpec) (string, string, error) {
 		lines = append(lines, s.line)
 	}
 	sb.WriteString(content[prev:])
-	return sb.String(), fmt.Sprintf("%d replacement(s) at line(s) %s, matched ignoring indentation and trailing whitespace; new text re-indented",
-		len(spans), joinInts(lines, 10)), nil
+	how := "matched ignoring indentation and trailing whitespace"
+	if tier > 0 {
+		how = "matched ignoring indentation, trailing whitespace and backslash escapes"
+	}
+	return sb.String(), fmt.Sprintf("%d replacement(s) at line(s) %s, %s; new text re-indented",
+		len(spans), joinInts(lines, 10), how), nil
 }
 
 func ambiguous(n int, lines []int) error {
@@ -518,19 +534,89 @@ func outsideWindow(lines []int, lo, hi int) error {
 }
 
 func ifHashMismatch(first, last int) error {
-	return fmt.Errorf("ifHash does not match the text at lines %d-%d: the file changed since you read it. Re-read lines %d-%d and retry the edit with fresh content.",
-		first, last, first, last)
+	return &taggedError{tag: "concurrent modification", msg: fmt.Sprintf("ifHash does not match the text at lines %d-%d: the file changed since you read it. Re-read lines %d-%d and retry the edit with fresh content.",
+		first, last, first, last)}
 }
 
-// fuzzySpans finds whole-line matches of old that agree after trimming each
-// line. Matches do not overlap.
-func fuzzySpans(content, old string) []fuzzySpan {
+// lineNorms are the per-line normalizers of the fuzzy match, tried in order.
+// The first trims whitespace. The next two also fold backslash escapes, which
+// models often corrupt when they copy regex or markdown text: the second
+// collapses doubled backslashes and drops the backslash of a regex
+// metacharacter escape, the third drops the backslash of any escape that is
+// not standard.
+var lineNorms = []func(string) string{
+	strings.TrimSpace,
+	func(s string) string { return unescapeMeta(collapseBackslashes(strings.TrimSpace(s))) },
+	func(s string) string { return dropOddEscapes(strings.TrimSpace(s)) },
+}
+
+// fuzzyMatch returns the whole-line matches of old under the first normalizer
+// that finds any, with that normalizer's index (0 = whitespace only).
+func fuzzyMatch(content, old string) ([]fuzzySpan, int) {
+	for i, norm := range lineNorms {
+		if spans := fuzzySpans(content, old, norm); len(spans) > 0 {
+			return spans, i
+		}
+	}
+	return nil, 0
+}
+
+// collapseBackslashes turns every run of backslashes into one.
+func collapseBackslashes(s string) string {
+	var sb strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i > 0 && s[i-1] == '\\' {
+			continue
+		}
+		sb.WriteByte(s[i])
+	}
+	return sb.String()
+}
+
+// regexMeta are the characters whose backslash escape means the bare
+// character in a pattern the model copied.
+const regexMeta = `.()[]{}*+?|^$/-`
+
+// unescapeMeta drops the backslash in front of a regex metacharacter.
+func unescapeMeta(s string) string {
+	var sb strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) && strings.IndexByte(regexMeta, s[i+1]) >= 0 {
+			continue
+		}
+		sb.WriteByte(s[i])
+	}
+	return sb.String()
+}
+
+// dropOddEscapes drops the backslash in front of any non-standard escape.
+// Standard escapes (\\ \n \r \t \b \f \u \U \0-9) and escapes of letters and digits
+// are kept.
+func dropOddEscapes(s string) string {
+	var sb strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			next := s[i+1]
+			standard := strings.IndexByte(`\nrtbfuU0123456789`, next) >= 0
+			alnum := next == '_' || (next >= 'a' && next <= 'z') || (next >= 'A' && next <= 'Z')
+			if !standard && !alnum {
+				continue
+			}
+		}
+		sb.WriteByte(s[i])
+	}
+	return sb.String()
+}
+
+// fuzzySpans finds whole-line matches of old whose lines agree after norm.
+// Matches do not overlap.
+func fuzzySpans(content, old string, norm func(string) string) []fuzzySpan {
 	oldLines := strings.Split(strings.TrimSuffix(old, "\n"), "\n")
 	want := make([]string, len(oldLines))
 	first := -1
 	for i, l := range oldLines {
-		want[i] = strings.TrimSpace(l)
-		if want[i] != "" && first < 0 {
+		want[i] = norm(l)
+		if strings.TrimSpace(l) != "" && first < 0 {
 			first = i
 		}
 	}
@@ -548,7 +634,7 @@ func fuzzySpans(content, old string) []fuzzySpan {
 	for i := 0; i+len(want) <= len(lines); {
 		ok := true
 		for k := range want {
-			if strings.TrimSpace(lines[i+k]) != want[k] {
+			if norm(lines[i+k]) != want[k] {
 				ok = false
 				break
 			}

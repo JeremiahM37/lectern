@@ -23,6 +23,10 @@ type Symbol struct {
 	// BodyHash identifies a function body with whitespace removed, for
 	// clone detection. Empty for short bodies and non-functions.
 	BodyHash string `json:"body_hash,omitempty"`
+	// calls are the identifiers a function or method body mentions, space
+	// separated, distinct and capped. One string rather than a slice: the
+	// garbage collector scans a pointer per element, and there are many.
+	calls string
 
 	start, end int // byte offsets in the masked source (not persisted)
 }
@@ -43,6 +47,14 @@ type fileInfo struct {
 	Symbols []Symbol       `json:"symbols"`
 	Imports []rawImport    `json:"imports"`
 	Idents  map[string]int `json:"idents"`
+	// Doc is a one-sentence summary taken from the package doc comment (Go
+	// only). It is the fallback header when no model summary exists.
+	Doc string `json:"-"`
+	// Mtime is the file's modification time in Unix nanoseconds, set by the
+	// scan that parsed or re-checked it (not part of the cached extraction).
+	Mtime int64 `json:"-"`
+	// Hash is the SHA-256 of the file's content, set alongside Mtime.
+	Hash string `json:"-"`
 }
 
 // parseSource extracts symbols, imports and identifiers from one file.
@@ -54,26 +66,36 @@ func parseSource(rel string, src []byte) *fileInfo {
 	masked := mask(src, &lg.lex, false)
 	fi := &fileInfo{Path: rel, Lang: lg.name, Lines: bytes.Count(src, []byte{'\n'}) + 1}
 	if lg.name == "go" {
-		fi.Symbols, fi.Imports = extractGo(rel, src, masked)
+		fi.Symbols, fi.Imports, fi.Doc = extractGo(rel, src, masked)
 	} else {
 		fi.Symbols = extractByRules(rel, lg, src, masked)
 		fi.Imports = extractImports(lg, src)
+	}
+	for i := range fi.Symbols {
+		s := &fi.Symbols[i]
+		if s.Kind == "function" || s.Kind == "method" {
+			s.calls = bodyCalls(masked, s.start, s.end, s.Name)
+		}
 	}
 	fi.Idents = countIdents(masked)
 	return fi
 }
 
-// extractGo uses go/parser for symbols and imports. Ranges come from the AST
-// and the function body hash comes from the masked source.
-func extractGo(rel string, src, masked []byte) ([]Symbol, []rawImport) {
+// extractGo uses go/parser for symbols, imports and the package doc. Ranges
+// come from the AST and the function body hash comes from the masked source.
+func extractGo(rel string, src, masked []byte) ([]Symbol, []rawImport, string) {
 	fset := token.NewFileSet()
 	f, _ := parser.ParseFile(fset, rel, src, parser.ParseComments)
 	if f == nil {
-		return nil, nil
+		return nil, nil, ""
 	}
 	tf := fset.File(f.Pos())
 	if tf == nil {
-		return nil, nil
+		return nil, nil, ""
+	}
+	doc := ""
+	if f.Doc != nil {
+		doc = firstSentence(f.Doc.Text())
 	}
 	var imps []rawImport
 	for _, im := range f.Imports {
@@ -151,7 +173,64 @@ func extractGo(rel string, src, masked []byte) ([]Symbol, []rawImport) {
 			}
 		}
 	}
-	return syms, imps
+	return syms, imps, doc
+}
+
+// maxCallsPerSymbol caps the call list of one function.
+const maxCallsPerSymbol = 200
+
+// bodyCalls lists the distinct identifiers in masked[start:end], other than
+// the function's own name and stopwords, space separated. Callers filter them
+// to names that are defined as functions, so variables and types drop out.
+func bodyCalls(m []byte, start, end int, self string) string {
+	if start < 0 {
+		start = 0
+	}
+	if end > len(m) {
+		end = len(m)
+	}
+	var sb strings.Builder
+	seen := map[string]bool{}
+	n := 0
+	for i := start; i < end; {
+		if !isIdentStart(m[i]) {
+			i++
+			continue
+		}
+		j := i
+		for j < end && isIdentPart(m[j]) {
+			j++
+		}
+		if j-i >= 3 && !seen[string(m[i:j])] {
+			name := string(m[i:j])
+			seen[name] = true
+			if name != self && !stopIdents[name] {
+				if n > 0 {
+					sb.WriteByte(' ')
+				}
+				sb.WriteString(name)
+				n++
+				if n >= maxCallsPerSymbol {
+					break
+				}
+			}
+		}
+		i = j
+	}
+	return sb.String()
+}
+
+// firstSentence returns the first sentence of a doc comment on one line, cut
+// to 120 characters.
+func firstSentence(doc string) string {
+	s := strings.Join(strings.Fields(doc), " ")
+	if i := strings.Index(s, ". "); i >= 0 {
+		s = s[:i+1]
+	}
+	if len(s) > 120 {
+		s = s[:117] + "..."
+	}
+	return s
 }
 
 func recvTypeName(e ast.Expr) string {
@@ -183,6 +262,9 @@ func extractImports(lg *language, src []byte) []rawImport {
 	var out []rawImport
 	seen := map[string]bool{}
 	for _, r := range lg.imports {
+		if r.must != "" && !bytes.Contains(m, []byte(r.must)) {
+			continue
+		}
 		for _, sm := range r.re.FindAllSubmatch(m, -1) {
 			var names []string
 			if r.names > 0 && r.names < len(sm) {
@@ -219,6 +301,9 @@ func extractImports(lg *language, src []byte) []rawImport {
 	return out
 }
 
+// maxRefsPerFile caps the distinct identifiers recorded for one file.
+const maxRefsPerFile = 5000
+
 // countIdents returns how often each identifier appears in code (strings and
 // comments are already masked). Short names and stopwords are dropped.
 func countIdents(m []byte) map[string]int {
@@ -233,7 +318,11 @@ func countIdents(m []byte) map[string]int {
 			j++
 		}
 		if j-i >= 3 && !stopIdents[string(m[i:j])] {
-			out[string(m[i:j])]++
+			// Spec 4.3 caps references per file at 5,000. Here a reference is a
+			// distinct name, so a pathological file cannot grow the cache.
+			if _, ok := out[string(m[i:j])]; ok || len(out) < maxRefsPerFile {
+				out[string(m[i:j])]++
+			}
 		}
 		i = j
 	}

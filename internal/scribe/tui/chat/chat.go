@@ -21,6 +21,8 @@ type Options struct {
 	Verbose       bool   // original order, every tool row, no final-response rail
 	ShowReasoning bool   // reasoning segments are kept and rendered
 	ChatStyle     string // "accent" (default) or "bubble"
+	DiffStyle     string // DiffDefault, DiffSideBySide or DiffCompact
+	CollapseDiffs bool   // finished edits show one line until expanded
 	Workdir       string // paths under it are shown relative
 	Now           func() time.Time
 }
@@ -40,10 +42,14 @@ type View struct {
 	errShown   bool
 	calls      map[string]*Call
 	agents     map[string]*agent.AgentInfo
+	// localPrompts are prompts AddUser added whose turn has not started yet.
+	localPrompts []string
 
-	now      time.Time // last Tick time; zero means use the clock
-	expanded bool      // Ctrl+O: tool details and reasoning
-	gen      int       // bumped whenever the global expansion changes
+	now        time.Time // last Tick time; zero means use the clock
+	wheelAt    time.Time // last wheel tick, for acceleration (scroll.go)
+	wheelScore float64   // burst score of recent wheel ticks
+	expanded   bool      // Ctrl+O: tool details and reasoning
+	gen        int       // bumped whenever the global expansion changes
 
 	// Scrolling. top is the first visible line; sticky follows the bottom.
 	top       int
@@ -69,6 +75,7 @@ type hitTarget struct {
 	call    *Call
 	seg     *Segment
 	summary bool
+	rail    bool
 }
 
 // New returns an empty transcript.
@@ -147,12 +154,55 @@ func (v *View) ToggleExpand() {
 
 // AddUser appends a user message. A steering message closes the assistant
 // message being streamed; later events start a new one below it.
+//
+// The text a remote surface sends carries its marker (see originMarkers);
+// the marker is removed and kept as Origin.
 func (v *View) AddUser(text string, images int, at time.Time, steering bool) {
 	v.closeLive()
-	v.addRecord(&Record{Role: roleUser, At: at, Text: stripImageTags(text), Images: images, Steering: steering})
+	body, origin := splitOrigin(text)
+	v.addRecord(&Record{Role: roleUser, At: at, Text: stripImageTags(body), Origin: origin, Images: images, Steering: steering})
 	if !steering {
+		// The turn that this prompt starts will echo it back as EvTurnStart;
+		// remember it so that echo is not shown a second time.
+		v.localPrompts = append(v.localPrompts, promptKey(text))
 		v.Bottom()
 	}
+}
+
+// originMarkers are the prefixes a message gets when it does not come from
+// this terminal. The Telegram surface prefixes the prompts it forwards.
+var originMarkers = []struct{ prefix, origin string }{
+	{"[via telegram] ", "phone"},
+}
+
+// splitOrigin removes a remote marker from text and names where it came from.
+// Local text is returned unchanged with origin "".
+func splitOrigin(text string) (body, origin string) {
+	for _, m := range originMarkers {
+		if strings.HasPrefix(text, m.prefix) {
+			return strings.TrimPrefix(text, m.prefix), m.origin
+		}
+	}
+	return text, ""
+}
+
+// promptKey is the form a prompt is compared in, with and without its origin.
+func promptKey(text string) string {
+	body, _ := splitOrigin(text)
+	return stripImageTags(body)
+}
+
+// takeLocal reports whether prompt is one this view added itself, and forgets
+// that entry. A prompt is matched in the order it was added.
+func (v *View) takeLocal(prompt string) bool {
+	key := promptKey(prompt)
+	for i, p := range v.localPrompts {
+		if p == key {
+			v.localPrompts = append(v.localPrompts[:i], v.localPrompts[i+1:]...)
+			return true
+		}
+	}
+	return false
 }
 
 var imageTag = regexp.MustCompile(`\[image-\d+\]`)
@@ -183,6 +233,11 @@ func (v *View) Apply(e agent.Event) {
 	switch e.Kind {
 	case agent.EvTurnStart:
 		v.closeLive()
+		if e.Prompt != "" && !v.takeLocal(e.Prompt) {
+			// A turn this view did not start: a phone message, or any other
+			// prompt the backend ran. It has no row yet, so it gets one here.
+			v.AddUser(e.Prompt, 0, v.when(e.At), false)
+		}
 		v.ensureLive(e.At).Prompt = e.Prompt
 		v.errShown = false
 	case agent.EvStepStart:
@@ -219,6 +274,9 @@ func (v *View) Apply(e agent.Event) {
 		c.Args = e.Args
 		c.Status = "running"
 		c.Start = v.when(e.At)
+		if c.Tool == "dispatch" {
+			seedAgents(c)
+		}
 	case agent.EvToolProgress:
 		c := v.callFor(e.CallID, "", e.At)
 		c.Progress = appendLines(c.Progress, e.Text)
@@ -227,6 +285,9 @@ func (v *View) Apply(e agent.Event) {
 		c.Result = e.Result
 		c.Duration = e.Duration
 		c.Status = resultStatus(e.Result)
+		if c.Tool == "dispatch" {
+			dropSeeds(c)
+		}
 	case agent.EvSubagent:
 		if e.Agent != nil {
 			v.upsertAgent(e)
@@ -251,6 +312,13 @@ func (v *View) Apply(e agent.Event) {
 			rec.Segments = append(rec.Segments, s)
 		}
 		s.Tasks = append([]agent.Task(nil), e.Tasks...)
+		if tasksDone(s.Tasks) {
+			if s.DoneAt.IsZero() {
+				s.DoneAt = v.when(e.At)
+			}
+		} else {
+			s.DoneAt = time.Time{}
+		}
 	case agent.EvRetry:
 		v.addRecord(&Record{Role: roleSystem, Kind: "retry", Category: string(e.Category), Attempt: e.Attempt,
 			Max: e.MaxAttempts, Delay: e.Delay, Text: e.Text, At: e.At})
@@ -318,7 +386,12 @@ func (v *View) upsertAgent(e agent.Event) {
 	}
 	p := new(agent.AgentInfo)
 	*p = *a
-	c.Agents = append(c.Agents, p)
+	// A real agent takes the place of the pending row seeded for its task.
+	if i := matchSeed(c.Agents, a.Task); i >= 0 {
+		c.Agents[i] = p
+	} else {
+		c.Agents = append(c.Agents, p)
+	}
 	v.agents[a.ID] = p
 }
 

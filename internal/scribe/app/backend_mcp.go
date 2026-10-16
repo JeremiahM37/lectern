@@ -178,3 +178,19 @@ func copyMap(m map[string]string) map[string]string {
 	}
 	return out
 }
+
+// ServerTools implements tui.ServerToolLister. It returns the tool names a
+// connected MCP server registered, as the model sees them (mcp__<server>__<tool>).
+// A server that has not connected has none.
+func (b *scribeBackend) ServerTools(name string) ([]string, error) {
+	a := b.current()
+	if a.ext.mcp == nil {
+		return nil, errors.New("no MCP servers are configured")
+	}
+	for _, s := range a.ext.mcp.Status() {
+		if s.Name == name {
+			return append([]string(nil), s.ToolNames...), nil
+		}
+	}
+	return nil, fmt.Errorf("no MCP server named %q", name)
+}

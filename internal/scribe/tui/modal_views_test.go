@@ -10,6 +10,8 @@ import (
 func TestSkillsBrowserListsSkillsAndWhereToAddThem(t *testing.T) {
 	m := modalModel(t, 140, 36, newRecBackend())
 	m.runCommand("/skills")
+	gitPump(m, nil)
+	skillsTabs(m, "Installed")
 	if topTitle(m) != "Skills" {
 		t.Fatalf("/skills should open the skills browser, top=%q", topTitle(m))
 	}
@@ -30,7 +32,8 @@ func TestSkillsCtrlSOpensBrowser(t *testing.T) {
 func TestSkillsEnterShowsInstructionsAndEscReturns(t *testing.T) {
 	m := modalModel(t, 100, 30, newRecBackend())
 	send(m, "ctrl+s")
-	send(m, "enter")
+	skillsTabs(m, "Installed")
+	send(m, "ctrl+o")
 	if topTitle(m) != "db-migrations" {
 		t.Fatalf("enter should open the first skill's instructions, top=%q", topTitle(m))
 	}
@@ -45,7 +48,7 @@ func TestSkillsWithoutCatalogFallBackToNames(t *testing.T) {
 	m := modalModel(t, 100, 30, plainBackend{newRecBackend()})
 	send(m, "ctrl+s")
 	mustContain(t, screen(m), "release-notes", "db-migrations")
-	send(m, "enter")
+	send(m, "ctrl+o")
 	mustContain(t, screen(m), "not available from this backend")
 }
 
@@ -54,7 +57,9 @@ func TestSkillsWidths(t *testing.T) {
 		m := modalModel(t, w, 30, newRecBackend())
 		send(m, "ctrl+s")
 		checkWidths(t, m, w, 30)
-		send(m, "enter")
+		skillsTabs(m, "Installed")
+		checkWidths(t, m, w, 30)
+		send(m, "ctrl+o")
 		checkWidths(t, m, w, 30)
 	}
 }
@@ -165,12 +170,11 @@ func TestMCPViewShowsOnlyMCPServers(t *testing.T) {
 	mustContain(t, s, ".scribe/config.json", ".mcp.json")
 }
 
-func TestLSPViewShowsLanguageServers(t *testing.T) {
+func TestLSPViewShowsLanguageServersAndMCP(t *testing.T) {
 	m := modalModel(t, 140, 36, serversFixture())
 	m.runCommand("/lsp")
 	s := screen(m)
-	mustContain(t, s, "Language servers", "gopls")
-	mustNotContain(t, s, "postgres")
+	mustContain(t, s, "Language servers", "gopls", "postgres")
 }
 
 func TestLSPViewEmpty(t *testing.T) {
@@ -202,6 +206,9 @@ func TestServersDoNotRestartLanguageServers(t *testing.T) {
 	b := serversFixture()
 	m := modalModel(t, 140, 36, b)
 	m.runCommand("/lsp")
+	for range 3 { // github, postgres, fs, then gopls
+		send(m, "down")
+	}
 	send(m, "r")
 	if len(b.restarted) != 0 {
 		t.Fatalf("language servers must not be restarted from here")

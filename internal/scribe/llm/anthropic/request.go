@@ -55,7 +55,14 @@ type wireRequest struct {
 	Stream       bool              `json:"stream"`
 }
 
-func ephemeral() block { return block{"type": "ephemeral"} }
+// ephemeral is a cache breakpoint. ttl "1h" asks for the one-hour cache;
+// anything else gets the provider default (5 minutes).
+func ephemeral(ttl string) block {
+	if ttl == "1h" {
+		return block{"type": "ephemeral", "ttl": "1h"}
+	}
+	return block{"type": "ephemeral"}
+}
 
 // buildBody translates an llm.Request into a Messages API request body.
 func buildBody(req llm.Request) ([]byte, error) {
@@ -69,14 +76,14 @@ func buildBody(req llm.Request) ([]byte, error) {
 	if req.System != "" {
 		sys := block{"type": "text", "text": req.System}
 		if req.CacheSystem {
-			sys["cache_control"] = ephemeral()
+			sys["cache_control"] = ephemeral(req.CacheTTL)
 		}
 		body.System = []block{sys}
 	}
 
 	body.Messages = convertMessages(req.Messages)
 	if req.CacheSystem {
-		markCacheBreakpoint(body.Messages)
+		markCacheBreakpoint(body.Messages, req.CacheTTL)
 	}
 
 	for _, t := range req.Tools {
@@ -101,6 +108,9 @@ func buildBody(req llm.Request) ([]byte, error) {
 			body.ToolChoice = block{"type": "none"}
 		default:
 			body.ToolChoice = block{"type": "auto"}
+		}
+		if req.DisableParallelToolUse && req.ToolChoice != "none" {
+			body.ToolChoice["disable_parallel_tool_use"] = true
 		}
 	}
 
@@ -271,7 +281,7 @@ func resultsFirst(blocks []block) []block {
 // markCacheBreakpoint puts cache_control on the last cacheable block of the
 // last message. Thinking blocks cannot carry cache_control, so the search
 // walks back past them.
-func markCacheBreakpoint(msgs []wireMessage) {
+func markCacheBreakpoint(msgs []wireMessage, ttl string) {
 	if len(msgs) == 0 {
 		return
 	}
@@ -280,7 +290,7 @@ func markCacheBreakpoint(msgs []wireMessage) {
 		if t := content[i]["type"]; t == "thinking" || t == "redacted_thinking" {
 			continue
 		}
-		content[i]["cache_control"] = ephemeral()
+		content[i]["cache_control"] = ephemeral(ttl)
 		return
 	}
 }

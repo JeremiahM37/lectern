@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
@@ -18,38 +19,44 @@ type memoryTool struct{ stores *Stores }
 func Register(r *tools.Registry, s *Stores) { r.Register(&memoryTool{stores: s}) }
 
 type memoryArgs struct {
-	Action   string   `json:"action"`
-	Scope    string   `json:"scope"`
-	ID       string   `json:"id"`
-	Category string   `json:"category"`
-	Title    string   `json:"title"`
-	Body     string   `json:"body"`
-	Tags     []string `json:"tags"`
-	Files    []string `json:"files"`
-	Query    string   `json:"query"`
-	Limit    int      `json:"limit"`
-	Pinned   *bool    `json:"pinned"`
+	Action     string   `json:"action"`
+	Scope      string   `json:"scope"`
+	ID         string   `json:"id"`
+	Category   string   `json:"category"`
+	Title      string   `json:"title"`
+	Body       string   `json:"body"`
+	Tags       []string `json:"tags"`
+	Files      []string `json:"files"`
+	Query      string   `json:"query"`
+	Limit      int      `json:"limit"`
+	Pinned     *bool    `json:"pinned"`
+	Supersedes string   `json:"supersedes"`
+	Topic      string   `json:"topic"`
 }
 
 func (t *memoryTool) Spec() llm.ToolSpec {
 	return llm.ToolSpec{
 		Name: "memory",
 		Description: "Durable memory across sessions. Save a decision, convention, bug, preference, fact or todo " +
-			"that a later session should know; search or list what is already saved; delete or pin a record by id. " +
-			"Save only things that will still matter later, with a short specific title and the file paths it concerns. " +
-			"Relevant memories are also recalled automatically at the start of each turn.",
+			"that a later session should know; search or list what is already saved; get, delete or pin a record by id; " +
+			"review stale records. Save only things that will still matter later, with a short specific title (max 200 " +
+			"characters), a body of at most 2000 characters, up to 8 tags and the file paths it concerns. When a new " +
+			"memory contradicts or replaces an older one, save it with supersedes set to the old id, so the old one " +
+			"stops being recalled. Relevant memories are also recalled automatically at the start of each turn.",
 		Schema: tools.Schema(map[string]any{
-			"action":   tools.Enum("What to do.", "save", "search", "list", "delete", "pin"),
-			"scope":    tools.Enum("project (this repo) or global (all repos). Default: project for save; all for search, list, delete and pin.", "project", "global", "all"),
-			"id":       tools.Str("Record id or unique id prefix (delete, pin)."),
-			"category": tools.Enum("Record category (save), or filter (list).", "decision", "convention", "bug", "preference", "fact", "todo"),
-			"title":    tools.Str("Short headline, max 200 characters (save)."),
-			"body":     tools.Str("The detail: what, why, and what to do about it (save)."),
-			"tags":     tools.Arr("Free-form tags (save).", map[string]any{"type": "string"}),
-			"files":    tools.Arr("Relative file paths the memory concerns. Recall surfaces it when these files are touched (save).", map[string]any{"type": "string"}),
-			"query":    tools.Str("What to look for (search)."),
-			"limit":    tools.Int("Maximum results (search: default 10; list: default 20)."),
-			"pinned":   tools.Bool("pin: true (default) or false to unpin. list: true shows only pinned records."),
+			"action":     tools.Enum("What to do.", "save", "search", "list", "get", "delete", "pin", "stale"),
+			"scope":      tools.Enum("project (this repo) or global (all repos). Default: project for save; all for search, list, get, delete, pin and stale.", "project", "global", "all"),
+			"id":         tools.Str("Record id or unique id prefix (get, delete, pin, and supersedes)."),
+			"category":   tools.Enum("Record category (save), or filter (list).", "decision", "convention", "bug", "preference", "fact", "todo"),
+			"title":      tools.Str("Short headline, max 200 characters (save)."),
+			"body":       tools.Str("The detail: what, why, and what to do about it, max 2000 characters (save)."),
+			"tags":       tools.Arr("Free-form tags, up to 8 (save).", map[string]any{"type": "string"}),
+			"files":      tools.Arr("Relative file paths the memory concerns, up to 16. Recall surfaces it when these files are touched (save).", map[string]any{"type": "string"}),
+			"supersedes": tools.Str("Id of an older memory this one replaces (save). The older memory is kept but no longer recalled."),
+			"query":      tools.Str("What to look for (search)."),
+			"topic":      tools.Str("Only records carrying this tag (list)."),
+			"limit":      tools.Int("Maximum results (search: default 10; list: default 20; stale: default 20)."),
+			"pinned":     tools.Bool("pin: true (default) or false to unpin. list: true shows only pinned records."),
 		}, "action"),
 	}
 }
@@ -74,45 +81,76 @@ func (t *memoryTool) Run(_ context.Context, _ *tools.Env, raw json.RawMessage) t
 		return t.search(a)
 	case "list":
 		return t.list(a)
+	case "get":
+		return t.get(a)
 	case "delete":
 		return t.delete(a)
 	case "pin":
 		return t.pin(a)
+	case "stale":
+		return t.stale(a)
 	case "":
-		return tools.Errorf("action is required: save, search, list, delete or pin.")
+		return tools.Errorf("action is required: save, search, list, get, delete, pin or stale.")
 	}
-	return tools.Errorf("unknown action %q. Use save, search, list, delete or pin.", a.Action)
+	return tools.Errorf("unknown action %q. Use save, search, list, get, delete, pin or stale.", a.Action)
 }
 
 func (t *memoryTool) save(a memoryArgs) tools.Result {
-	scope := a.Scope
-	if scope == "" {
-		scope = ScopeProject
-		if t.stores.Project == nil {
-			scope = ScopeGlobal
-		}
+	if t.stores.Policy.WriteScope == "none" {
+		return tools.Errorf("%v", errWritesOff)
 	}
-	db, err := t.stores.DB(scope)
+	var db *DB
+	var err error
+	if a.Scope == "" {
+		db, err = t.stores.writeDB()
+	} else {
+		db, err = t.stores.DB(a.Scope)
+	}
 	if err != nil {
 		return tools.Errorf("%v", err)
 	}
+	// Resolve the record being replaced before writing, so a bad id fails
+	// without leaving the new memory behind.
+	var old *DB
+	if a.Supersedes != "" {
+		old = db
+		if _, err := db.Get(a.Supersedes); err != nil {
+			return tools.Errorf("supersedes: no memory %q in %s scope. Find the id with action search or list.", a.Supersedes, db.Scope())
+		}
+	}
 	rec, dup, err := db.Add(Record{
 		Category: a.Category, Title: a.Title, Body: a.Body, Tags: a.Tags, Files: a.Files,
-		Pinned: a.Pinned != nil && *a.Pinned,
+		Pinned: a.Pinned != nil && *a.Pinned, Source: SourceAgent,
 	})
 	if err != nil {
 		return tools.Errorf("could not save: %v. Give a title and body, and a category from decision, convention, bug, preference, fact, todo.", err)
 	}
+	var note string
+	if old != nil {
+		if err := old.Supersede(a.Supersedes, rec.ID); err != nil {
+			note = fmt.Sprintf(" It was saved, but could not supersede %q: %v.", a.Supersedes, err)
+		} else {
+			note = fmt.Sprintf(" It supersedes %s, which is no longer recalled.", shortID(a.Supersedes))
+		}
+	}
 	if dup {
 		return tools.Result{
-			Output:  fmt.Sprintf("Updated existing memory %s (%s): %s. It matched an earlier record, so the two were merged.", shortID(rec.ID), rec.Scope, rec.Title),
+			Output:  fmt.Sprintf("Updated existing memory %s (%s): %s. It matched an earlier record, so the two were merged.", shortID(rec.ID), rec.Scope, rec.Title) + note,
 			Summary: "merged",
 		}
 	}
-	return tools.Result{
-		Output:  fmt.Sprintf("Saved memory %s (%s, %s): %s.", shortID(rec.ID), rec.Scope, rec.Category, rec.Title),
-		Summary: "saved",
+	out := fmt.Sprintf("Saved memory %s (%s, %s): %s.", shortID(rec.ID), rec.Scope, rec.Category, rec.Title) + note
+	// Near matches are reported, not merged: they may be a real second
+	// memory, or the one this replaces.
+	if sims, err := db.Similar(rec.ID, similarHint, 3); err == nil && len(sims) > 0 {
+		var b strings.Builder
+		b.WriteString("\nSimilar existing memories (if one of these is replaced by this, save again with supersedes):\n")
+		for _, m := range sims {
+			fmt.Fprintf(&b, "%s %s/%s: %s\n", shortID(m.ID), m.Scope, m.Category, m.Title)
+		}
+		out += strings.TrimRight(b.String(), "\n")
 	}
+	return tools.Result{Output: out, Summary: "saved"}
 }
 
 func (t *memoryTool) search(a memoryArgs) tools.Result {
@@ -155,7 +193,7 @@ func (t *memoryTool) list(a memoryArgs) tools.Result {
 	}
 	var recs []Record
 	for _, db := range t.dbsFor(a.Scope) {
-		got, err := db.List(ListOptions{Category: a.Category, PinnedOnly: a.Pinned != nil && *a.Pinned, Limit: limit})
+		got, err := db.List(ListOptions{Category: a.Category, Topic: a.Topic, PinnedOnly: a.Pinned != nil && *a.Pinned, Limit: limit})
 		if err != nil {
 			return tools.Errorf("list failed: %v", err)
 		}
@@ -172,6 +210,66 @@ func (t *memoryTool) list(a memoryArgs) tools.Result {
 		writeLine(&b, r)
 	}
 	return tools.Result{Output: strings.TrimRight(b.String(), "\n"), Summary: fmt.Sprintf("%d memories", len(recs))}
+}
+
+func (t *memoryTool) get(a memoryArgs) tools.Result {
+	if a.ID == "" {
+		return tools.Errorf("get needs an id. Find it with action search or list.")
+	}
+	r, _, err := t.find(a)
+	if err != nil {
+		return tools.Errorf("%v", err)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s %s/%s", shortID(r.ID), r.Scope, r.Category)
+	if r.Pinned {
+		b.WriteString(" [pinned]")
+	}
+	fmt.Fprintf(&b, ": %s\n%s\n", r.Title, r.Body)
+	if len(r.Tags) > 0 {
+		fmt.Fprintf(&b, "tags: %s\n", strings.Join(r.Tags, ", "))
+	}
+	if len(r.Files) > 0 {
+		fmt.Fprintf(&b, "files: %s\n", strings.Join(r.Files, ", "))
+	}
+	fmt.Fprintf(&b, "source: %s; used %d times; last used %s", r.Source, r.Uses, r.LastUsed.Format("2006-01-02"))
+	return tools.Result{Output: b.String(), Summary: "1 memory"}
+}
+
+// staleAfter and staleUses define a stale record: not used for this long,
+// and used fewer than this many times.
+const (
+	staleAfter = 90 * 24 * time.Hour
+	staleUses  = 2
+)
+
+// stale lists records that look unused. It deletes nothing: the caller
+// decides, with delete or pin.
+func (t *memoryTool) stale(a memoryArgs) tools.Result {
+	limit := a.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	var recs []Record
+	for _, db := range t.dbsFor(a.Scope) {
+		got, err := db.StaleCandidates(staleAfter, staleUses, limit)
+		if err != nil {
+			return tools.Errorf("stale check failed: %v", err)
+		}
+		recs = append(recs, got...)
+	}
+	if len(recs) == 0 {
+		return tools.Result{Output: "No stale memories.", Summary: "0 stale"}
+	}
+	if len(recs) > limit {
+		recs = recs[:limit]
+	}
+	var b strings.Builder
+	for _, r := range recs {
+		writeLine(&b, r)
+	}
+	b.WriteString("These have not been used in 90 days. Nothing was deleted; delete the ones that no longer apply, or pin the ones that still do.")
+	return tools.Result{Output: b.String(), Summary: fmt.Sprintf("%d stale", len(recs))}
 }
 
 func (t *memoryTool) delete(a memoryArgs) tools.Result {

@@ -7,16 +7,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools/fs"
 )
 
 const (
 	defaultShellTimeout = 120 * time.Second
-	maxShellTimeout     = 600 * time.Second
+	maxShellTimeout     = 30 * time.Minute
 )
 
 // Register adds the shell, shell_output, shell_kill, project and git tools to
@@ -67,7 +69,8 @@ func gate(ctx context.Context, env *tools.Env, opts Options, tool, command, desc
 	return tools.Result{}, false
 }
 
-// clampTimeout turns a timeout_ms argument into a duration in [1s, 600s].
+// clampTimeout turns a timeout_ms argument into a duration in [1s, 30 min].
+// The 30 minute ceiling is the spec's upper clamp for tool timeouts.
 // Zero or negative means the default.
 func clampTimeout(ms int, def time.Duration) time.Duration {
 	if ms <= 0 {
@@ -95,9 +98,16 @@ type foreground struct {
 	err       error
 }
 
-// runForeground runs command in dir with the scrubbed environment, streams
-// lines to env.Host.Progress, and waits for it to finish or for timeout.
+// runForeground runs command in the project root; see runForegroundIn.
 func runForeground(ctx context.Context, env *tools.Env, command string, timeout time.Duration, extraEnv []string) foreground {
+	return runForegroundIn(ctx, env, env.Workdir, command, timeout, extraEnv)
+}
+
+// runForegroundIn runs command in dir with the scrubbed environment, streams
+// lines to env.Host.Progress, and waits for it to finish or for timeout. The
+// output the model reads is capped at outputLimit; the full text goes to a
+// tee file when it was cut.
+func runForegroundIn(ctx context.Context, env *tools.Env, dir, command string, timeout time.Duration, extraEnv []string) foreground {
 	tctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -109,12 +119,16 @@ func runForeground(ctx context.Context, env *tools.Env, command string, timeout 
 	environ := append(ScrubEnv(os.Environ()), extraEnv...)
 	res := runProcess(tctx, procSpec{
 		argv:         shellArgv(command),
-		dir:          env.Workdir,
+		dir:          dir,
 		env:          environ,
 		onLine:       onLine,
 		collectBytes: collectLimit,
 	})
-	body, omitted := truncateOutput(res.output)
+	text := res.output
+	if res.truncated {
+		text += fmt.Sprintf("\n[output truncated — %d KB total, showing the first %d KB]", res.total/1024, collectLimit/1024)
+	}
+	body, omitted := spill(text, outputLimit, firstWord(command))
 	return foreground{
 		raw:       res.output,
 		body:      body,
@@ -133,6 +147,7 @@ type shellTool struct{ jobs *Jobs }
 
 type shellArgs struct {
 	Command     string `json:"command"`
+	Cwd         string `json:"cwd"`
 	TimeoutMS   int    `json:"timeout_ms"`
 	Background  bool   `json:"background"`
 	Description string `json:"description"`
@@ -148,7 +163,8 @@ func (t *shellTool) Spec() llm.ToolSpec {
 			"Use the project tool for tests, lint and builds when the project has them.",
 		Schema: tools.Schema(map[string]any{
 			"command":     tools.Str("The shell command to run."),
-			"timeout_ms":  tools.Int("Timeout in milliseconds (default 120000, max 600000). Ignored for background jobs unless set."),
+			"cwd":         tools.Str("Directory to run in, relative to the project root (default: the project root). Outside the project it asks the user first."),
+			"timeout_ms":  tools.Int("Timeout in milliseconds (default 120000, max 1800000 = 30 min). Ignored for background jobs unless set."),
 			"background":  tools.Bool("Run in the background and return a job id instead of waiting."),
 			"description": tools.Str("Short purpose of the command, shown to the user when it asks for approval."),
 		}, "command"),
@@ -169,16 +185,50 @@ func (t *shellTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessage
 	if command == "" {
 		return tools.Errorf("command is empty. Pass the shell command in the 'command' field.")
 	}
+	dir, err := resolveCwd(env.Workdir, a.Cwd)
+	if err != nil {
+		return tools.Errorf("%v", err)
+	}
+	// Forbidden paths come from the same list the file tools use (fs.Patterns).
+	pats, err := fs.Patterns(env)
+	if err != nil {
+		return tools.Errorf("%v", err)
+	}
+	if hit, found, err := fs.MatchCommand(pats, command); err != nil {
+		return tools.Errorf("%v", err)
+	} else if found {
+		return tools.Errorf("Access denied: %q matches forbidden pattern %q. Do not read or change it; work without it.", hit.Path, hit.Pattern)
+	}
+	if kw, hit := suspiciousSubshell(command); hit {
+		return tools.Errorf("refused: suspicious subshell referencing %q. Do not expand secret-looking values in a command; name the file the value is in instead.", kw)
+	}
+	if msg, hit := binaryReadRefusal(command, dir); hit {
+		return tools.Errorf("%s", msg)
+	}
+	if mutatingGit.MatchString(command) && dispatchActive(env) {
+		return tools.Errorf("%s", dispatchBlockedMsg)
+	}
+	if !within(env.Workdir, dir) {
+		if res, blocked := approveOutsideCwd(ctx, env, dir, command); blocked {
+			return res
+		}
+	}
 	if res, blocked := gate(ctx, env, t.jobs.opts, "shell", command, a.Description); blocked {
 		return res
 	}
+	if gitCommitMessage.MatchString(command) {
+		if res, blocked := runPreCommit(ctx, env, dir); blocked {
+			return res
+		}
+	}
+	written := claimWrites(env, dir, command)
 
 	if a.Background {
 		var timeout time.Duration
 		if a.TimeoutMS > 0 {
 			timeout = clampTimeout(a.TimeoutMS, 0)
 		}
-		job := t.jobs.start(ctx, command, env.Workdir, ScrubEnv(os.Environ()), timeout)
+		job := t.jobs.start(ctx, command, dir, ScrubEnv(os.Environ()), timeout)
 		return tools.Result{
 			Output: fmt.Sprintf("Started background job %s: %s\nRead its output with shell_output (id %q). Stop it with shell_kill.",
 				job.ID, command, job.ID),
@@ -187,9 +237,89 @@ func (t *shellTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessage
 		}
 	}
 
-	timeout := clampTimeout(a.TimeoutMS, defaultShellTimeout)
-	fg := runForeground(ctx, env, command, timeout, nil)
-	return foregroundResult(fg, timeout, "shell", command)
+	timeout := clampTimeout(a.TimeoutMS, t.jobs.defaultTimeout(defaultShellTimeout))
+	fg := runForegroundIn(ctx, env, dir, command, timeout, nil)
+	res := foregroundResult(fg, timeout, "shell", command)
+	res.Files = written
+	if !res.IsError {
+		if hint := toolchainHint(command); hint != "" {
+			res.Output += "\n" + hint
+		}
+	}
+	return res
+}
+
+// resolveCwd turns a shell cwd argument into an absolute directory. An empty
+// argument is the project root. The directory must exist.
+func resolveCwd(workdir, cwd string) (string, error) {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return workdir, nil
+	}
+	dir := cwd
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(workdir, dir)
+	}
+	dir = filepath.Clean(dir)
+	fi, err := os.Stat(dir)
+	if err != nil || !fi.IsDir() {
+		return "", fmt.Errorf("cwd %q is not a directory. Pass a directory that exists, relative to the project root.", cwd)
+	}
+	return dir, nil
+}
+
+// approveOutsideCwd asks the user before a command runs outside the project.
+// Without a host, or when the user says no, it refuses.
+func approveOutsideCwd(ctx context.Context, env *tools.Env, dir, command string) (tools.Result, bool) {
+	if env.Mode == "auto" {
+		return tools.Result{}, false
+	}
+	deny := tools.Errorf("Denied: %s is outside the project directory. Run it from inside the project.", dir)
+	if env.Host == nil {
+		return deny, true
+	}
+	dec := env.Host.Approve(ctx, tools.Approval{
+		Tool:   "shell",
+		Kind:   "shell",
+		Title:  "Run shell command outside the project: " + dir,
+		Detail: command,
+	})
+	if dec == tools.Deny {
+		return deny, true
+	}
+	return tools.Result{}, false
+}
+
+// claimWrites snapshots the files a command is about to write, inside the
+// project, through the checkpoint tracker, and returns them relative to the
+// project root so the agent can record them.
+func claimWrites(env *tools.Env, dir, command string) []string {
+	var rel []string
+	for _, p := range writtenFiles(command) {
+		abs := p
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(dir, p)
+		}
+		abs = filepath.Clean(abs)
+		if !within(env.Workdir, abs) {
+			continue
+		}
+		if env.Files != nil {
+			env.Files.BeforeWrite(abs)
+		}
+		if r, err := filepath.Rel(env.Workdir, abs); err == nil {
+			rel = append(rel, filepath.ToSlash(r))
+		}
+	}
+	return rel
+}
+
+// firstWord is the first word of command, used to name tee files.
+func firstWord(command string) string {
+	if f := strings.Fields(command); len(f) > 0 {
+		return f[0]
+	}
+	return "output"
 }
 
 // footerFor is the closing line of a foreground command. what names the

@@ -14,6 +14,7 @@ package tui
 //             TypeToFilter for palettes (letters always filter); otherwise
 //             "/" starts a filter and j/k navigate.
 //   Confirm   y/n dialog. NewConfirm(th, title, message, danger, onYes).
+//   Alert     message to dismiss. NewAlert(th, title, message, level).
 //   TextPrompt  single-line input. NewTextPrompt(th, title, placeholder, masked, onSubmit).
 //   InfoView  scrollable read-only text. NewInfoView(th, title, icon, lines).
 //
@@ -53,6 +54,44 @@ type Sized interface {
 // Iconed is optionally implemented to supply a title icon.
 type Iconed interface{ Icon() string }
 
+// Bordered is optionally implemented to set the frame colour (alerts use the
+// level colour; Danger() covers the red case for confirms and pickers).
+type Bordered interface {
+	Border(th theme.Theme) lipgloss.TerminalColor
+}
+
+// Closer is optionally implemented to hear that a modal left the stack, by
+// answer, by Esc, or by being replaced or cleared.
+type Closer interface{ OnClose() }
+
+// DialogSize names the widths a dialog can take, as the dialog stack does:
+// compact 50, medium 70, large 100, xlarge 140 columns, or the whole terminal.
+type DialogSize int
+
+const (
+	DialogCompact DialogSize = iota
+	DialogMedium
+	DialogLarge
+	DialogXLarge
+	DialogFull
+)
+
+// cols is the width of a dialog of this size on a terminal cols wide. A
+// dialog never leaves the frame's four columns of margin, except when full.
+func (s DialogSize) cols(term int) int {
+	switch s {
+	case DialogMedium:
+		return min(70, term-4)
+	case DialogLarge:
+		return min(100, term-4)
+	case DialogXLarge:
+		return min(140, term-4)
+	case DialogFull:
+		return term
+	}
+	return min(50, term-4)
+}
+
 // modalFrame renders md as a framed box for a terminal of cols x rows.
 func modalFrame(md Modal, th theme.Theme, cols, rows int) []string {
 	w, h := min(cols-4, 72), min(rows-4, 24)
@@ -78,6 +117,9 @@ func modalFrame(md Modal, th theme.Theme, cols, rows int) []string {
 	if d, ok := md.(interface{ Danger() bool }); ok && d.Danger() {
 		border = th.Error
 	}
+	if b, ok := md.(Bordered); ok {
+		border = b.Border(th)
+	}
 	return frame(md.Title(), icon, body, footer, w, border, th)
 }
 
@@ -86,13 +128,42 @@ func (m *Model) pushModal(md Modal) {
 	m.modals = append(m.modals, md)
 }
 
-// closeModal removes md from the stack wherever it is.
+// closeModal removes md from the stack wherever it is and tells it it left.
 func (m *Model) closeModal(md Modal) {
 	for i, x := range m.modals {
 		if x == md {
 			m.modals = append(m.modals[:i], m.modals[i+1:]...)
+			notifyClosed(md)
 			return
 		}
+	}
+}
+
+// replaceTop swaps the top modal for md. With an empty stack it pushes md.
+// The modal it replaces hears that it left.
+func (m *Model) replaceTop(md Modal) {
+	n := len(m.modals)
+	if n == 0 {
+		m.pushModal(md)
+		return
+	}
+	old := m.modals[n-1]
+	m.modals[n-1] = md
+	notifyClosed(old)
+}
+
+// clearModals empties the stack. Each modal hears that it left, top first.
+func (m *Model) clearModals() {
+	for len(m.modals) > 0 {
+		top := m.modals[len(m.modals)-1]
+		m.modals = m.modals[:len(m.modals)-1]
+		notifyClosed(top)
+	}
+}
+
+func notifyClosed(md Modal) {
+	if c, ok := md.(Closer); ok {
+		c.OnClose()
 	}
 }
 
@@ -171,7 +242,7 @@ type Picker struct {
 
 // NewPicker makes an empty picker.
 func NewPicker(th theme.Theme, title, icon string) *Picker {
-	p := &Picker{th: th, title: title, icon: icon, Empty: "No matches"}
+	p := &Picker{th: th, title: title, icon: icon, Empty: "· No results"}
 	p.refilter()
 	return p
 }
@@ -230,13 +301,14 @@ func (p *Picker) Footer() string {
 	return "↑↓ move · Enter select · / filter · Tab group · Esc close"
 }
 
-// Size implements Sized.
+// Size implements Sized. A picker is a fixed 80 x 24 popup, clamped to the
+// terminal; with a preview pane it widens to 80% of a wide terminal.
 func (p *Picker) Size(cols, rows int) (int, int) {
-	w := min(64, cols-4)
+	w := min(80, cols-4)
 	if p.Preview != nil && cols >= 100 {
 		w = min(110, int(float64(cols)*0.8))
 	}
-	h := min(rows-4, 28)
+	h := min(24, rows-4)
 	return w, h
 }
 
@@ -444,23 +516,7 @@ func (p *Picker) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 func (p *Picker) View(w, h int) string {
 	th := p.th
 	var lines []string
-	// search row
-	caret := fg(th.Brand).Render("▌")
-	search := icons.Icon("search") + " "
-	if p.query == "" && !p.searching && !p.TypeToFilter {
-		search += fg(th.TextDim).Render("/ to filter")
-	} else if p.query == "" {
-		search += fg(th.TextDim).Render("type to filter") + caret
-	} else {
-		search += fg(th.TextPrimary).Render(p.query) + caret
-	}
-	count := ""
-	if p.query != "" {
-		count = itoa(len(p.visible)) + " / " + itoa(len(p.Items))
-	} else if len(p.Items) > 0 {
-		count = itoa(len(p.Items))
-	}
-	lines = append(lines, spaceBetween(search, fg(th.TextFaint).Render(count), w))
+	lines = append(lines, p.searchBox(w)...)
 	if p.Blurb != "" {
 		lines = append(lines, fg(th.TextMuted).Render(p.Blurb))
 	}
@@ -488,6 +544,12 @@ func (p *Picker) View(w, h int) string {
 		}
 		rows = []string{fg(th.TextFaint).Render("  " + msg)}
 	}
+	// a list longer than the popup gets a "sel / total" line at the bottom
+	counter := ""
+	if len(rows) > rowsAvail && len(p.visible) > 0 {
+		counter = itoa(p.cursor+1) + " / " + itoa(len(p.visible))
+		rowsAvail--
+	}
 	// keep the cursor row inside the viewport
 	cursorRow := p.cursorRow(rows)
 	if cursorRow < p.off {
@@ -503,6 +565,9 @@ func (p *Picker) View(w, h int) string {
 	body := append([]string{}, rows[p.off:end]...)
 	if p.Loading {
 		body = append(body, fg(th.TextDim).Render("  "+p.Spin+" loading…"))
+	}
+	if counter != "" {
+		body = append(body, spaceBetween("", fg(th.TextFaint).Render(counter), listW))
 	}
 	if prev != nil {
 		pane := make([]string, 0, len(prev))
@@ -520,15 +585,79 @@ func (p *Picker) View(w, h int) string {
 	return strings.Join(fitLines(lines, w, h), "\n")
 }
 
+// labelColumn is the width of the label column when descriptions are shown:
+// the widest label across all items, capped at three fifths of the list so
+// the description keeps room.
+// Measuring every item (not just the visible ones) keeps the column still
+// while the filter narrows the list.
+func (p *Picker) labelColumn(w int) int {
+	widest := 0
+	for _, it := range p.Items {
+		if it.Desc == "" {
+			continue
+		}
+		l := it.Label
+		if it.Icon != "" {
+			l = it.Icon + " " + l
+		}
+		widest = max(widest, ansi.StringWidth(l))
+	}
+	return min(widest, max(12, w*3/5))
+}
+
+// searchBox draws the filter as a three-row box: rounded, brand-coloured while
+// it has focus. An empty field shows the "Search…" placeholder; the count sits
+// at the right ("N" unfiltered, "M / N" filtered).
+func (p *Picker) searchBox(w int) []string {
+	th := p.th
+	focused := p.searching || p.TypeToFilter || p.query != ""
+	edge := th.Border
+	if focused {
+		edge = th.BrandSecondary
+	}
+	inner := max(4, w-2)
+	cursor := fgb(th.BrandSecondary).Render("▎")
+	var field string
+	switch {
+	case p.query != "":
+		field = fg(th.TextPrimary).Render(render.Truncate(p.query, inner-12))
+		if focused {
+			field += cursor
+		}
+	case focused:
+		field = cursor + " " + fg(th.TextDim).Italic(true).Render("Search…")
+	default:
+		field = fg(th.TextDim).Italic(true).Render("Search…")
+	}
+	count := ""
+	if p.query != "" {
+		count = itoa(len(p.visible)) + " / " + itoa(len(p.Items))
+	} else if len(p.Items) > 0 {
+		count = itoa(len(p.Items))
+	}
+	left := " " + fg(th.TextMuted).Render(icons.Icon("search")) + " " + field
+	right := fg(th.TextFaint).Render(count) + " "
+	mid := spaceBetween(left, right, inner)
+	bs := fg(edge)
+	return []string{
+		bs.Render("╭" + strings.Repeat("─", inner) + "╮"),
+		bs.Render("│") + fitWidth(mid, inner) + bs.Render("│"),
+		bs.Render("╰" + strings.Repeat("─", inner) + "╯"),
+	}
+}
+
 // renderRows builds the list rows (group headers included) for the visible items.
+// With descriptions, the labels are padded to one column so the descriptions
+// line up down the list.
 func (p *Picker) renderRows(w int) []string {
 	th := p.th
 	var rows []string
 	group := "\x00"
+	labelW := p.labelColumn(w)
 	for i, idx := range p.visible {
 		it := p.Items[idx]
 		if p.query == "" && it.Group != group && it.Group != "" {
-			rows = append(rows, fgb(th.Brand).Render(render.Truncate(it.Group, w)))
+			rows = append(rows, fgb(th.Brand).Render("▾ "+render.Truncate(it.Group, w-2)))
 		}
 		group = it.Group
 		sel := i == p.cursor
@@ -551,7 +680,7 @@ func (p *Picker) renderRows(w int) []string {
 		}
 		line := marker + labelStyle.Render(label)
 		if it.Desc != "" {
-			line += "  " + fg(th.TextDim).Render(it.Desc)
+			line = marker + labelStyle.Render(padRight(label, labelW)) + "  " + fg(th.TextDim).Render(it.Desc)
 		}
 		if it.Current {
 			line += " " + fg(th.Success).Render("✓")
@@ -610,7 +739,7 @@ type Confirm struct {
 func NewConfirm(th theme.Theme, title, message string, danger bool, onYes func() tea.Cmd) *Confirm {
 	c := &Confirm{th: th, title: title, message: message, danger: danger, yes: !danger, yesLbl: "Yes", noLbl: "No", onYes: onYes}
 	if danger {
-		c.yesLbl = "Yes, do it"
+		c.yesLbl = "Yes, delete"
 	}
 	return c
 }
@@ -639,10 +768,15 @@ func (c *Confirm) Icon() string {
 func (c *Confirm) Danger() bool { return c.danger }
 
 // Footer implements Footered.
-func (c *Confirm) Footer() string { return "y/Enter confirm · n/Esc cancel · ←→ switch" }
+func (c *Confirm) Footer() string {
+	if c.danger {
+		return "Y/Enter delete · N/Esc cancel · ←→ switch"
+	}
+	return "Y/Enter confirm · N/Esc cancel · ←→ switch"
+}
 
-// Size implements Sized.
-func (c *Confirm) Size(cols, rows int) (int, int) { return min(64, cols-4), 9 }
+// Size implements Sized. A confirm is a compact dialog.
+func (c *Confirm) Size(cols, rows int) (int, int) { return DialogCompact.cols(cols), 9 }
 
 // Update implements Modal.
 func (c *Confirm) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
@@ -679,22 +813,101 @@ func (c *Confirm) yesCmd() tea.Cmd {
 	return c.onYes()
 }
 
-// View implements Modal.
+// View implements Modal. The two answers sit on one row: the selected one
+// carries a ▸ marker, Yes in success green (error when danger), No in bold
+// primary text; the other is muted.
 func (c *Confirm) View(w, h int) string {
 	th := c.th
-	btn := func(label string, sel bool, col lipgloss.TerminalColor) string {
-		if sel {
-			return lipgloss.NewStyle().Bold(true).Foreground(th.BgApp).Background(col).Padding(0, 1).Render(label)
-		}
-		return fg(th.TextMuted).Render("  " + label + "  ")
-	}
 	yc := th.Success
 	if c.danger {
 		yc = th.Error
 	}
+	answer := func(label string, sel bool, col lipgloss.TerminalColor) string {
+		if sel {
+			return fgb(col).Render("▸ " + label)
+		}
+		return fg(th.TextMuted).Render("  " + label)
+	}
 	msg := fg(th.TextPrimary).Render(render.Wrap(c.message, w))
-	row := btn(c.yesLbl, c.yes, yc) + "  " + btn(c.noLbl, !c.yes, th.TextSecondary)
+	row := answer(c.yesLbl, c.yes, yc) + "    " + answer(c.noLbl, !c.yes, th.TextPrimary)
 	return msg + "\n\n" + row
+}
+
+// ---------------------------------------------------------------- Alert
+
+// Alert is a message the user must dismiss. Enter or Esc closes it; every
+// other key is swallowed. The level picks the icon and the frame colour.
+type Alert struct {
+	th      theme.Theme
+	title   string
+	message string
+	level   string // info | warning | error
+	onClose func()
+}
+
+// NewAlert makes a dismiss-only message. level is "info", "warning" or
+// "error"; anything else reads as info.
+func NewAlert(th theme.Theme, title, message, level string) *Alert {
+	return &Alert{th: th, title: title, message: message, level: level}
+}
+
+// OnDismiss sets a callback for when the alert leaves the stack.
+func (a *Alert) OnDismiss(f func()) *Alert { a.onClose = f; return a }
+
+// Title implements Modal.
+func (a *Alert) Title() string { return a.title }
+
+// Icon implements Iconed.
+func (a *Alert) Icon() string {
+	switch a.level {
+	case "warning":
+		return "warning"
+	case "error":
+		return "fail"
+	}
+	return "info"
+}
+
+// Border implements Bordered.
+func (a *Alert) Border(th theme.Theme) lipgloss.TerminalColor {
+	switch a.level {
+	case "warning":
+		return th.Warning
+	case "error":
+		return th.Error
+	}
+	return th.Info
+}
+
+// Footer implements Footered.
+func (a *Alert) Footer() string { return "Enter/Esc close" }
+
+// Size implements Sized. An alert is a compact dialog.
+func (a *Alert) Size(cols, rows int) (int, int) { return DialogCompact.cols(cols), 8 }
+
+// Update implements Modal.
+func (a *Alert) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
+	km, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return a, nil, false
+	}
+	switch km.String() {
+	case "enter", "esc":
+		return a, nil, true
+	}
+	return a, nil, false
+}
+
+// OnClose implements Closer.
+func (a *Alert) OnClose() {
+	if a.onClose != nil {
+		a.onClose()
+	}
+}
+
+// View implements Modal.
+func (a *Alert) View(w, h int) string {
+	return fg(a.th.TextPrimary).Render(render.Wrap(a.message, w))
 }
 
 // ---------------------------------------------------------------- TextPrompt
@@ -784,7 +997,7 @@ func (t *TextPrompt) View(w, h int) string {
 	th := t.th
 	shown := string(t.value)
 	if t.masked {
-		shown = strings.Repeat("•", len(t.value))
+		shown = maskRunes(t.value, w-4)
 	}
 	var line string
 	if len(t.value) == 0 {
@@ -797,6 +1010,26 @@ func (t *TextPrompt) View(w, h int) string {
 		out += "\n\n" + fg(th.Warning).Render(t.hint)
 	}
 	return out
+}
+
+// maskKeep is how many trailing characters of a masked value stay readable,
+// so the user can tell which key they pasted.
+const maskKeep = 4
+
+// maskRunes draws a masked value: a bullet per hidden character with the last
+// maskKeep characters in clear. A value no longer than maskKeep is all bullets,
+// so a short secret never shows whole. When width cannot hold every bullet the
+// leftmost ones are dropped, and the tail is always kept.
+func maskRunes(v []rune, width int) string {
+	if len(v) <= maskKeep {
+		return strings.Repeat("\u2022", len(v))
+	}
+	tail := string(v[len(v)-maskKeep:])
+	hidden := len(v) - maskKeep
+	if room := width - maskKeep; hidden > room {
+		hidden = max(0, room)
+	}
+	return strings.Repeat("\u2022", hidden) + tail
 }
 
 // ---------------------------------------------------------------- InfoView

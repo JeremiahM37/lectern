@@ -132,7 +132,18 @@ func findSymbol(syms []symbol, sp spec, rel, raw string) (symbol, error) {
 		c := cands[i].s
 		near = append(near, fmt.Sprintf("%s (%s, line %d)", c.qual(), c.kind, c.startLine))
 	}
-	return symbol{}, fmt.Errorf("no definition named %q in %s. Closest: %s", raw, rel, strings.Join(near, "; "))
+	// The full list is capped so a large file does not flood the error.
+	const maxAvail = 25
+	var avail []string
+	for i, s := range syms {
+		if i == maxAvail {
+			avail = append(avail, fmt.Sprintf("... and %d more", len(syms)-maxAvail))
+			break
+		}
+		avail = append(avail, s.qual())
+	}
+	return symbol{}, fmt.Errorf("no definition named %q in %s. Closest: %s. Defined there: %s",
+		raw, rel, strings.Join(near, "; "), strings.Join(avail, ", "))
 }
 
 // goSymbols locates Go declarations with go/parser. A declaration's range

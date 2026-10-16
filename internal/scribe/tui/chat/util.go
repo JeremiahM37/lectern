@@ -27,6 +27,7 @@ type hitRec struct {
 	call    *Call
 	seg     *Segment
 	summary bool // the turn's thought summary row
+	rail    bool // the final rail's fold row: a click opens or closes the fold
 }
 
 func (b *builder) add(lines ...string) { b.lines = append(b.lines, lines...) }
@@ -37,6 +38,10 @@ func (b *builder) mark(c *Call, s *Segment) {
 
 func (b *builder) markSummary() {
 	b.hits = append(b.hits, hitRec{line: len(b.lines), summary: true})
+}
+
+func (b *builder) markRail() {
+	b.hits = append(b.hits, hitRec{line: len(b.lines), rail: true})
 }
 
 // block appends sub, separated from earlier content by a blank line.

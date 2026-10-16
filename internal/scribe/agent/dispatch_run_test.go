@@ -289,44 +289,61 @@ func TestDispatchRetriesCodeTaskAfterRetryableProviderError(t *testing.T) {
 	}
 }
 
-func TestDispatchCircuitBreakerStopsLaunchingAfterThreeProviderFailures(t *testing.T) {
+func TestDispatchCircuitBreakerStopsLaunchingAfterSixRetryableFailures(t *testing.T) {
 	h := newDispatchHarness(t, plainRegistry)
-	h.d.MaxConcurrent = 1 // one at a time, so exactly three fail before the breaker opens
+	h.d.MaxConcurrent = 1 // one at a time, so exactly six fail before the breaker opens
 	h.f.setPick(func(_ int, req recordedReq) reply {
-		return providerError(400)
+		return transientError()
 	})
 
-	res := h.run(`{"tasks":[` +
-		`{"role":"explore","task":"BRK-1 look"},` +
-		`{"role":"explore","task":"BRK-2 look"},` +
-		`{"role":"explore","task":"BRK-3 look"},` +
-		`{"role":"explore","task":"BRK-4 look"}]}`)
-	if n := h.f.count(); n != 3 {
-		t.Fatalf("%d subagents reached the model, want 3", n)
+	var tasks []string
+	for i := 1; i <= 8; i++ {
+		tasks = append(tasks, fmt.Sprintf(`{"role":"explore","task":"BRK-%d look"}`, i))
 	}
-	if !strings.Contains(res.Output, "## Circuit breaker\nOpened after 3 provider failures") {
+	res := h.run(`{"tasks":[` + strings.Join(tasks, ",") + `]}`)
+	// Each subagent makes 4 requests (the first and three retries) before it
+	// fails, so six failed subagents mean 24 requests, and the last two never start.
+	if n := h.f.count(); n != 24 {
+		t.Fatalf("%d requests reached the model, want 24 (six subagents)", n)
+	}
+	if !strings.Contains(res.Output, "## Circuit breaker\nOpened after 6 provider failures; tasks that had not started were not run.") {
 		t.Fatalf("output has no breaker section:\n%s", res.Output)
 	}
-	if got := strings.Count(res.Output, "circuit breaker"); got != 1 {
-		t.Fatalf("the unstarted task should be the only task that names the breaker; got %d:\n%s", got, res.Output)
-	}
-	if !strings.Contains(res.Output, "FAILED: not started: 3 provider failures") {
-		t.Fatalf("the unstarted task has no clear message:\n%s", res.Output)
+	if got := strings.Count(res.Output, "FAILED: not started: 6 provider failures"); got != 2 {
+		t.Fatalf("%d unstarted tasks named, want 2:\n%s", got, res.Output)
 	}
 	if !res.IsError {
 		t.Fatalf("no task finished, but IsError is false")
 	}
 }
 
+func TestDispatchBreakerIgnoresNonRetryableFailures(t *testing.T) {
+	h := newDispatchHarness(t, plainRegistry)
+	h.d.MaxConcurrent = 1
+	h.f.setPick(func(_ int, req recordedReq) reply { return providerError(400) })
+	res := h.run(`{"tasks":[` +
+		`{"role":"explore","task":"BAD-1 look"},{"role":"explore","task":"BAD-2 look"},` +
+		`{"role":"explore","task":"BAD-3 look"},{"role":"explore","task":"BAD-4 look"},` +
+		`{"role":"explore","task":"BAD-5 look"},{"role":"explore","task":"BAD-6 look"},` +
+		`{"role":"explore","task":"BAD-7 look"}]}`)
+	if strings.Contains(res.Output, "## Circuit breaker") {
+		t.Fatalf("a 400 is not retryable, so it must not open the breaker:\n%s", res.Output)
+	}
+	if n := h.f.count(); n != 7 {
+		t.Fatalf("%d requests, want 7 (every task ran once)", n)
+	}
+}
+
 func TestDispatchBreakerTripsOnTransientFailureAndSkipsCodeRetry(t *testing.T) {
-	// Two failures are already recorded. The code task's first attempt is a
-	// transient error (the agent retries it 4 times), which is the third
-	// provider failure: the breaker opens, so the dispatch retry must not run.
+	// Five failures are already recorded. The code task's first attempt is a
+	// transient error (the agent retries it 4 times), which is the sixth
+	// retryable failure: the breaker opens, so the dispatch retry must not run.
 	h := newDispatchHarness(t, plainRegistry)
 	h.f.setPick(func(_ int, req recordedReq) reply { return transientError() })
 	run := newDispatchRun(h.d, &tools.Env{Workdir: h.dir, CallID: "call_d"})
-	run.recordFailure()
-	run.recordFailure()
+	for i := 0; i < 5; i++ {
+		run.recordFailure()
+	}
 
 	idx := run.board.add("code", "CODE-LAST edit")
 	res := run.runTask(context.Background(), idx, "code", "CODE-LAST edit")

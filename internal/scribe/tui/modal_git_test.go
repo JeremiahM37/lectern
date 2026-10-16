@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -19,7 +20,9 @@ type gitRec struct {
 	diff     string
 	commitEr error
 	commits  []string
+	stages   []bool // stageAll passed to GitCommitWith, per commit
 	pushes   []string
+	runs     []string // every shell command, in order
 	restored []int
 	undone   int
 	killed   []string
@@ -34,6 +37,7 @@ func (r *gitRec) Shell(ctx context.Context, command string) (string, int, error)
 	if strings.HasPrefix(command, "git push") {
 		r.pushes = append(r.pushes, command)
 	}
+	r.runs = append(r.runs, command)
 	return r.FakeBackend.Shell(ctx, command)
 }
 
@@ -48,6 +52,16 @@ func (r *gitRec) GitCommit(message string) error {
 		return r.commitEr
 	}
 	r.commits = append(r.commits, message)
+	return nil
+}
+
+// GitCommitWith records the commit and whether it staged everything first.
+func (r *gitRec) GitCommitWith(message string, stageAll bool) error {
+	if r.commitEr != nil {
+		return r.commitEr
+	}
+	r.commits = append(r.commits, message)
+	r.stages = append(r.stages, stageAll)
 	return nil
 }
 
@@ -184,7 +198,7 @@ func TestStatusGroupsEntries(t *testing.T) {
 	m, rb := newGitModel(t, 80, 24)
 	rb.status = " M internal/parser/parse.go\nM  docs/parser.md\n?? notes/scratch.txt\nMM both.go\n"
 	send(m, "ctrl+g")
-	gitKey(m, "s")
+	gitKey(m, "w") // status
 	p, ok := m.topModal().(*Picker)
 	if !ok {
 		t.Fatalf("s should open the status list, top is %T", m.topModal())
@@ -494,5 +508,134 @@ func TestEveryScreenFillsTerminalWidth(t *testing.T) {
 			}
 			t.Run(name, func(t *testing.T) { checkGitWidths(t, m, size[0]) })
 		}
+	}
+}
+
+func TestGitMenuPullRunsWithoutConfirm(t *testing.T) {
+	m, rb := newGitModel(t, 80, 24)
+	gitKey(m, "ctrl+g")
+	gitKey(m, "u")
+	if m.topModal() != nil {
+		t.Fatalf("pull should close the menu and ask nothing, top=%T", m.topModal())
+	}
+	if !slices.Contains(rb.runs, "git pull") {
+		t.Fatalf("pull should run git pull, ran %v", rb.runs)
+	}
+	if m.flash != "Pull complete." {
+		t.Fatalf("flash = %q", m.flash)
+	}
+}
+
+func TestGitMenuForceAndResetAreDangerConfirms(t *testing.T) {
+	m, rb := newGitModel(t, 80, 24)
+	gitKey(m, "ctrl+g")
+	gitKey(m, "f")
+	cf, ok := m.topModal().(*Confirm)
+	if !ok || !cf.Danger() || cf.Title() != "Force-push to remote?" {
+		t.Fatalf("f should ask a danger confirm, top=%T %q", m.topModal(), topTitle(m))
+	}
+	gitKey(m, "n") // no leaves the menu open and runs nothing
+	if topTitle(m) != "Git" || slices.Contains(rb.runs, "git push --force-with-lease") {
+		t.Fatalf("declining must not force-push; top=%q runs=%v", topTitle(m), rb.runs)
+	}
+	gitKey(m, "f")
+	gitKey(m, "y")
+	if !slices.Contains(rb.runs, "git push --force-with-lease") {
+		t.Fatalf("confirmed force push should run with lease, ran %v", rb.runs)
+	}
+	if m.flash != "Force push complete." {
+		t.Fatalf("flash = %q", m.flash)
+	}
+
+	gitKey(m, "ctrl+g")
+	gitKey(m, "r")
+	if topTitle(m) != "Reset working tree?" {
+		t.Fatalf("r should ask before resetting, top=%q", topTitle(m))
+	}
+	gitKey(m, "y")
+	if !slices.Contains(rb.runs, "git reset --hard HEAD") || m.flash != "Reset complete." {
+		t.Fatalf("reset: runs=%v flash=%q", rb.runs, m.flash)
+	}
+}
+
+func TestGitMenuLazygitMissingSaysSo(t *testing.T) {
+	t.Setenv("PATH", "") // no lazygit anywhere on the path
+	m, _ := newGitModel(t, 80, 24)
+	gitKey(m, "ctrl+g")
+	gitKey(m, "g")
+	if m.topModal() != nil {
+		t.Fatalf("g should close the menu, top=%T", m.topModal())
+	}
+	if m.flash != lazygitMissing {
+		t.Fatalf("flash = %q", m.flash)
+	}
+}
+
+func TestGitMenuFooterListsSpecMnemonics(t *testing.T) {
+	m, _ := newGitModel(t, 80, 24)
+	gitKey(m, "ctrl+g")
+	mustContain(t, screen(m), "c p u s o l g f r", "Esc")
+}
+
+func TestCommitSummaryCountsEachKind(t *testing.T) {
+	m, rb := newGitModel(t, 100, 30)
+	rb.status = " M a.go\nM  b.go\n?? c.txt\n"
+	gitKey(m, "ctrl+g")
+	gitKey(m, "c")
+	mustContain(t, screen(m), "● 1 staged", "● 1 modified", "● 1 untracked")
+}
+
+func TestCommitStageAllToggleChangesWhatIsCommitted(t *testing.T) {
+	m, rb := newGitModel(t, 100, 30)
+	rb.status = "M  b.go\n M a.go\n"
+	gitKey(m, "ctrl+g")
+	gitKey(m, "c")
+	c := m.topModal().(*commitModal)
+	if !c.stageAll {
+		t.Fatal("stage all should default on, as a commit always has")
+	}
+	gitKey(m, "ctrl+a")
+	if c.stageAll {
+		t.Fatal("ctrl+a should turn stage all off when something is unstaged")
+	}
+	mustContain(t, screen(m), "[ ] Stage all changes", "only the staged")
+	typeText(m, "only staged")
+	gitKey(m, "ctrl+s")
+	if len(rb.stages) != 1 || rb.stages[0] {
+		t.Fatalf("commit with stage all off passed %v, want [false]", rb.stages)
+	}
+}
+
+func TestCommitStageAllOffStillStagesWhenNothingStaged(t *testing.T) {
+	m, rb := newGitModel(t, 100, 30)
+	rb.status = " M a.go\n?? c.txt\n"
+	gitKey(m, "ctrl+g")
+	gitKey(m, "c")
+	gitKey(m, "ctrl+a")
+	mustContain(t, screen(m), "nothing is staged")
+	typeText(m, "all of it")
+	gitKey(m, "ctrl+s")
+	if len(rb.stages) != 1 || !rb.stages[0] {
+		t.Fatalf("with nothing staged the commit must stage everything, got %v", rb.stages)
+	}
+}
+
+func TestCommitStageToggleHiddenWhenEverythingStaged(t *testing.T) {
+	m, rb := newGitModel(t, 100, 30)
+	rb.status = "M  b.go\nA  c.go\n"
+	gitKey(m, "ctrl+g")
+	gitKey(m, "c")
+	gitKey(m, "ctrl+a")
+	c := m.topModal().(*commitModal)
+	if !c.stageAll {
+		t.Fatal("ctrl+a must do nothing when there is no unstaged change to stage")
+	}
+	if strings.Contains(screen(m), "Stage all changes") {
+		t.Fatal("the stage-all row should be hidden when everything is staged")
+	}
+	typeText(m, "staged only")
+	gitKey(m, "ctrl+s")
+	if len(rb.stages) != 1 || !rb.stages[0] {
+		t.Fatalf("hidden toggle commit passed %v", rb.stages)
 	}
 }

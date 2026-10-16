@@ -28,7 +28,7 @@ func (m *Model) handleGlobalKey(km tea.KeyMsg) (tea.Cmd, bool) {
 	case "ctrl+p":
 		m.openSessionPicker()
 	case "ctrl+s":
-		m.openSkillBrowser()
+		return m.openSkillBrowser(), true
 	case "ctrl+o":
 		t.chat.ToggleExpand()
 	case "esc":
@@ -51,6 +51,13 @@ func (m *Model) handleGlobalKey(km tea.KeyMsg) (tea.Cmd, bool) {
 		m.requestCloseTab()
 	case "alt+1", "alt+2", "alt+3", "alt+4", "alt+5":
 		m.switchTab(int(km.Runes[0] - '1'))
+	case "tab":
+		// Tab cycles tabs (spec 8.2) unless the input is using it: a
+		// completion popup or history search takes Tab to accept.
+		if len(m.tabs) < 2 || t.in.search != nil || t.in.popupKind() != "" || t.in.hidx >= 0 {
+			return nil, false
+		}
+		m.switchTab((m.active + 1) % len(m.tabs))
 	case "alt+[", "ctrl+[":
 		m.switchTab((m.active - 1 + len(m.tabs)) % len(m.tabs))
 	case "alt+]", "ctrl+]":

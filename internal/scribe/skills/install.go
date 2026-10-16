@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -59,7 +60,15 @@ func Install(root, src, scope string) (Skill, error) {
 		}
 	}
 	if sub != "" {
-		base = filepath.Join(base, filepath.FromSlash(sub))
+		repo := base
+		base = filepath.Join(repo, filepath.FromSlash(sub))
+		if _, err := os.Stat(filepath.Join(base, SkillFile)); err != nil {
+			// Registry entries name a skill, not its path in the repository,
+			// so look for a directory with that name instead.
+			if found, ok := findNamedSkill(repo, path.Base(sub)); ok {
+				base = found
+			}
+		}
 	}
 
 	skillDir, err := findSkillDir(base, src)
@@ -199,6 +208,41 @@ func findSkillDir(base, src string) (string, error) {
 	return "", fmt.Errorf("%s holds %d skills (%s); pick one with %s#<subdir>",
 		src, len(found), strings.Join(found, ", "), src)
 }
+
+// findNamedSkill returns the first directory called name that holds a
+// SKILL.md, searching at most namedSkillDepth levels below root and skipping
+// hidden directories (.git and the like).
+func findNamedSkill(root, name string) (string, bool) {
+	if name == "" || name == "." || name == ".." {
+		return "", false
+	}
+	var found string
+	errStop := errors.New("found")
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || !d.IsDir() || p == root {
+			return nil
+		}
+		rel, rerr := filepath.Rel(root, p)
+		if rerr != nil {
+			return nil
+		}
+		if strings.HasPrefix(d.Name(), ".") || strings.Count(rel, string(filepath.Separator)) >= namedSkillDepth {
+			return filepath.SkipDir
+		}
+		if d.Name() != name {
+			return nil
+		}
+		if fi, err := os.Stat(filepath.Join(p, SkillFile)); err == nil && fi.Mode().IsRegular() {
+			found = p
+			return errStop
+		}
+		return nil
+	})
+	return found, found != ""
+}
+
+// namedSkillDepth bounds how deep findNamedSkill looks in a repository.
+const namedSkillDepth = 4
 
 // copyTree copies regular files and directories from src into dst, skipping
 // .git and symlinks.

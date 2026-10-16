@@ -39,26 +39,64 @@ func TestPlanReviewShowsStepsWithFilesAndOptions(t *testing.T) {
 	m, _ := openPlanReview(t)
 	s := screen(m)
 	for _, want := range []string{
-		"Add retry",
+		"≣ Add retry",
 		"3 steps",
 		"/work/.scribe/plans/add-retry.md",
-		" 1. Wrap the fetch",
-		" 2. Test the retry path",
-		"Document the flag",
-		"fetch.go",
-		"fetch_test.go, testdata/flaky.txt",
-		"1  Execute",
-		"2  Clear context and execute",
-		"3  Revise",
-		"4  Cancel",
+		"○ Wrap the fetch",
+		"○ Test the retry path",
+		"○ Document the flag",
+		"Symbols (1)",
+		"~ Fetch (func)",
+		"Verification",
+		"✓ go test ./...",
+		"1  ⏎ Implement",
+		"2  ↻ Clear & Implement",
+		"3  ✎ Revise",
+		"4  ✗ Cancel",
 		"v full plan",
 	} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("plan review lacks %q:\n%s", want, s)
 		}
 	}
-	if strings.Contains(s, "modify `Fetch`") || strings.Contains(s, "Verification") {
-		t.Fatalf("step list should not show symbols or the full plan:\n%s", s)
+	if strings.Contains(s, "fetch_test.go") || strings.Contains(s, "modify `Fetch`") {
+		t.Fatalf("step list should not repeat files or raw symbol lines:\n%s", s)
+	}
+}
+
+func TestPlanReviewTwoColumnsAboveFiveSteps(t *testing.T) {
+	body := "Saved to `/w/p.md`\n\n# Big\n\n## Steps\n\n" +
+		"1. one\n2. two\n3. three\n4. four\n5. five\n6. six\n7. seven\n"
+	m, _ := newTestModel(t, 100, 40)
+	reply := make(chan PromptReply, 1)
+	m.Update(promptMsg{tab: m.cur().id, p: Prompt{
+		Question: &tools.Question{Kind: "plan_review", Question: "Big", Body: body, Options: agent.PlanOptions(), AllowFreeText: true},
+		Reply:    reply,
+	}})
+	settle(m)
+	s := screen(m)
+	// seven steps: the first four fill the left column, the last three the
+	// right, so "one" pairs with "five" on the same row and "four" stands alone
+	var pairs, alone string
+	for _, line := range strings.Split(s, "\n") {
+		if strings.Contains(line, "○ one") {
+			pairs = line
+		}
+		if strings.Contains(line, "○ four") {
+			alone = line
+		}
+	}
+	// each frame row has two edge bars; a paired row has one more, the rule
+	if !strings.Contains(pairs, "│ ○ five") || strings.Count(pairs, "│") != 3 || strings.Count(alone, "│") != 2 {
+		t.Fatalf("seven steps should fill two columns split at four:\n%s", s)
+	}
+}
+
+func TestPlanReviewReviseShowsPlaceholder(t *testing.T) {
+	m, _ := openPlanReview(t)
+	runCmd(m, send(m, "3"))
+	if !strings.Contains(screen(m), "what should change...") {
+		t.Fatalf("revise row lacks its placeholder:\n%s", screen(m))
 	}
 }
 
@@ -99,7 +137,7 @@ func TestPlanReviewArrowsAndEnterChooseClear(t *testing.T) {
 func TestPlanReviewReviseTakesFeedback(t *testing.T) {
 	m, reply := openPlanReview(t)
 	runCmd(m, send(m, "3"))
-	if !strings.Contains(screen(m), "revise ›") {
+	if !strings.Contains(screen(m), "›") || !strings.Contains(screen(m), "what should change") {
 		t.Fatalf("revise row did not open:\n%s", screen(m))
 	}
 	typeText(m, "add a jitter")

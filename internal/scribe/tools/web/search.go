@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
@@ -63,12 +65,14 @@ func (t *searchTool) Run(ctx context.Context, env *tools.Env, args json.RawMessa
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 
-	var results []searchResult
+	key := strings.ToLower(q) + "\x00" + fmt.Sprint(n)
+	results, cached := t.w.searches.Get(key)
 	var err error
-	if t.w.opts.SearchURL != "" {
-		results, err = t.w.searxng(ctx, q, n)
-	} else {
-		results, err = t.w.duckduckgo(ctx, q, n)
+	if !cached {
+		results, err = t.w.search(ctx, q, n)
+		if err == nil && len(results) > 0 {
+			t.w.searches.Put(key, results)
+		}
 	}
 	if err != nil {
 		return tools.Errorf("web_search failed: %s. Retry once with different terms, or use fetch_page on a URL you already know.", describeErr(err))
@@ -76,11 +80,92 @@ func (t *searchTool) Run(ctx context.Context, env *tools.Env, args json.RawMessa
 	if len(results) == 0 {
 		return tools.Result{Output: fmt.Sprintf("No results for %q. Try different terms.", q), Summary: "0 results"}
 	}
+	summary := fmt.Sprintf("%d results", len(results))
+	if cached {
+		summary += " (cached)"
+	}
 	return tools.Result{
 		Output:  formatResults(results),
-		Summary: fmt.Sprintf("%d results", len(results)),
+		Summary: summary,
 	}
 }
+
+// search runs the configured backends in order: Brave when a key is set,
+// then SearXNG when a URL is set, else DuckDuckGo. Brave falls through on any
+// failure or an empty answer, so a bad key does not end web search.
+func (w *webTools) search(ctx context.Context, q string, n int) ([]searchResult, error) {
+	if w.opts.BraveAPIKey != "" {
+		if rs, err := w.brave(ctx, q, n); err == nil && len(rs) > 0 {
+			return rs, nil
+		}
+	}
+	if w.opts.SearchURL != "" {
+		return w.searxng(ctx, q, n)
+	}
+	return w.duckduckgo(ctx, q, n)
+}
+
+// brave queries the Brave Search web API with the subscription key.
+func (w *webTools) brave(ctx context.Context, q string, n int) ([]searchResult, error) {
+	u, err := url.Parse(w.braveURL)
+	if err != nil {
+		return nil, err
+	}
+	qs := u.Query()
+	qs.Set("q", q)
+	qs.Set("count", fmt.Sprint(n))
+	u.RawQuery = qs.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Subscription-Token", w.opts.BraveAPIKey)
+	req.Header.Set("User-Agent", w.opts.UserAgent)
+	resp, err := w.searchCli.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Brave Search answered HTTP %d", resp.StatusCode)
+	}
+	var payload struct {
+		Web struct {
+			Results []struct {
+				Title       string `json:"title"`
+				URL         string `json:"url"`
+				Description string `json:"description"`
+			} `json:"results"`
+		} `json:"web"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxSearchBytes)).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("Brave Search returned data that is not JSON: %v", err)
+	}
+	var out []searchResult
+	for _, r := range payload.Web.Results {
+		if len(out) >= n {
+			break
+		}
+		if strings.TrimSpace(r.URL) == "" {
+			continue
+		}
+		out = append(out, searchResult{
+			Title:   collapse(stripTags(r.Title)),
+			URL:     r.URL,
+			Snippet: collapse(stripTags(r.Description)),
+		})
+	}
+	return out, nil
+}
+
+// stripTags removes the <strong> highlights Brave wraps around matches and
+// decodes entities.
+func stripTags(s string) string {
+	return html.UnescapeString(tagPattern.ReplaceAllString(s, ""))
+}
+
+var tagPattern = regexp.MustCompile(`<[^>]*>`)
 
 func formatResults(rs []searchResult) string {
 	var b strings.Builder

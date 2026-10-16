@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Options are the config-supplied command rules.
@@ -13,9 +14,14 @@ import (
 //   - Allow: a command that starts with an entry, on a word boundary, and
 //     contains no shell control operators, skips the destructive-command
 //     prompt. It never skips the refusals below or Deny.
+//   - ToolTimeout: the limit for a shell or project command that sets no
+//     timeout_ms (config tool_timeout, see config.ClampToolTimeout). Zero keeps
+//     the built-in default. Forbidden paths are not an option here: the shell
+//     reads them from fs.Patterns, the same list the file tools use.
 type Options struct {
-	Allow []string
-	Deny  []string
+	Allow       []string
+	Deny        []string
+	ToolTimeout time.Duration
 }
 
 // refusal explains why a command is refused without asking. These are not

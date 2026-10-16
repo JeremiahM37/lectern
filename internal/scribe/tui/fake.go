@@ -61,9 +61,18 @@ type FakeBackend struct {
 	mcpSpecs     []MCPServerSpec
 	activeSkills []string
 	installed    []string
+
+	// ops records the optional-capability calls (git repo, context, config
+	// moves, staged commits) so tests can check what a command asked for.
+	ops []string
 }
 
 var _ Backend = (*FakeBackend)(nil)
+var _ MarkdownExporter = (*FakeBackend)(nil)
+var _ GitRepoOps = (*FakeBackend)(nil)
+var _ StagingCommitter = (*FakeBackend)(nil)
+var _ ContextClearer = (*FakeBackend)(nil)
+var _ ConfigMover = (*FakeBackend)(nil)
 
 // NewFakeBackend returns a FakeBackend with a small canned project.
 func NewFakeBackend() *FakeBackend {
@@ -475,10 +484,15 @@ func (f *FakeBackend) DeleteSession(id string) error {
 
 // Export implements Backend.
 func (f *FakeBackend) Export(format string) (string, error) {
-	if format != "markdown" && format != "json" {
-		return "", fmt.Errorf("unknown format %q", format)
+	switch format {
+	case "markdown":
+		return "scribe-export.md", nil
+	case "json":
+		return "scribe-export.json", nil
+	case "all":
+		return "scribe-diagnostic.json", nil
 	}
-	return "scribe-export." + map[string]string{"markdown": "md", "json": "json"}[format], nil
+	return "", fmt.Errorf("unknown format %q", format)
 }
 
 // Checkpoints implements Backend.
@@ -692,5 +706,71 @@ func (f *FakeBackend) FileCandidates(query string, limit int) []string {
 // Close implements Backend.
 func (f *FakeBackend) Close() error {
 	f.Abort()
+	return nil
+}
+
+// Ops returns the optional-capability calls recorded so far, oldest first.
+func (f *FakeBackend) Ops() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.ops...)
+}
+
+func (f *FakeBackend) recordOp(op string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ops = append(f.ops, op)
+}
+
+// ExportMarkdown implements MarkdownExporter.
+func (f *FakeBackend) ExportMarkdown() (string, error) {
+	f.recordOp("export-markdown")
+	return "# Scribe session\n\nUser: hello\n", nil
+}
+
+// GitInit implements GitRepoOps.
+func (f *FakeBackend) GitInit() (string, error) {
+	f.recordOp("git-init")
+	return "Initialized empty Git repository", nil
+}
+
+// GitBranch implements GitRepoOps.
+func (f *FakeBackend) GitBranch(name string) error {
+	f.recordOp("git-branch " + name)
+	return nil
+}
+
+// GitPull implements GitRepoOps.
+func (f *FakeBackend) GitPull() (string, error) {
+	f.recordOp("git-pull")
+	return "Already up to date.", nil
+}
+
+// GitCommitWith implements StagingCommitter.
+func (f *FakeBackend) GitCommitWith(message string, stageAll bool) error {
+	if strings.TrimSpace(message) == "" {
+		return errors.New("empty message")
+	}
+	f.recordOp(fmt.Sprintf("commit all=%v %s", stageAll, message))
+	return nil
+}
+
+// ClearContext implements ContextClearer.
+func (f *FakeBackend) ClearContext(target string) error {
+	f.recordOp("clear-context " + target)
+	return nil
+}
+
+// MoveConfig implements ConfigMover. It keeps the flat config map in step so
+// the settings screen shows the moved value.
+func (f *FakeBackend) MoveConfig(key string, value any, toProject, fromProject bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	scope := "global"
+	if toProject {
+		scope = "project"
+	}
+	f.ops = append(f.ops, fmt.Sprintf("move %s %s", key, scope))
+	f.cfg[key] = value
 	return nil
 }

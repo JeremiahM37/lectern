@@ -694,3 +694,27 @@ func TestUnmappedToolGetsNoWords(t *testing.T) {
 		}
 	}
 }
+
+// TestAnswerShownWhenAutoCheckRunsAfterIt: Scribe's auto_check runs after the
+// model's final text, and its row must not turn that answer into a hidden
+// intermediate note.
+func TestAnswerShownWhenAutoCheckRunsAfterIt(t *testing.T) {
+	v, c := newView(t, Options{})
+	v.AddUser("fix add", 0, c.now(), false)
+	v.Apply(agent.Event{Kind: agent.EvTurnStart, Prompt: "fix add", At: at(c)})
+	text(v, "Fixing it now:", c)
+	tool(v, "c1", "edit_file", map[string]any{"path": "main.go"}, c)
+	text(v, "Fixed: add now returns a + b.", c)
+	tool(v, "auto_check_1", "auto_check", map[string]any{"command": "go build ./..."}, c)
+	c.advance(10 * time.Second)
+	v.Tick(c.now())
+	finish(v, c, 5*time.Second)
+	out := plain(v)
+	if !strings.Contains(out, "add now returns a + b") {
+		t.Fatalf("final answer hidden by the auto_check row:\n%s", out)
+	}
+	if strings.Contains(out, "Fixing it now:") {
+		t.Fatalf("intermediate text should stay folded:\n%s", out)
+	}
+	checkShape(t, v)
+}

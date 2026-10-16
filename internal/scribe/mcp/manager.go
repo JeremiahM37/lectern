@@ -312,11 +312,16 @@ func (m *Manager) Start(ctx context.Context) {
 	}
 	m.mu.Unlock()
 
+	// At most connectPool attempts run at once, so a config with many
+	// servers does not start them all in one burst.
+	sem := make(chan struct{}, connectPool)
 	var wg sync.WaitGroup
 	for _, n := range names {
 		wg.Add(1)
 		go func(n string) {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			m.connect(ctx, n)
 		}(n)
 	}
@@ -371,6 +376,72 @@ func (m *Manager) connect(parent context.Context, name string) {
 	s.state = StateReady
 	s.client = c
 	s.tools = list
+	if spec.URL == "" {
+		go m.watch(name, gen, c)
+	}
+}
+
+// watch waits for a stdio connection to end on its own (the process exited
+// or its pipe closed). Stops and restarts bump the server's generation first,
+// so a connection that ends because it was replaced is not restarted here.
+func (m *Manager) watch(name string, gen int, c *Client) {
+	<-c.done
+	m.mu.Lock()
+	s := m.servers[name]
+	if s == nil || s.gen != gen || s.client != c {
+		m.mu.Unlock()
+		return
+	}
+	s.client = nil
+	s.tools = nil
+	s.state = StateFailed
+	s.err = "the server process exited"
+	m.mu.Unlock()
+	m.syncRegistry()
+	m.recover(name, gen)
+}
+
+// recover restarts a server whose process exited, waiting restartBackoff
+// between attempts and giving up after maxAutoRestarts. A stop or a manual
+// restart in the meantime cancels it.
+func (m *Manager) recover(name string, gen int) {
+	for attempt := 0; attempt < maxAutoRestarts; attempt++ {
+		time.Sleep(restartBackoff(attempt))
+		m.mu.Lock()
+		s := m.servers[name]
+		current := s != nil && s.gen == gen
+		m.mu.Unlock()
+		if !current {
+			return
+		}
+		m.connect(context.Background(), name)
+		m.syncRegistry()
+		m.mu.Lock()
+		s = m.servers[name]
+		if s == nil || s.state == StateReady {
+			m.mu.Unlock()
+			return
+		}
+		gen = s.gen
+		m.mu.Unlock()
+	}
+}
+
+// maxAutoRestarts is how many times a crashed stdio server is restarted
+// before it is left in the failed state for the user to restart.
+const maxAutoRestarts = 3
+
+// connectPool bounds how many servers connect in parallel at start.
+const connectPool = 4
+
+// restartBackoff is the wait before restart attempt n (from 0):
+// min(1000 * 2^n, 8000) milliseconds. A variable so tests can shorten it.
+var restartBackoff = func(attempt int) time.Duration {
+	d := time.Duration(1000<<attempt) * time.Millisecond
+	if d > 8*time.Second {
+		d = 8 * time.Second
+	}
+	return d
 }
 
 // refresh re-lists a server's tools after it announced a change.

@@ -30,6 +30,19 @@ type Jobs struct {
 	order []string
 }
 
+// defaultTimeout is the limit for a command that names none: the configured
+// tool timeout when set, else def. Config tool_timeout 0 means no limit; the
+// app passes NoTimeout for that, so the timeout machinery stays one path.
+func (j *Jobs) defaultTimeout(def time.Duration) time.Duration {
+	if j == nil || j.opts.ToolTimeout <= 0 {
+		return def
+	}
+	return j.opts.ToolTimeout
+}
+
+// NoTimeout is the limit to pass as Options.ToolTimeout for "no limit".
+const NoTimeout = 1000 * time.Hour
+
 // NewJobs returns an empty job table that applies opts to shell commands.
 func NewJobs(opts Options) *Jobs {
 	return &Jobs{opts: opts, jobs: map[string]*Job{}}

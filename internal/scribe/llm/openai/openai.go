@@ -35,6 +35,19 @@ type Options struct {
 	// ReasoningField names a delta field that carries reasoning text. It is
 	// checked before the built-in names reasoning_content and reasoning.
 	ReasoningField string
+
+	// TokenSource, when set, supplies the bearer token for each call instead
+	// of APIKey. Used by providers that exchange a long-lived credential for
+	// a short-lived token (GitHub Copilot). It is called once per request.
+	TokenSource func(ctx context.Context) (string, error)
+	// ModelsTimeout bounds GET /models. Zero means the 15 s default.
+	ModelsTimeout time.Duration
+	// ModelsURL replaces BaseURL + "/models" as the model list address.
+	// Empty keeps the default.
+	ModelsURL string
+	// NoModelList never asks the server for its models. Models is used as
+	// the list, and with no Models the listing is an error.
+	NoModelList bool
 }
 
 // Provider is an llm.Provider for OpenAI-compatible chat completions.
@@ -68,6 +81,25 @@ func New(opts Options) *Provider {
 // ID returns the registry id.
 func (p *Provider) ID() string { return p.opts.ID }
 
+// bearer returns the token for one call: TokenSource when set, else APIKey.
+func (p *Provider) bearer(ctx context.Context) (string, error) {
+	if p.opts.TokenSource != nil {
+		tok, err := p.opts.TokenSource(ctx)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", p.opts.ID, err)
+		}
+		return tok, nil
+	}
+	return p.opts.APIKey, nil
+}
+
+func (p *Provider) modelsTimeout() time.Duration {
+	if p.opts.ModelsTimeout > 0 {
+		return p.opts.ModelsTimeout
+	}
+	return modelsTimeout
+}
+
 // ---- request ---------------------------------------------------------------
 
 type wireRequest struct {
@@ -79,6 +111,7 @@ type wireRequest struct {
 	MaxCompletionTokens int             `json:"max_completion_tokens,omitempty"`
 	Temperature         *float64        `json:"temperature,omitempty"`
 	ReasoningEffort     string          `json:"reasoning_effort,omitempty"`
+	ParallelToolCalls   *bool           `json:"parallel_tool_calls,omitempty"`
 	ServiceTier         string          `json:"service_tier,omitempty"`
 	Stream              bool            `json:"stream"`
 	StreamOptions       *wireStreamOpts `json:"stream_options,omitempty"`
@@ -182,6 +215,10 @@ func (p *Provider) buildBody(req llm.Request) ([]byte, error) {
 	}
 	if len(w.Tools) > 0 && (req.ToolChoice == "none" || req.ToolChoice == "required") {
 		w.ToolChoice = req.ToolChoice
+	}
+	if len(w.Tools) > 0 && req.DisableParallelToolUse {
+		off := false
+		w.ParallelToolCalls = &off
 	}
 	if req.Reasoning != "" && sendsReasoningEffort(p.opts.ID, req.Model) {
 		w.ReasoningEffort = req.Reasoning
@@ -294,7 +331,16 @@ func userAndToolMessages(m llm.Message) []wireMessage {
 
 func (p *Provider) url(path string) string { return p.opts.BaseURL + path }
 
-func (p *Provider) setHeaders(h http.Header, extra map[string]string) {
+// modelsURL is the model list address: ModelsURL when set, else /models
+// under the base URL.
+func (p *Provider) modelsURL() string {
+	if p.opts.ModelsURL != "" {
+		return p.opts.ModelsURL
+	}
+	return p.url("/models")
+}
+
+func (p *Provider) setHeaders(h http.Header, extra map[string]string, token string) {
 	h.Set("Content-Type", "application/json")
 	for k, v := range p.opts.Headers {
 		h.Set(k, v)
@@ -302,9 +348,27 @@ func (p *Provider) setHeaders(h http.Header, extra map[string]string) {
 	for k, v := range extra {
 		h.Set(k, v)
 	}
-	if p.opts.APIKey != "" {
-		h.Set("Authorization", "Bearer "+p.opts.APIKey)
+	if token != "" {
+		h.Set("Authorization", "Bearer "+token)
 	}
+}
+
+// sessionHeader is the request header carrying the session id.
+const sessionHeader = "X-Session-Id"
+
+// promptCacheKey returns the session id to send as x-prompt-cache-key. It is
+// only set on the openai provider, which uses it to route requests with the
+// same prefix to the same cache backend.
+func (p *Provider) promptCacheKey(extra map[string]string) string {
+	if p.opts.ID != "openai" {
+		return ""
+	}
+	for k, v := range extra {
+		if strings.EqualFold(k, sessionHeader) {
+			return v
+		}
+	}
+	return ""
 }
 
 // ---- stream ----------------------------------------------------------------
@@ -320,8 +384,15 @@ func (p *Provider) Stream(ctx context.Context, req llm.Request) (<-chan llm.Even
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", p.opts.ID, err)
 	}
-	p.setHeaders(httpReq.Header, req.Headers)
+	token, err := p.bearer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	p.setHeaders(httpReq.Header, req.Headers, token)
 	httpReq.Header.Set("Accept", "text/event-stream")
+	if key := p.promptCacheKey(req.Headers); key != "" {
+		httpReq.Header.Set("x-prompt-cache-key", key)
+	}
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
@@ -332,7 +403,7 @@ func (p *Provider) Stream(ctx context.Context, req llm.Request) (<-chan llm.Even
 		return nil, p.httpError(resp)
 	}
 	ch := make(chan llm.Event, 32)
-	go p.read(ctx, resp.Body, ch)
+	go p.read(ctx, resp.Body, ch, extractsThinkTags(req.Model))
 	return ch, nil
 }
 
@@ -396,6 +467,7 @@ type streamer struct {
 	stopped        bool
 
 	think     splitter
+	thinkTags bool // inline <think>/<thinking> extraction is on for this model
 	byIndex   map[int]*toolAcc
 	order     []*toolAcc
 	finishRaw string
@@ -412,10 +484,10 @@ type toolAcc struct {
 	started bool
 }
 
-func (p *Provider) read(ctx context.Context, body io.ReadCloser, ch chan<- llm.Event) {
+func (p *Provider) read(ctx context.Context, body io.ReadCloser, ch chan<- llm.Event, thinkTags bool) {
 	defer close(ch)
 	defer body.Close()
-	s := &streamer{ctx: ctx, ch: ch, id: p.opts.ID, reasoningField: p.opts.ReasoningField, byIndex: map[int]*toolAcc{}}
+	s := &streamer{ctx: ctx, ch: ch, id: p.opts.ID, reasoningField: p.opts.ReasoningField, byIndex: map[int]*toolAcc{}, thinkTags: thinkTags}
 
 	br := bufio.NewReaderSize(body, 64<<10)
 	sawDone := false
@@ -553,9 +625,15 @@ func (s *streamer) delta(raw json.RawMessage) error {
 		}
 	}
 	if t := rawString(d["content"]); t != "" {
-		for _, pc := range s.think.push(t) {
-			if !s.emitPiece(pc) {
+		if !s.thinkTags {
+			if !s.emitPiece(piece{text: t}) {
 				return nil
+			}
+		} else {
+			for _, pc := range s.think.push(t) {
+				if !s.emitPiece(pc) {
+					return nil
+				}
 			}
 		}
 	}
@@ -755,48 +833,113 @@ func truncate(s string, n int) string {
 	return s[:n] + "..."
 }
 
-// ---- inline <think> splitting -----------------------------------------------
+// ---- inline think-tag splitting -----------------------------------------------
 
-const (
-	openTag  = "<think>"
-	closeTag = "</think>"
-)
+// thinkPairs are the inline reasoning tag pairs: text between an open tag and
+// its close tag is reasoning, not answer text.
+var thinkPairs = [][2]string{
+	{"<think>", "</think>"},
+	{"<thinking>", "</thinking>"},
+}
 
 type piece struct {
 	reasoning bool
 	text      string
 }
 
-// splitter routes text inside <think>...</think> to reasoning. Tags may be
-// split across chunks, so a trailing partial tag is held back.
+// extractsThinkTags reports whether inline think tags are routed to reasoning
+// for this model. Families that report reasoning natively (Claude, OpenAI
+// o-series and GPT, Gemini, Grok, deepseek-reasoner) keep their text as is:
+// a literal tag in their answer is not reasoning. Every other model is
+// wrapped.
+func extractsThinkTags(model string) bool {
+	m := strings.ToLower(path.Base(model))
+	switch {
+	case strings.HasPrefix(m, "claude"),
+		strings.HasPrefix(m, "gpt-"),
+		m == "o1", m == "o3", strings.HasPrefix(m, "o3-"), strings.HasPrefix(m, "o4-"),
+		strings.HasPrefix(m, "gemini"),
+		strings.HasPrefix(m, "grok"),
+		m == "deepseek-reasoner":
+		return false
+	}
+	return true
+}
+
+// splitter routes text inside a think block to reasoning. Tags may be split
+// across chunks, so a trailing partial tag is held back. The zero value is
+// ready to use.
 type splitter struct {
 	buf     string
 	inThink bool
+	close   string // closing tag of the open block, set while inThink
 }
 
+// push consumes one chunk and returns the pieces that are now known.
 func (sp *splitter) push(s string) []piece {
 	sp.buf += s
 	var out []piece
 	for {
-		tag := openTag
+		idx, tag := -1, ""
 		if sp.inThink {
-			tag = closeTag
-		}
-		if i := strings.Index(sp.buf, tag); i >= 0 {
-			if i > 0 {
-				out = append(out, piece{reasoning: sp.inThink, text: sp.buf[:i]})
+			if i := strings.Index(sp.buf, sp.close); i >= 0 {
+				idx, tag = i, sp.close
 			}
-			sp.buf = sp.buf[i+len(tag):]
-			sp.inThink = !sp.inThink
+		} else {
+			for _, pr := range thinkPairs {
+				if i := strings.Index(sp.buf, pr[0]); i >= 0 && (idx < 0 || i < idx) {
+					idx, tag = i, pr[0]
+				}
+			}
+		}
+		if idx >= 0 {
+			if idx > 0 {
+				out = append(out, piece{reasoning: sp.inThink, text: sp.buf[:idx]})
+			}
+			sp.buf = sp.buf[idx+len(tag):]
+			if sp.inThink {
+				sp.inThink, sp.close = false, ""
+			} else {
+				sp.inThink, sp.close = true, closeTagFor(tag)
+			}
 			continue
 		}
-		keep := partialSuffix(sp.buf, tag)
+		keep := sp.partial()
 		if n := len(sp.buf) - keep; n > 0 {
 			out = append(out, piece{reasoning: sp.inThink, text: sp.buf[:n]})
 		}
 		sp.buf = sp.buf[len(sp.buf)-keep:]
 		return out
 	}
+}
+
+// partial is the length of the longest buffer suffix that could be the start
+// of a tag the splitter is waiting for.
+func (sp *splitter) partial() int {
+	best := 0
+	tags := []string{sp.close}
+	if !sp.inThink {
+		tags = tags[:0]
+		for _, pr := range thinkPairs {
+			tags = append(tags, pr[0])
+		}
+	}
+	for _, tag := range tags {
+		if k := partialSuffix(sp.buf, tag); k > best {
+			best = k
+		}
+	}
+	return best
+}
+
+// closeTagFor returns the closing tag for an open think tag.
+func closeTagFor(open string) string {
+	for _, pr := range thinkPairs {
+		if pr[0] == open {
+			return pr[1]
+		}
+	}
+	return ""
 }
 
 func (sp *splitter) flush() []piece {
@@ -821,11 +964,30 @@ func partialSuffix(s, tag string) int {
 
 // ---- models ----------------------------------------------------------------
 
+// remoteModel is one entry of GET /models with the metadata some gateways
+// add to it. Zero fields mean the server did not say.
+type remoteModel struct {
+	ID            string
+	ContextWindow int
+	// InputPerMTok and OutputPerMTok come from a "pricing" object (OpenRouter
+	// style, USD per token as strings). Priced is true when it was present,
+	// even if the price is zero: zero then means free, not unknown.
+	InputPerMTok  float64
+	OutputPerMTok float64
+	Priced        bool
+}
+
 // Models lists models from GET {base}/models. When that fails or returns
 // nothing, the static Options.Models list is returned instead.
 func (p *Provider) Models(ctx context.Context) ([]llm.ModelInfo, error) {
-	ids, err := p.fetchModelIDs(ctx)
-	if err != nil || len(ids) == 0 {
+	if p.opts.NoModelList {
+		if len(p.opts.Models) == 0 {
+			return nil, fmt.Errorf("%s: model listing is off and no models are configured", p.opts.ID)
+		}
+		return staticModels(p.opts.Models), nil
+	}
+	remote, err := p.fetchModels(ctx)
+	if err != nil || len(remote) == 0 {
 		if len(p.opts.Models) > 0 {
 			return staticModels(p.opts.Models), nil
 		}
@@ -834,21 +996,32 @@ func (p *Provider) Models(ctx context.Context) ([]llm.ModelInfo, error) {
 		}
 		return nil, err
 	}
-	out := make([]llm.ModelInfo, 0, len(ids))
-	for _, id := range ids {
-		out = append(out, llm.ModelInfo{ID: id, Name: id})
+	out := make([]llm.ModelInfo, 0, len(remote))
+	for _, m := range remote {
+		out = append(out, llm.ModelInfo{
+			ID:            m.ID,
+			Name:          m.ID,
+			ContextWindow: m.ContextWindow,
+			InputPerMTok:  m.InputPerMTok,
+			OutputPerMTok: m.OutputPerMTok,
+			CatalogPriced: m.Priced,
+		})
 	}
 	return out, nil
 }
 
-func (p *Provider) fetchModelIDs(ctx context.Context) ([]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, modelsTimeout)
+func (p *Provider) fetchModels(ctx context.Context) ([]remoteModel, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.modelsTimeout())
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.url("/models"), nil)
+	token, err := p.bearer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.modelsURL(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", p.opts.ID, err)
 	}
-	p.setHeaders(req.Header, nil)
+	p.setHeaders(req.Header, nil, token)
 	req.Header.Del("Content-Type")
 	resp, err := p.client.Do(req)
 	if err != nil {
@@ -859,20 +1032,67 @@ func (p *Provider) fetchModelIDs(ctx context.Context) ([]string, error) {
 		return nil, p.httpError(resp)
 	}
 	var body struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
+		Data []wireModel `json:"data"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&body); err != nil {
 		return nil, fmt.Errorf("%s: decode models: %w", p.opts.ID, err)
 	}
-	ids := make([]string, 0, len(body.Data))
+	out := make([]remoteModel, 0, len(body.Data))
 	for _, d := range body.Data {
-		if d.ID != "" {
-			ids = append(ids, d.ID)
+		if d.ID == "" {
+			continue
+		}
+		out = append(out, d.remote())
+	}
+	return out, nil
+}
+
+// wireModel is the subset of a model-list entry Scribe reads. The context
+// fields are the names used by OpenAI-compatible servers (LM Studio and
+// others use context_length, llama.cpp style servers n_ctx_train).
+type wireModel struct {
+	ID               string `json:"id"`
+	ContextLength    int    `json:"context_length"`
+	MaxContextLength int    `json:"max_context_length"`
+	ModelInfo        struct {
+		MaxInputTokens int `json:"max_input_tokens"`
+	} `json:"model_info"`
+	Meta struct {
+		NCtxTrain int `json:"n_ctx_train"`
+	} `json:"meta"`
+	Pricing *struct {
+		Prompt     string `json:"prompt"`
+		Completion string `json:"completion"`
+	} `json:"pricing"`
+}
+
+func (w wireModel) remote() remoteModel {
+	m := remoteModel{ID: w.ID}
+	for _, n := range []int{w.ContextLength, w.MaxContextLength, w.ModelInfo.MaxInputTokens, w.Meta.NCtxTrain} {
+		if n > 0 {
+			m.ContextWindow = n
+			break
 		}
 	}
-	return ids, nil
+	if w.Pricing != nil {
+		in, inOK := perTokenToMTok(w.Pricing.Prompt)
+		out, outOK := perTokenToMTok(w.Pricing.Completion)
+		if inOK && outOK {
+			m.InputPerMTok, m.OutputPerMTok, m.Priced = in, out, true
+		}
+	}
+	return m
+}
+
+// perTokenToMTok converts a USD-per-token price string to USD per million.
+// Negative or unparseable prices (OpenRouter uses -1 for "varies") are not
+// usable.
+func perTokenToMTok(s string) (float64, bool) {
+	v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil || v < 0 {
+		return 0, false
+	}
+	return v * 1e6, true
 }
 
 func staticModels(ids []string) []llm.ModelInfo {

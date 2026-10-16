@@ -43,10 +43,10 @@ type knownSpec struct {
 // prices are not confirmed; they use the family default.
 var knownTable = []knownSpec{
 	// Current generation (unverified prices: family defaults).
-	{id: "claude-opus-5-5", name: "Claude Opus 5.5", ctxWindow: 200000, maxOut: 64000, in: opusPriceIn, out: opusPriceOut},
-	{id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", ctxWindow: 200000, maxOut: 64000, in: sonnetPriceIn, out: sonnetPriceOut},
+	{id: "claude-opus-5-5", name: "Claude Opus 5.5", ctxWindow: 1000000, maxOut: 64000, in: opusPriceIn, out: opusPriceOut},
+	{id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", ctxWindow: 1000000, maxOut: 64000, in: sonnetPriceIn, out: sonnetPriceOut},
 	{id: "claude-haiku-5-5", name: "Claude Haiku 5.5", ctxWindow: 200000, maxOut: 64000, in: haikuPriceIn, out: haikuPriceOut},
-	{id: "claude-fable-5-1", name: "Claude Fable 5.1", ctxWindow: 200000, maxOut: 64000, in: opusPriceIn, out: opusPriceOut},
+	{id: "claude-fable-5-1", name: "Claude Fable 5.1", ctxWindow: 1000000, maxOut: 64000, in: opusPriceIn, out: opusPriceOut},
 	// Claude 4.x.
 	{id: "claude-opus-4-5", name: "Claude Opus 4.5", ctxWindow: 200000, maxOut: 64000, in: 5.0, out: 25.0},
 	{id: "claude-opus-4-1", name: "Claude Opus 4.1", ctxWindow: 200000, maxOut: 32000, in: opusPriceIn, out: opusPriceOut},

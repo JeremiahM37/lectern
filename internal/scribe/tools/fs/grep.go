@@ -25,7 +25,9 @@ const (
 	maxGrepFileBytes = 256 * 1024
 	maxGrepLineChars = 1000
 	maxGrepOutput    = 32000
-	grepTimeout      = 10 * time.Second
+	// maxGrepPerFile is how many matching lines one file may contribute.
+	maxGrepPerFile = 50
+	grepTimeout    = 10 * time.Second
 )
 
 // grepEntry is one line of output: a match or a context line.
@@ -79,7 +81,7 @@ func runGrep(ctx context.Context, env *tools.Env, args json.RawMessage, forceGo 
 		MaxResults      flexInt  `json:"max_results"`
 	}
 	if err := tools.Decode(args, &a); err != nil {
-		return fail(err)
+		return failTagged(err)
 	}
 	if a.Pattern == "" {
 		return tools.Errorf("pattern is required.")
@@ -116,14 +118,14 @@ func runGrep(ctx context.Context, env *tools.Env, args json.RawMessage, forceGo 
 	}
 	t, err := resolve(ctx, env, "grep", p, accessSearch)
 	if err != nil {
-		return fail(err)
+		return failTagged(err)
 	}
 	if _, err := statPath(t); err != nil {
-		return fail(err)
+		return failTagged(err)
 	}
 	gf, err := newGlobFilter(a.Glob)
 	if err != nil {
-		return fail(err)
+		return failTagged(err)
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, grepTimeout)
@@ -297,6 +299,9 @@ func scanFile(abs, rel string, re *regexp.Regexp, ctxN int) (fileResult, bool) {
 		if re.MatchString(strings.TrimSuffix(l, "\r")) {
 			isMatch[i] = true
 			n++
+			if n >= maxGrepPerFile {
+				break // one file cannot fill the whole result
+			}
 		}
 	}
 	if n == 0 {
@@ -335,7 +340,7 @@ func rgSearch(ctx context.Context, rg, wd, target, pattern string, ctxN int, glo
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	args := []string{"--json", "--no-config", "--no-require-git",
-		"--max-filesize", "256K", "--max-columns", "1000",
+		"--max-filesize", "256K", "--max-columns", "1000", "--max-count", strconv.Itoa(maxGrepPerFile),
 		"--glob", "!.git", "--glob", "!node_modules"}
 	args = append(args, secretGlobArgs()...)
 	if ctxN > 0 {

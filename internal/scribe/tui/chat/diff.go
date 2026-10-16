@@ -121,25 +121,30 @@ func (v *View) renderDiff(di diffInfo, path string, w int, full bool) []string {
 			continue
 		}
 		d := it.dl
-		num := d.new
 		var bg, signCol lipgloss.TerminalColor
 		switch d.op {
 		case '+':
 			bg, signCol = v.th.DiffAddedBg, v.th.DiffAddedSign
 		case '-':
-			num = d.old
 			bg, signCol = v.th.DiffRemovedBg, v.th.DiffRemovedSign
 		default:
 			signCol = v.th.TextDim
-			if num == 0 {
-				num = d.old
-			}
 		}
 		text := d.text
 		if lang != "" {
 			text = render.Highlight(d.text, lang, v.th)
 		}
-		row := fg(v.th.TextDim, fmt.Sprintf("%*d", gw, num)) + " " + fg(signCol, string(d.op)) + " " + text
+		// Both gutters: old line on the left, new line on the right. A removed
+		// line has no new number and an added line has no old one.
+		oldNo, newNo := "", ""
+		if d.op != '+' && d.old > 0 {
+			oldNo = fmt.Sprint(d.old)
+		}
+		if d.op != '-' && d.new > 0 {
+			newNo = fmt.Sprint(d.new)
+		}
+		gutter := fg(v.th.TextDim, fmt.Sprintf("%*s %*s", gw, oldNo, gw, newNo))
+		row := gutter + " " + fg(signCol, string(d.op)) + " " + text
 		if bg == nil {
 			out = append(out, fit(row, w))
 		} else {

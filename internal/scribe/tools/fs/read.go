@@ -21,6 +21,8 @@ const (
 	maxReadBytes = 250 * 1024
 	maxLineChars = 2000
 	sniffBytes   = 8000
+	// maxImageBytes is the largest image read attaches for the model.
+	maxImageBytes = 10 << 20
 )
 
 var imageExt = map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true}
@@ -90,7 +92,7 @@ type readSel struct {
 func runRead(ctx context.Context, env *tools.Env, st *readState, args json.RawMessage) tools.Result {
 	var a readArgs
 	if err := tools.Decode(args, &a); err != nil {
-		return fail(err)
+		return failTagged(err)
 	}
 	var paths []string
 	if a.Path != "" {
@@ -116,7 +118,7 @@ func runRead(ctx context.Context, env *tools.Env, st *readState, args json.RawMe
 	if lines != "" {
 		lo, hi, err := parseLineRange(lines)
 		if err != nil {
-			return fail(err)
+			return failTagged(err)
 		}
 		sel.offset = lo
 		sel.limit = maxReadLines
@@ -133,7 +135,7 @@ func runRead(ctx context.Context, env *tools.Env, st *readState, args json.RawMe
 	if len(paths) == 1 {
 		out, err := readOne(ctx, env, st, paths[0], sel)
 		if err != nil {
-			return fail(err)
+			return failTagged(err)
 		}
 		res := tools.Result{Output: out.body, Summary: out.summary}
 		if out.image != "" {
@@ -223,6 +225,9 @@ func readOne(ctx context.Context, env *tools.Env, st *readState, p string, sel r
 	}
 	ext := strings.ToLower(filepath.Ext(t.abs))
 	if imageExt[ext] {
+		if fi.Size() > maxImageBytes {
+			return readOut{}, fmt.Errorf("Image %s is %s. Images over %s cannot be attached; resize or crop it first.", t.rel, humanSize(fi.Size()), humanSize(maxImageBytes))
+		}
 		if env.Files != nil {
 			env.Files.MarkRead(t.abs)
 		}

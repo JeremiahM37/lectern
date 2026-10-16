@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/skills"
@@ -58,6 +60,55 @@ func (b *scribeBackend) InstallSkill(src, scope string) (string, error) {
 		return "", err
 	}
 	return sk.Name, nil
+}
+
+// RemoveSkill implements tui.SkillRemover. It deletes the skill's directory
+// (the effective one, for a name in both scopes) and reloads the skill set.
+// The browser unloads the skill first, so the saved active list is not left
+// naming a skill that no longer exists.
+func (b *scribeBackend) RemoveSkill(name string) error {
+	a := b.current()
+	if err := skills.Remove(a.Workdir, name); err != nil {
+		return err
+	}
+	return a.refreshSkills()
+}
+
+// PopularSkills implements tui.SkillRegistry. The public registry is asked
+// for its popular list; when it cannot be reached the list is simply empty,
+// so the browser shows its normal "no popular skills" line and nothing fails.
+func (b *scribeBackend) PopularSkills() ([]tui.RegistrySkill, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	entries, err := skills.NewRegistry().Popular(ctx)
+	return registryOrEmpty(entries, err)
+}
+
+// SearchSkills implements tui.SkillRegistry. Like PopularSkills, an
+// unreachable registry gives an empty result rather than an error.
+func (b *scribeBackend) SearchSkills(query string) ([]tui.RegistrySkill, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	entries, err := skills.NewRegistry().Search(ctx, query)
+	return registryOrEmpty(entries, err)
+}
+
+// registryOrEmpty converts registry entries for the browser. Offline is not
+// an error the person needs to see; any other failure is reported.
+func registryOrEmpty(entries []skills.RegistryEntry, err error) ([]tui.RegistrySkill, error) {
+	if err != nil {
+		if errors.Is(err, skills.ErrRegistryUnavailable) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	out := make([]tui.RegistrySkill, 0, len(entries))
+	for _, e := range entries {
+		// The browser marks a row installed by matching its id against the
+		// skill names on disk, so the id is the skill name.
+		out = append(out, tui.RegistrySkill{ID: e.SkillID, Source: e.InstallSource(), Installs: e.Installs})
+	}
+	return out, nil
 }
 
 // ActiveSkills implements tui.Backend. It returns the names of the skills

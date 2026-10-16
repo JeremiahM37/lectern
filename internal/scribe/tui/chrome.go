@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"math/rand"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -65,12 +66,15 @@ func modelOf(ref string) string {
 
 // ---------------------------------------------------------------- header
 
+// compactSpinner is the header's compacting notice, one step per tick.
+var compactSpinner = render.Spinner{"◐", "◓", "◑", "◒"}
+
 // viewHeader is the single top row. The left holds the identity; the middle
 // holds model, branch, mode and context; the right holds the cost and the brand
 // tag. When the row is too narrow, pieces leave in a fixed order and never
 // mid-word: the brand tag first (under 100 columns), then the branch, then the
 // context numbers (the bar stays), then the mode badge, and last the model
-// name shortened at a word boundary.
+// name shortened at a word boundary. A compacting notice sits after the bar.
 func (m *Model) viewHeader() string {
 	th := m.th
 	t := m.cur()
@@ -87,7 +91,7 @@ func (m *Model) viewHeader() string {
 	}
 	right := joinNonEmpty(sep, cost, brand)
 
-	var branch, mode, bar, nums string
+	var branch, mode, bar, nums, compact string
 	if t.git.Branch != "" {
 		branch = m.branchSegment(t)
 	}
@@ -97,6 +101,9 @@ func (m *Model) viewHeader() string {
 	}
 	if t.ctxWin > 0 {
 		bar, nums = m.contextParts(t)
+	}
+	if t.compacting && len(m.tabs) <= 1 {
+		compact = fg(th.Info).Render(render.Frame(compactSpinner, m.frame) + " compacting")
 	}
 
 	// build assembles the middle group for the given pieces.
@@ -115,18 +122,22 @@ func (m *Model) viewHeader() string {
 			}
 			parts = append(parts, c)
 		}
+		if compact != "" {
+			parts = append(parts, compact)
+		}
 		return strings.Join(parts, sep)
 	}
 	fixed := ansi.StringWidth(left) + ansi.StringWidth(right) + 4
 	modelFull := m.modelSegment(t, 0)
 	for _, opt := range [][2]bool{{true, true}, {false, true}, {false, false}} {
-		if mid := build(modelFull, opt[0], opt[1]); fixed+ansi.StringWidth(mid) <= w {
+		// fixed+mid+1: headerRow always leaves at least one cell of gap
+		if mid := build(modelFull, opt[0], opt[1]); fixed+ansi.StringWidth(mid)+1 <= w {
 			return m.headerRow(left, mid, right)
 		}
 	}
 	// Still too wide: drop the mode badge, then shorten the model name.
 	mode = ""
-	room := w - fixed - ansi.StringWidth(build("", false, false))
+	room := w - fixed - 1 - ansi.StringWidth(build("", false, false))
 	if room >= 6 {
 		return m.headerRow(left, build(m.modelSegment(t, room), false, false), right)
 	}
@@ -170,8 +181,9 @@ func typewriter(s string, frame int) string {
 	return string(r[:n])
 }
 
-// modelSegment is the provider mark and the model name. maxW caps the whole
-// segment (0 means the default cap); a cut lands on a word boundary.
+// modelSegment is the provider mark, the provider name (when it differs from
+// the model name) and the model name. maxW caps the whole segment (0 means the
+// default cap); a cut lands on a word boundary.
 func (m *Model) modelSegment(t *tab, maxW int) string {
 	th := m.th
 	prov := providerOf(t.model)
@@ -179,14 +191,18 @@ func (m *Model) modelSegment(t *tab, maxW int) string {
 	if model == "" {
 		model = "no model"
 	}
+	head := fg(th.BrandAlt).Render(icons.ProviderIcon(prov)) + " "
+	if prov != "" && prov != model {
+		head += fg(th.TextMuted).Render(prov + "›")
+	}
 	limit := 28
 	if prov == "" {
 		limit = 40
 	}
 	if maxW > 0 {
-		limit = maxW - ansi.StringWidth(icons.ProviderIcon(prov)) - 1
+		limit = maxW - ansi.StringWidth(head)
 	}
-	return fg(th.BrandAlt).Render(icons.ProviderIcon(prov)) + " " + fg(th.TextPrimary).Render(truncWord(model, limit))
+	return head + fg(th.TextPrimary).Render(truncWord(model, limit))
 }
 
 // truncWord shortens s to n cells. It cuts back to the last separator so a
@@ -272,19 +288,28 @@ func (m *Model) contextParts(t *tab) (string, string) {
 	return bar, nums
 }
 
-// costSegment shows "Local", "$0.123" or "$1.23".
+// costSegment shows "Local", "FREE", "$0", "$0.123" or "$1.23". FREE means
+// tokens were used and the provider billed nothing. The figure turns success
+// green once more than half the input came from the prompt cache.
 func (m *Model) costSegment(t *tab) string {
 	th := m.th
 	if t.local {
 		return fg(th.Success).Render("Local")
 	}
 	if t.cost <= 0 {
+		if t.tokens > 0 {
+			return fg(th.Success).Render("FREE")
+		}
 		return fg(th.TextFaint).Render("$0")
 	}
-	if t.cost < 1 {
-		return fg(th.TextSecondary).Render(formatUSD(t.cost, 3))
+	col := th.TextSecondary
+	if t.cacheHit > 0.5 {
+		col = th.Success
 	}
-	return fg(th.TextSecondary).Render(formatUSD(t.cost, 2))
+	if t.cost < 1 {
+		return fg(col).Render(formatUSD(t.cost, 3))
+	}
+	return fg(col).Render(formatUSD(t.cost, 2))
 }
 
 func formatUSD(v float64, places int) string {
@@ -310,9 +335,11 @@ func (m *Model) viewTabBar() string {
 	var parts []string
 	for i, t := range m.tabs {
 		active := i == m.active
-		var b strings.Builder
-		b.WriteString(itoa(i + 1))
-		seg := fg(th.TextMuted).Render("[" + itoa(i+1) + "]")
+		num := fg(th.TextMuted).Render("[" + itoa(i+1) + "]")
+		if active {
+			num = fg(th.BorderFocused).Render("[" + itoa(i+1) + "]")
+		}
+		seg := num
 		if t.mode != "default" {
 			mi := modeStyle(t.mode, th)
 			mc := mi.color
@@ -325,7 +352,15 @@ func (m *Model) viewTabBar() string {
 		if n := len(changedFiles(t.chat)); n > 0 {
 			seg += " " + fg(th.Success).Render("[✎ "+itoa(n)+"]")
 		}
+		if t.defModel != "" && t.model != "" && t.model != t.defModel {
+			seg += " " + fg(th.TextMuted).Render("["+render.Truncate(modelOf(t.model), 16)+"]")
+		}
 		label := render.Truncate(t.name, 20)
+		if active && ansi.StringWidth(t.name) > 20 {
+			// the active label scrolls so its whole name can be read;
+			// inactive ones just truncate
+			label = render.Marquee(t.name, 20, m.frame/2)
+		}
 		if t.pui != nil || len(t.prompts) > 0 {
 			seg = fg(th.Warning).Render("? ") + seg
 		} else if t.busy {
@@ -351,15 +386,76 @@ func (m *Model) viewTabBar() string {
 
 // ---------------------------------------------------------------- footer
 
-type shortcut struct{ key, label string }
-
-var footerShortcuts = []shortcut{
-	{"^K", "Palette"}, {"^L", "Model"}, {"^D", "Mode"},
-	{"^G", "Git"}, {"^S", "Skills"}, {"^P", "Sessions"},
-	{"^N", "New"}, {"^T", "Tab"}, {"^C", "Quit"},
+// shortcut is one footer key. tier 1 is always shown when there is room;
+// tiers 2 and 3 are added as the width allows. icon is the icons table name,
+// short the label used when the full labels do not fit.
+type shortcut struct {
+	key, label, short, icon string
+	tier                    int
 }
 
-// tips are shown in the footer, rotating every few seconds.
+var footerShortcuts = []shortcut{
+	{"^K", "Palette", "Pal", "lightning", 1},
+	{"^L", "Model", "Mdl", "brain_alt", 1},
+	{"^D", "Mode", "Mode", "cog", 1},
+	{"^E", "Editor", "Edit", "editor", 2},
+	{"^S", "Skills", "Skill", "skills", 2},
+	{"^G", "Git", "Git", "git", 2},
+	{"^N", "New", "New", "ghost", 3},
+	{"^P", "Sessions", "Sess", "clock_alt", 3},
+	{"^T", "Tab", "Tab", "tabs", 3},
+	{"Alt+C", "Rail", "Rail", "", 3},
+	{"^C", "Quit", "Quit", "quit", 3},
+}
+
+// footerLabelMode is how much of each shortcut's text the footer draws.
+type footerLabelMode struct {
+	name string
+	gap  int
+}
+
+var footerModes = []footerLabelMode{{"full", 2}, {"short", 2}, {"none", 1}}
+
+// footerKeys renders the shortcuts of one tier with one label mode. "none"
+// keeps the key and its icon only.
+func (m *Model) footerKeys(tier int, mode footerLabelMode) string {
+	th := m.th
+	var parts []string
+	for _, s := range footerShortcuts {
+		if s.tier > tier {
+			continue
+		}
+		seg := fgb(th.TextMuted).Render(s.key)
+		if s.icon != "" {
+			seg += " " + fg(th.TextDim).Render(icons.Icon(s.icon))
+		}
+		switch mode.name {
+		case "full":
+			seg += " " + fg(th.TextDim).Render(s.label)
+		case "short":
+			seg += " " + fg(th.TextDim).Render(s.short)
+		}
+		parts = append(parts, seg)
+	}
+	return strings.Join(parts, strings.Repeat(" ", mode.gap))
+}
+
+// footerLeft picks the first shortcut set that leaves room for a tip, trying
+// full labels before short before none, and within each label mode the
+// highest tier first. Tier 1 with icons only is the fallback.
+func (m *Model) footerLeft() string {
+	room := m.width - 28
+	for _, mode := range footerModes {
+		for tier := 3; tier >= 1; tier-- {
+			if cand := m.footerKeys(tier, mode); ansi.StringWidth(cand) <= room {
+				return cand
+			}
+		}
+	}
+	return m.footerKeys(1, footerModes[2])
+}
+
+// tips are shown in the footer, one at a time, about every 10 seconds.
 var tips = []string{
 	"? on an empty input opens the help screen",
 	"/ lists every command; type to filter the palette with Ctrl+K",
@@ -370,6 +466,7 @@ var tips = []string{
 	"@ followed by part of a path mentions a file",
 	"Alt+S stashes the current draft, Alt+P brings it back",
 	"Ctrl+B and Ctrl+F step through checkpoints; Ctrl+Z undoes the last turn",
+	"Alt+C opens the checkpoint rail: arrows move, Enter opens a checkpoint, Esc gives the keys back",
 	"Ctrl+O expands or collapses tool output and reasoning",
 	"Alt+R opens the error log",
 	"Shift+Tab or Ctrl+D cycles the mode: default, auto, plan, architect, socratic, challenge",
@@ -389,48 +486,109 @@ var tips = []string{
 	"/copy puts the last answer on the clipboard via OSC 52",
 }
 
-// fitTip picks a tip for a w-cell footer, starting the search at index start.
-// It prefers a tip that fits whole, then one that can be cut at a word
-// boundary, and cuts the first tip mid-word only when nothing else works.
+// tipTicks is one tip slot: 10 seconds at the 50 ms tick.
+const tipTicks = 10 * 20
+
+// tipOrder is the shuffled bag for one pass through the tips. Every pass uses
+// a new permutation, so no tip repeats before the others have shown.
+func tipOrder(pass int) []int {
+	return rand.New(rand.NewSource(int64(pass)*7919 + 1)).Perm(len(tips))
+}
+
+// tipSlot returns the bag order and the position in it for the current frame.
+func (m *Model) tipSlot() ([]int, int) {
+	slot := m.frame / tipTicks
+	return tipOrder(slot / len(tips)), slot % len(tips)
+}
+
+// fitTip picks a tip for a w-cell footer, searching from index start in the
+// tips' own order.
 func fitTip(start, w int) string {
-	for i := 0; i < len(tips); i++ {
-		t := tips[(start+i)%len(tips)]
+	order := make([]int, len(tips))
+	for i := range order {
+		order[i] = i
+	}
+	return fitTipAt(order, start, w)
+}
+
+// fitTipAt picks the tip for a w-cell footer, starting at position pos of the
+// bag order. It prefers a tip that fits whole, then one that can be cut at a
+// word boundary, and cuts the first tip mid-word only when nothing else works.
+func fitTipAt(order []int, pos, w int) string {
+	n := len(order)
+	for i := 0; i < n; i++ {
+		t := tips[order[(pos+i)%n]]
 		if ansi.StringWidth(t) <= w {
 			return t
 		}
 	}
-	for i := 0; i < len(tips); i++ {
-		if out, ok := cutWord(tips[(start+i)%len(tips)], w); ok {
+	for i := 0; i < n; i++ {
+		if out, ok := cutWord(tips[order[(pos+i)%n]], w); ok {
 			return out
 		}
 	}
-	out, _ := cutWord(tips[start%len(tips)], w)
+	out, _ := cutWord(tips[order[pos%n]], w)
 	return out
 }
 
-// viewFooter is the bottom row: shortcuts that fit the width, and a rotating tip.
-func (m *Model) viewFooter() string {
-	th := m.th
-	var keys []string
-	for _, s := range footerShortcuts {
-		keys = append(keys, fgb(th.TextMuted).Render(s.key)+" "+fg(th.TextDim).Render(s.label))
-	}
-	// take as many shortcuts as fit, leaving room for a tip
-	left := ""
-	for n := len(keys); n >= 3; n-- {
-		cand := strings.Join(keys[:n], "  ")
-		if ansi.StringWidth(cand) <= m.width*2/3 {
-			left = cand
-			break
+// tipGlitch is the garble pool for the footer's glitch-in.
+var tipGlitch = []rune("░▒▓█▄▀▐▌┤├┼─│┌┐└┘╔╗╚╝")
+
+// glitchText replaces every non-space rune with a block glyph. seed moves the
+// pattern from frame to frame.
+func glitchText(s string, seed int) string {
+	rs := []rune(s)
+	for i, r := range rs {
+		if r != ' ' {
+			rs[i] = tipGlitch[(seed*31+i*17)%len(tipGlitch)]
 		}
 	}
-	if left == "" {
-		left = strings.Join(keys[:3], "  ")
+	return string(rs)
+}
+
+// isKeyWord reports whether a tip word names a key or a command. Those words
+// are drawn in the brand colour, the rest of the tip in secondary text.
+func isKeyWord(w string) bool {
+	if len(w) < 2 {
+		return false
 	}
+	for _, p := range []string{"Ctrl+", "Alt+", "Shift+", "PgUp", "PgDn", "Esc", "Enter", "^", "/", "!", "@"} {
+		if strings.HasPrefix(w, p) {
+			return true
+		}
+	}
+	return w == "End"
+}
+
+// renderTip draws a tip with its key and command words highlighted.
+func renderTip(s string, th theme.Theme) string {
+	words := strings.Split(s, " ")
+	out := make([]string, len(words))
+	for i, w := range words {
+		if isKeyWord(w) {
+			out[i] = fg(th.Brand).Render(w)
+		} else {
+			out[i] = fg(th.TextSecondary).Render(w)
+		}
+	}
+	return strings.Join(out, " ")
+}
+
+// viewFooter is the bottom row: the shortcut set the width allows, and one tip
+// that changes every 10 seconds and glitches in as it appears.
+func (m *Model) viewFooter() string {
+	th := m.th
+	left := m.footerLeft()
 	room := m.width - ansi.StringWidth(left) - 4
 	tip := ""
 	if room > 12 {
-		tip = fg(th.Brand).Render("✦ ") + fg(th.TextSecondary).Render(fitTip(m.frame/(12*20), room-2))
+		order, pos := m.tipSlot()
+		text := fitTipAt(order, pos, room-2)
+		if off := m.frame % tipTicks; off < 4 {
+			tip = fg(th.Brand).Render("✦ ") + fg(th.TextFaint).Render(glitchText(text, off))
+		} else {
+			tip = fg(th.Brand).Render("✦ ") + renderTip(text, th)
+		}
 	}
 	return spaceBetween(" "+left, tip+" ", m.width)
 }

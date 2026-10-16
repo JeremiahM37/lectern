@@ -46,6 +46,14 @@ type Options struct {
 	SendGap time.Duration
 	// Logf receives poll and send problems. Nil discards them.
 	Logf func(format string, args ...any)
+	// Deliver takes a plain message from an allowed chat that is not an answer
+	// to a waiting question. It submits the message to Scribe (or steers the
+	// running turn) and returns the short reply for the chat, or "". Nil
+	// means messages are not taken.
+	Deliver func(text string) string
+	// Stop aborts the running turn of the bound tab for /stop. It returns the
+	// reply for the chat. Nil means /stop is not taken.
+	Stop func() string
 }
 
 // Bot is the Telegram surface. It long-polls for taps and replies, resolves
@@ -59,6 +67,8 @@ type Bot struct {
 	progress *remote.Throttle
 	done     *remote.Throttle
 	redact   *redact.Redactor
+	deliver  func(string) string
+	stop     func() string
 	logf     func(string, ...any)
 	sendGap  time.Duration
 	now      func() time.Time
@@ -114,6 +124,8 @@ func NewBot(opts Options) (*Bot, error) {
 		progress: remote.NewThrottle(every),
 		done:     remote.NewThrottle(2 * time.Second),
 		redact:   redact.New(opts.Token),
+		deliver:  opts.Deliver,
+		stop:     opts.Stop,
 		logf:     logf,
 		sendGap:  gap,
 		now:      time.Now,
@@ -261,7 +273,7 @@ func (b *Bot) tryPair(ctx context.Context, chatID int64, chat, text string) {
 		b.reply(ctx, chatID, "Paired for this session, but the pairing could not be saved. Check the host log.")
 		return
 	}
-	b.reply(ctx, chatID, "Paired. This chat can now answer Scribe's questions and approvals.")
+	b.reply(ctx, chatID, "Paired. This chat can now send Scribe messages, and answer its questions and approvals.")
 }
 
 // handleCallback resolves a tap on an approval or option button.
@@ -309,7 +321,9 @@ func (b *Bot) handleCallback(ctx context.Context, cq *CallbackQuery) {
 
 // answerText treats a plain message as an answer when a question is waiting.
 // Accepted forms: a number (1-based), "/ans <option or text>", or, for a
-// question that allows it, free text. Other chat text is ignored.
+// question that allows it, free text. When no question is waiting, a plain
+// message is a new message for Scribe (see forward). Other chat text while a
+// question waits is ignored.
 func (b *Bot) answerText(ctx context.Context, chatID int64, text string) {
 	isAns := false
 	arg := text
@@ -323,7 +337,9 @@ func (b *Bot) answerText(ctx context.Context, chatID int64, text string) {
 	if r == nil {
 		if isAns {
 			b.reply(ctx, chatID, "Nothing is waiting for an answer.")
+			return
 		}
+		b.forward(ctx, chatID, text)
 		return
 	}
 	n, numErr := strconv.Atoi(arg)
@@ -343,6 +359,48 @@ func (b *Bot) answerText(ctx context.Context, chatID int64, text string) {
 	}
 	b.resolve(id, answer)
 }
+
+// helpText is the reply to /start and /help from a paired chat.
+const helpText = "Send a message to give Scribe a task. If it is working, your message steers the turn. " +
+	"When Scribe asks a question, reply with the option number, or /ans followed by the answer. " +
+	"Approvals come with Approve and Deny buttons."
+
+// forward hands a plain message from a paired chat to Scribe. Slash commands
+// are for the host, not the phone, except /start and /help, which get the
+// help text.
+func (b *Bot) forward(ctx context.Context, chatID int64, text string) {
+	if strings.HasPrefix(text, "/") {
+		cmd := strings.ToLower(strings.Fields(text)[0])
+		if cmd == "/start" || cmd == "/help" {
+			b.reply(ctx, chatID, helpText)
+			return
+		}
+		if cmd == "/stop" {
+			if b.stop == nil {
+				b.reply(ctx, chatID, "Stopping from Telegram is not available right now.")
+				return
+			}
+			b.reply(ctx, chatID, b.stop())
+			return
+		}
+		b.reply(ctx, chatID, "Scribe's slash commands are not available from Telegram. Send plain text, or /help.")
+		return
+	}
+	if len(text) > maxMessage {
+		b.reply(ctx, chatID, "That message is too long for one turn. Send it in shorter parts.")
+		return
+	}
+	if b.deliver == nil {
+		b.reply(ctx, chatID, "Scribe is not taking messages from Telegram right now.")
+		return
+	}
+	if reply := b.deliver(text); reply != "" {
+		b.reply(ctx, chatID, reply)
+	}
+}
+
+// Chats returns the ids of every chat allowed on this surface, sorted.
+func (b *Bot) Chats() []string { return b.allow.Members() }
 
 func optionNamed(options []string, name string) string {
 	for _, o := range options {
@@ -519,7 +577,7 @@ func (b *Bot) drain(ctx context.Context) {
 // last part. Chats are paced one message per sendGap, and a 429 is retried
 // once after retry_after. Every part is redacted first.
 func (b *Bot) send(ctx context.Context, chat int64, text string, kb *InlineKeyboard) error {
-	parts := remote.Chunk(b.redact.Redact(text), maxMessage)
+	parts := remote.Chunk(redact.Default().Redact(b.redact.Redact(text)), maxMessage)
 	b.sendMu.Lock()
 	defer b.sendMu.Unlock()
 	key := strconv.FormatInt(chat, 10)

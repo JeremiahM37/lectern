@@ -200,3 +200,33 @@ func clamp(x, lo, hi int) int {
 	}
 	return maxInt(lo, minInt(x, hi))
 }
+
+// RailHit reports which checkpoint marker is drawn on view row y (relative to
+// the top of the view) when x falls in the rail columns. It returns the
+// checkpoint's index in the list given to SetCheckpoints.
+func (v *View) RailHit(x, y int) (int, Checkpoint, bool) {
+	if !v.railOn() || x < 0 || x >= railW || y < 0 || y >= v.h {
+		return -1, Checkpoint{}, false
+	}
+	v.build()
+	abs := v.windowTop(len(v.lines)) + y
+	// railColumn draws the later checkpoint over an earlier one on the same
+	// row, so the click must report the same one: the last match.
+	hit := -1
+	for i, a := range v.railAt {
+		if a == abs {
+			hit = i
+		}
+	}
+	if hit < 0 {
+		return -1, Checkpoint{}, false
+	}
+	return hit, v.cps[hit], true
+}
+
+// SelectRail moves the rail cursor to checkpoint i without taking the keyboard.
+func (v *View) SelectRail(i int) {
+	if i >= 0 && i < len(v.cps) {
+		v.railSel = i
+	}
+}

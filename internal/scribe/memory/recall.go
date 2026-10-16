@@ -42,8 +42,16 @@ const (
 	injectLimit = 5
 	// injectBodyChars trims each body in the injected block.
 	injectBodyChars = 400
+	// injectTotalChars is the body budget for one injected block. The first
+	// record always goes in; after that a record that would take the total
+	// past the budget is left out, and so is everything ranked below it.
+	injectTotalChars = 1500
 	// ftsCandidates caps the FTS hits considered per DB.
 	ftsCandidates = 100
+	// trigramWeight scales a substring-only (trigram) hit against a word hit.
+	trigramWeight = 0.75
+	// similarHint is the cosine at which a save reports a near match.
+	similarHint = 0.55
 )
 
 var stopwords = map[string]bool{
@@ -228,29 +236,13 @@ func (d *DB) Recall(query string, files []string, limit int) ([]Scored, error) {
 	qVec := embed(query)
 	now := d.now()
 
-	// FTS text hits.
-	textX := map[string]float64{}
+	// Text hits: word index, plus trigram substring matches.
+	textX, err := d.textHits(query, ftsCandidates)
+	if err != nil {
+		return nil, err
+	}
 	textCov := map[string]float64{}
-	if match := ftsQuery(query); match != "" {
-		rows, err := d.db.Query(
-			"SELECT id, bm25(memories_fts) FROM memories_fts WHERE memories_fts MATCH ? ORDER BY bm25(memories_fts) LIMIT ?",
-			match, ftsCandidates)
-		if err != nil {
-			return nil, err
-		}
-		for rows.Next() {
-			var id string
-			var bm float64
-			if err := rows.Scan(&id, &bm); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			textX[id] = -bm
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
+	if len(textX) > 0 {
 		// BM25's IDF collapses toward zero on a small corpus, so the
 		// magnitude alone under-rates a lone good match. Coverage (the share
 		// of query terms the record contains) carries the rest.
@@ -297,7 +289,7 @@ func (d *DB) Recall(query string, files []string, limit int) ([]Scored, error) {
 		pinned bool
 		why    []string
 	}
-	rows, err := d.db.Query("SELECT id, pinned, uses, last_used, embedding FROM memories")
+	rows, err := d.db.Query("SELECT id, pinned, uses, last_used, embedding FROM memories WHERE superseded_by = ''")
 	if err != nil {
 		return nil, err
 	}
@@ -387,6 +379,10 @@ func (d *DB) Recall(query string, files []string, limit int) ([]Scored, error) {
 type Stores struct {
 	Project *DB
 	Global  *DB
+	// Policy says where saves with no scope go and what automatic recall
+	// reads. The zero value is the default: save to the project store when
+	// there is one, and recall from every open store.
+	Policy Policy
 }
 
 // Open opens the project store for root (<root>/.scribe/memory.db) and the
@@ -397,7 +393,7 @@ func Open(root string) (*Stores, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Stores{Global: g}
+	s := &Stores{Global: g, Policy: LoadPolicy(root)}
 	if root != "" {
 		p, err := OpenDB(filepath.Join(config.ProjectDir(root), "memory.db"), ScopeProject)
 		if err != nil {
@@ -455,7 +451,7 @@ func (s *Stores) Recall(query string, files []string, limit int) ([]Scored, erro
 		limit = 5
 	}
 	var all []Scored
-	for _, d := range s.DBs() {
+	for _, d := range s.readDBs() {
 		got, err := d.Recall(query, files, limit)
 		if err != nil {
 			return nil, err
@@ -478,9 +474,18 @@ func (s *Stores) Inject(query string, files []string) string {
 	var b strings.Builder
 	b.WriteString("<recalled_memories>\n")
 	byDB := map[string][]string{}
+	used := 0
+	shown := 0
 	for _, m := range got {
+		body := trimRunes(m.Body, injectBodyChars)
+		n := utf8.RuneCountInString(body)
+		if shown > 0 && used+n > injectTotalChars {
+			break
+		}
+		used += n
+		shown++
 		fmt.Fprintf(&b, "[%s] %s (id %s, %s)\n", m.Category, m.Title, shortID(m.ID), m.Scope)
-		b.WriteString(trimRunes(m.Body, injectBodyChars))
+		b.WriteString(body)
 		b.WriteString("\n")
 		byDB[m.Scope] = append(byDB[m.Scope], m.ID)
 	}
@@ -518,6 +523,88 @@ func trimRunes(s string, n int) string {
 	}
 	r := []rune(s)
 	return string(r[:n-1]) + "…"
+}
+
+// triQuery builds a trigram MATCH expression: each content token of three or
+// more characters as a quoted substring, OR-joined. Shorter tokens cannot be
+// matched by the trigram index and are left to the word index.
+func triQuery(q string) string {
+	seen := map[string]bool{}
+	var parts []string
+	for _, w := range contentTokens(q) {
+		if utf8.RuneCountInString(w) < 3 || seen[w] {
+			continue
+		}
+		seen[w] = true
+		parts = append(parts, `"`+w+`"`)
+	}
+	return strings.Join(parts, " OR ")
+}
+
+// textHits returns, per record id, the BM25 magnitude (higher is better) of
+// the query against the word index and the trigram index. A record found by
+// both keeps its word score; one found only by substring is scaled by
+// trigramWeight. Superseded records are not filtered here; callers do that.
+func (d *DB) textHits(query string, limit int) (map[string]float64, error) {
+	out := map[string]float64{}
+	if match := ftsQuery(query); match != "" {
+		hits, err := d.bm25Hits("memories_fts", match, limit)
+		if err != nil {
+			return nil, err
+		}
+		for id, x := range hits {
+			out[id] = x
+		}
+	}
+	if match := triQuery(query); match != "" {
+		hits, err := d.bm25Hits("memories_tri", match, limit)
+		if err != nil {
+			return nil, err
+		}
+		for id, x := range hits {
+			if _, ok := out[id]; !ok {
+				out[id] = trigramWeight * x
+			}
+		}
+	}
+	return out, nil
+}
+
+// bm25Hits runs match against one FTS table and returns the top limit ids
+// with their BM25 magnitude. table is one of the package's own FTS tables.
+func (d *DB) bm25Hits(table, match string, limit int) (map[string]float64, error) {
+	rows, err := d.db.Query(
+		"SELECT id, bm25("+table+") FROM "+table+" WHERE "+table+" MATCH ? ORDER BY bm25("+table+") LIMIT ?",
+		match, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]float64{}
+	for rows.Next() {
+		var id string
+		var bm float64
+		if err := rows.Scan(&id, &bm); err != nil {
+			return nil, err
+		}
+		out[id] = -bm // bm25 is negative; the more negative, the better
+	}
+	return out, rows.Err()
+}
+
+// sortedByScore returns the ids in hits, highest magnitude first, ties by id.
+func sortedByScore(hits map[string]float64) []string {
+	ids := make([]string, 0, len(hits))
+	for id := range hits {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		if hits[ids[i]] != hits[ids[j]] {
+			return hits[ids[i]] > hits[ids[j]]
+		}
+		return ids[i] < ids[j]
+	})
+	return ids
 }
 
 // queryTerms returns the distinct content tokens of a query.

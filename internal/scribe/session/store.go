@@ -68,6 +68,11 @@ type Meta struct {
 	ParentID string    `json:"parent_id,omitempty"`
 	// LecternSessionID links the session to the Lectern session hosting it.
 	LecternSessionID string `json:"lectern_session_id,omitempty"`
+
+	// Messages and SizeBytes describe messages.jsonl. They are filled in by
+	// Store.List for the session picker and are never written to meta.json.
+	Messages  int   `json:"-"`
+	SizeBytes int64 `json:"-"`
 }
 
 // Store reads and writes the sessions of one project.
@@ -191,10 +196,35 @@ func (s *Store) List() []Meta {
 		if err != nil {
 			continue
 		}
+		m.Messages, m.SizeBytes = s.messageStats(id)
 		out = append(out, m)
 	}
 	sortMeta(out)
 	return out
+}
+
+// messageStats counts the messages in a session's messages.jsonl (one per
+// line) and reports the file size. A missing file is an empty session.
+func (s *Store) messageStats(id string) (int, int64) {
+	f, err := os.Open(filepath.Join(s.Dir(id), "messages.jsonl"))
+	if err != nil {
+		return 0, 0
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return 0, 0
+	}
+	n := 0
+	buf := make([]byte, 64<<10)
+	for {
+		k, err := f.Read(buf)
+		n += bytes.Count(buf[:k], []byte{'\n'})
+		if err != nil {
+			break
+		}
+	}
+	return n, st.Size()
 }
 
 func sortMeta(ms []Meta) {

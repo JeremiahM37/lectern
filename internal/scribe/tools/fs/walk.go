@@ -107,13 +107,19 @@ type treeWriter struct {
 	wd     string
 	sb     strings.Builder
 	count  int
+	limit  int // entries this writer may show; the caller shares one budget
 	capped bool
 }
 
 // renderTree lists root to depth levels (1 = its children). Directories come
 // first, then files, each sorted by name. Files show their size.
 func renderTree(ctx context.Context, wd, root string, depth int) (string, int, bool) {
-	w := &treeWriter{ctx: ctx, wd: wd}
+	return renderTreeLimit(ctx, wd, root, depth, maxListEntries)
+}
+
+// renderTreeLimit is renderTree with an entry budget of limit.
+func renderTreeLimit(ctx context.Context, wd, root string, depth, limit int) (string, int, bool) {
+	w := &treeWriter{ctx: ctx, wd: wd, limit: limit}
 	w.sb.WriteString(relSlash(wd, root) + "/\n")
 	w.dir(root, chainIgnore(wd, root), "  ", 1, depth)
 	return strings.TrimRight(w.sb.String(), "\n"), w.count, w.capped
@@ -145,7 +151,7 @@ func (w *treeWriter) dir(abs string, ig *Ignore, indent string, level, depth int
 		if ig.Ignored(rel, isDir) {
 			continue
 		}
-		if w.count >= maxListEntries {
+		if w.count >= w.limit {
 			w.capped = true
 			return
 		}
@@ -167,49 +173,93 @@ func (w *treeWriter) dir(abs string, ig *Ignore, indent string, level, depth int
 func NewListDir() tools.Tool {
 	return &tool{
 		spec: newSpec("list_dir",
-			"List a directory: subdirectories first, then files with sizes. Respects .gitignore. Use depth to see nested levels.",
+			"List a directory: subdirectories first, then files with sizes. Respects .gitignore. Use depth to see nested levels, "+
+				"and paths to list several directories in one call.",
 			tools.Schema(map[string]any{
 				"path":  tools.Str("Directory to list, relative to the project root. Default: the project root."),
-				"depth": tools.Int("How many levels to show, 1 to 4. Default 1."),
+				"paths": tools.Arr("Several directories to list in one call. Each is shown under its own header; the entry cap is shared.", map[string]any{"type": "string"}),
+				"depth": tools.Int("How many levels to show, 1 to 5. Default 1."),
 			})),
 		readOnly: true,
 		run: func(ctx context.Context, env *tools.Env, args json.RawMessage) tools.Result {
 			var a struct {
-				Path  string  `json:"path"`
-				Depth flexInt `json:"depth"`
+				Path  string      `json:"path"`
+				Paths flexStrings `json:"paths"`
+				Depth flexInt     `json:"depth"`
 			}
 			if err := tools.Decode(args, &a); err != nil {
-				return fail(err)
+				return failTagged(err)
 			}
-			depth := int(a.Depth)
-			if depth < 1 {
-				depth = 1
+			depth := min(max(int(a.Depth), 1), maxListDepth)
+			var dirs []string
+			if a.Path != "" {
+				dirs = append(dirs, a.Path)
 			}
-			if depth > 4 {
-				depth = 4
+			dirs = append(dirs, a.Paths...)
+			if len(dirs) == 0 {
+				dirs = []string{"."}
 			}
-			p := a.Path
-			if p == "" {
-				p = "."
+			if len(dirs) == 1 {
+				return listOne(ctx, env, dirs[0], depth, maxListEntries)
 			}
-			t, err := resolve(ctx, env, "list_dir", p, accessSearch)
-			if err != nil {
-				return fail(err)
+
+			// Several directories share one entry budget, spent in order.
+			var sb strings.Builder
+			budget, total, failures := maxListEntries, 0, 0
+			for _, d := range dirs {
+				sb.WriteString("── " + d + " ──\n")
+				if budget <= 0 {
+					sb.WriteString("(entry cap reached; list this directory on its own)\n\n")
+					continue
+				}
+				res := listOne(ctx, env, d, depth, budget)
+				if res.IsError {
+					failures++
+					sb.WriteString("error: " + res.Output + "\n\n")
+					continue
+				}
+				n := entriesOf(res)
+				budget -= n
+				total += n
+				sb.WriteString(res.Output + "\n\n")
 			}
-			fi, err := statPath(t)
-			if err != nil {
-				return fail(err)
+			return tools.Result{
+				Output:  strings.TrimRight(sb.String(), "\n"),
+				IsError: failures == len(dirs),
+				Summary: fmt.Sprintf("%d entries in %d directories", total, len(dirs)-failures),
 			}
-			if !fi.IsDir() {
-				return tools.Errorf("%s is not a directory. Use read to view a file.", t.rel)
-			}
-			out, n, capped := renderTree(ctx, env.Workdir, t.abs, depth)
-			if capped {
-				out += fmt.Sprintf("\n(Output capped at %d entries. Narrow the path or reduce depth.)", maxListEntries)
-			}
-			return tools.Result{Output: out, Summary: fmt.Sprintf("%d entries", n)}
 		},
 	}
+}
+
+// maxListDepth is the deepest list_dir may recurse.
+const maxListDepth = 5
+
+// listOne lists one directory with an entry budget of limit. The result
+// carries the entry count in Meta["entries"] so a caller can spend the rest.
+func listOne(ctx context.Context, env *tools.Env, p string, depth, limit int) tools.Result {
+	t, err := resolve(ctx, env, "list_dir", p, accessSearch)
+	if err != nil {
+		return failTagged(err)
+	}
+	fi, err := statPath(t)
+	if err != nil {
+		return failTagged(err)
+	}
+	if !fi.IsDir() {
+		return tools.Errorf("%s is not a directory. Use read to view a file.", t.rel)
+	}
+	out, n, capped := renderTreeLimit(ctx, env.Workdir, t.abs, depth, limit)
+	if capped {
+		out += fmt.Sprintf("\n(Output capped at %d entries. Narrow the path or reduce depth.)", limit)
+	}
+	return tools.Result{Output: out, Summary: fmt.Sprintf("%d entries", n), Meta: map[string]any{"entries": n}}
+}
+
+// entriesOf reads the entry count listOne recorded.
+func entriesOf(res tools.Result) int {
+	n, _ := res.Meta["entries"].(int)
+	return n
 }
 
 // globMatch tests a path relative to the search base. A pattern with no
@@ -258,14 +308,14 @@ func NewGlob() tools.Tool {
 				Path    string `json:"path"`
 			}
 			if err := tools.Decode(args, &a); err != nil {
-				return fail(err)
+				return failTagged(err)
 			}
 			if a.Pattern == "" {
 				return tools.Errorf("pattern is required.")
 			}
 			gf, err := newGlobFilter(a.Pattern)
 			if err != nil {
-				return fail(err)
+				return failTagged(err)
 			}
 			p := a.Path
 			if p == "" {
@@ -273,11 +323,11 @@ func NewGlob() tools.Tool {
 			}
 			t, err := resolve(ctx, env, "glob", p, accessSearch)
 			if err != nil {
-				return fail(err)
+				return failTagged(err)
 			}
 			fi, err := statPath(t)
 			if err != nil {
-				return fail(err)
+				return failTagged(err)
 			}
 			if !fi.IsDir() {
 				return tools.Errorf("%s is not a directory.", t.rel)

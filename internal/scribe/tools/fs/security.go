@@ -56,6 +56,9 @@ func resolve(ctx context.Context, env *tools.Env, toolName, p string, acc access
 	t := target{abs: abs, rel: relSlash(wd, abs), real: realPath(abs)}
 	t.outside = !within(realPath(wd), t.real)
 
+	if err := checkForbidden(env, t); err != nil {
+		return target{}, err
+	}
 	if acc == accessWrite {
 		for _, part := range strings.Split(t.rel, "/") {
 			if part == ".git" {
@@ -197,7 +200,7 @@ func statPath(t target) (os.FileInfo, error) {
 	fi, err := os.Stat(t.abs)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("File not found: %s. Use glob or list_dir to find the right path.", t.rel)
+			return nil, &taggedError{tag: "not found", msg: fmt.Sprintf("File not found: %s. Use glob or list_dir to find the right path.", t.rel)}
 		}
 		return nil, err
 	}

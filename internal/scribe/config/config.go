@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -24,6 +25,10 @@ type Provider struct {
 	APIKeyEnv string            `json:"api_key_env,omitempty"`
 	Models    []string          `json:"models,omitempty"`
 	Headers   map[string]string `json:"headers,omitempty"`
+	// ModelsAPI sets the URL the model list is read from. The value false
+	// stops listing models for this provider and uses Models only. Unset
+	// means baseURL + "/models". See ModelsAPI.
+	ModelsAPI *ModelsAPI `json:"models_api,omitempty"`
 }
 
 // Router assigns models to task slots. Empty slots use Model.
@@ -35,14 +40,39 @@ type Router struct {
 	Title     string   `json:"title,omitempty"`      // session titles / commit messages
 	Fallback  []string `json:"fallback,omitempty"`   // tried in order when Model keeps failing
 	MaxAgents int      `json:"max_agents,omitempty"` // concurrent subagents (2-8, default 3)
+	// Default is the model for any slot that is not set above; it is used
+	// before Model. Empty means Model.
+	Default string `json:"default,omitempty"`
+	// Desloppify, Verify and Semantic are the model slots for the cleanup
+	// pass, the LLM review of edits and semantic code-map summaries. Empty
+	// means Default, then Model.
+	Desloppify string `json:"desloppify,omitempty"`
+	Verify     string `json:"verify,omitempty"`
+	Semantic   string `json:"semantic,omitempty"`
+	// FallbackByModel gives a fallback chain for one "provider/model" id. It
+	// is checked before Fallback, which stays the list for every other model.
+	FallbackByModel map[string][]string `json:"fallback_by_model,omitempty"`
 }
 
-// Hook runs a shell command on an agent event.
+// Hook runs a shell command on an agent event. The fields If, Once, Async
+// and StatusMessage mirror Claude Code's hook settings, so a hook can be
+// copied between the two.
 type Hook struct {
 	Event   string `json:"event"`             // PreToolUse | PostToolUse | UserPromptSubmit | Stop | SessionStart | SessionEnd | PreCompact | Notification
 	Matcher string `json:"matcher,omitempty"` // tool-name regex for tool events
 	Command string `json:"command"`
-	Timeout int    `json:"timeout,omitempty"` // seconds, default 30
+	// Timeout is in seconds. Zero or less means DefaultHookTimeout (10).
+	Timeout int `json:"timeout,omitempty"`
+	// If is a condition on the tool call, e.g. "Bash(git commit*)". The hook
+	// runs only when it matches. Empty means always.
+	If string `json:"if,omitempty"`
+	// Once runs the hook a single time per session, then never again.
+	Once bool `json:"once,omitempty"`
+	// Async starts the hook and does not wait for it, so it cannot block or
+	// change the tool call.
+	Async bool `json:"async,omitempty"`
+	// StatusMessage is shown while the hook runs.
+	StatusMessage string `json:"status_message,omitempty"`
 }
 
 // MCPServer is an MCP server the agent can use.
@@ -54,6 +84,9 @@ type MCPServer struct {
 	URL      string            `json:"url,omitempty"` // streamable HTTP transport
 	Headers  map[string]string `json:"headers,omitempty"`
 	Disabled bool              `json:"disabled,omitempty"`
+	// Timeout is the per-call limit in seconds. Zero means the MCP default
+	// (60 s).
+	Timeout int `json:"timeout,omitempty"`
 }
 
 // Config is the merged configuration. Pointer and zero values mean "unset"
@@ -107,6 +140,43 @@ type Config struct {
 	// id, e.g. {"anthropic": {"effort": "medium", "budget": 8000}}. Empty
 	// fields leave the provider's own default in place.
 	ReasoningByProvider map[string]Reasoning `json:"reasoning_by_provider,omitempty"`
+
+	// KeyPriority decides which key wins when both the environment and the
+	// key store hold one: "env" (default) or "app" (stored key first).
+	KeyPriority string `json:"key_priority,omitempty"`
+	// ContextWindowOverrides sets a context window, in tokens, for one
+	// "provider/model" id. A user value wins over every other source.
+	ContextWindowOverrides map[string]int `json:"context_window_overrides,omitempty"`
+	// Search holds the web search and reader keys and options.
+	Search SearchSettings `json:"search,omitempty"`
+	// Forbidden lists path patterns no file or shell tool may touch. They
+	// are merged with the forbidden.json files; see ForbiddenPatterns.
+	Forbidden []string `json:"forbidden,omitempty"`
+	// AgentFeatures switches optional agent behaviour on or off. Unset
+	// fields keep their default (see AgentFeatures).
+	AgentFeatures *AgentFeatures `json:"agent_features,omitempty"`
+	// Editor is the command the in-app editor starts and its arguments.
+	Editor EditorSettings `json:"editor,omitempty"`
+	// DiffStyle is how diffs render: default, sidebyside or compact.
+	// CollapseDiffs folds long diffs in the chat until opened.
+	DiffStyle     string `json:"diff_style,omitempty"`
+	CollapseDiffs *bool  `json:"collapse_diffs,omitempty"`
+	// CoAuthorTrailer adds a Co-Authored-By trailer to commits made by the
+	// agent. Off by default: it is opt-in.
+	CoAuthorTrailer *bool `json:"co_author_trailer,omitempty"`
+	// ToolTimeout is the default limit for shell and project commands, in
+	// minutes. Unset means DefaultToolTimeout (2); set values are clamped to
+	// 0.5-30 by ClampToolTimeout, and 0 or less means no limit.
+	ToolTimeout *float64 `json:"tool_timeout,omitempty"`
+	// CompactStrategy picks how context is compacted: v2 (default), v1 or
+	// disabled.
+	CompactStrategy string `json:"compact_strategy,omitempty"`
+	// Performance holds per-provider request options that change the wire
+	// format. Unset fields keep the adapter's default.
+	Performance Performance `json:"performance,omitempty"`
+	// Retry sets how many times a failed model call is retried. Zero keeps
+	// the agent's default.
+	Retry Retry `json:"retry,omitempty"`
 }
 
 // Reasoning is one provider's reasoning controls. Which fields apply depends
@@ -189,7 +259,10 @@ func readJSON(path string, v any) error {
 	if len(b) == 0 {
 		return nil
 	}
-	return json.Unmarshal(b, v)
+	if err := json.Unmarshal(b, v); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	return nil
 }
 
 // Merge overlays o onto base.
@@ -250,8 +323,28 @@ func Merge(base, o Config) Config {
 	if o.Router.MaxAgents != 0 {
 		rt.MaxAgents = o.Router.MaxAgents
 	}
-	r.Router = rt
 	r.ReasoningByProvider = mergeReasoning(base.ReasoningByProvider, o.ReasoningByProvider)
+	str(&r.KeyPriority, o.KeyPriority)
+	str(&r.DiffStyle, o.DiffStyle)
+	str(&r.CompactStrategy, o.CompactStrategy)
+	bp(&r.CollapseDiffs, o.CollapseDiffs)
+	bp(&r.CoAuthorTrailer, o.CoAuthorTrailer)
+	if o.ToolTimeout != nil {
+		r.ToolTimeout = o.ToolTimeout
+	}
+	r.ContextWindowOverrides = mergeContextWindows(base.ContextWindowOverrides, o.ContextWindowOverrides)
+	r.Search = mergeSearch(base.Search, o.Search)
+	r.Forbidden = unionStrings(base.Forbidden, o.Forbidden)
+	r.AgentFeatures = mergeAgentFeatures(base.AgentFeatures, o.AgentFeatures)
+	r.Editor = mergeEditor(base.Editor, o.Editor)
+	r.Performance = mergePerformance(base.Performance, o.Performance)
+	r.Retry = mergeRetry(base.Retry, o.Retry)
+	str(&rt.Default, o.Router.Default)
+	str(&rt.Desloppify, o.Router.Desloppify)
+	str(&rt.Verify, o.Router.Verify)
+	str(&rt.Semantic, o.Router.Semantic)
+	rt.FallbackByModel = mergeMap(base.Router.FallbackByModel, o.Router.FallbackByModel)
+	r.Router = rt
 	return r
 }
 
@@ -304,19 +397,104 @@ func SaveGlobal(c Config) error { return save(GlobalPath(), c) }
 // SaveProject writes c as the project config.
 func SaveProject(root string, c Config) error { return save(ProjectPath(root), c) }
 
+// save writes c to path. Keys this package does not model (the "remote"
+// section, or anything a user added by hand) are kept, so a settings change
+// never deletes them. A file that is not a JSON object is refused rather than
+// overwritten. The write goes to a temporary file in the same directory and
+// is renamed into place, so a crash leaves either the old or the new file.
 func save(path string, c Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(c, "", "  ")
+	fresh, err := json.Marshal(c)
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
+	var next map[string]json.RawMessage
+	if err := json.Unmarshal(fresh, &next); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	kept, err := readObject(path)
+	if err != nil {
+		return err
+	}
+	for k := range configKeys() {
+		delete(kept, k)
+	}
+	for k, v := range next {
+		kept[k] = v
+	}
+	out, err := json.MarshalIndent(kept, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeAtomic(path, append(out, '\n'))
+}
+
+// readObject returns the top-level keys of the JSON object at path. A missing
+// or empty file is an empty object.
+func readObject(path string) (map[string]json.RawMessage, error) {
+	obj := map[string]json.RawMessage{}
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return obj, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(strings.TrimSpace(string(b))) == 0 {
+		return obj, nil
+	}
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return nil, fmt.Errorf("%s is not a JSON object, not overwriting it: %w", path, err)
+	}
+	return obj, nil
+}
+
+// configKeys is the set of top-level JSON keys that Config owns.
+func configKeys() map[string]bool {
+	keys := map[string]bool{}
+	t := reflect.TypeOf(Config{})
+	for i := 0; i < t.NumField(); i++ {
+		name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ",")
+		if name != "" && name != "-" {
+			keys[name] = true
+		}
+	}
+	return keys
+}
+
+// writeAtomic replaces path with data via a synced temporary file (0600).
+func writeAtomic(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	ok := false
+	defer func() {
+		if !ok {
+			f.Close()
+			os.Remove(tmp)
+		}
+	}()
+	if _, err := f.Write(data); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	ok = true
+	return nil
 }
 
 // SetReasoningField sets one field of ReasoningByProvider from a flat settings

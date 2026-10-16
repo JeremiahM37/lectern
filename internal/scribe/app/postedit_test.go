@@ -116,9 +116,10 @@ func TestPostEditDiagnosticsDiff(t *testing.T) {
 		t.Fatalf("moved error reported again: %q", r2.Output)
 	}
 
+	// Errors that went away are reported as fixed, and nothing is new.
 	r3 := call()
-	if r3.Output != "ok" {
-		t.Fatalf("third edit should be unchanged, got %q", r3.Output)
+	if r3.Output != "ok\n\n1 fixed since the last check." {
+		t.Fatalf("third edit should report one fixed error and nothing new, got %q", r3.Output)
 	}
 }
 

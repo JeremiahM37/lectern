@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -73,6 +74,13 @@ type App struct {
 	// claimLabel is how other sessions name it (see claims.go).
 	claimOwner string
 	claimLabel string
+
+	// editedFiles are the files this session changed, relative to the
+	// workdir, for memory recall (memory.Inject boosts matching records).
+	editedMu    sync.Mutex
+	editedFiles map[string]bool
+	// restoreNote counts restored message parts that were dropped on load.
+	restoreNote int
 
 	mu        sync.Mutex
 	listeners []agent.Sink
@@ -166,6 +174,9 @@ func Open(ctx context.Context, o Options) (*App, error) {
 		if history, err = a.Store.LoadMessages(meta.ID); err != nil {
 			return nil, err
 		}
+		var dropped int
+		history, dropped = session.ValidateRestored(history)
+		a.restoreNote = dropped
 		modelRef = firstNonEmpty(o.Model, meta.Model, modelRef)
 		a.turn = meta.Turns
 	} else {
@@ -218,6 +229,7 @@ func Open(ctx context.Context, o Options) (*App, error) {
 	a.Planner.Register(a.Tools)
 	a.Dispatch = &agent.Dispatcher{New: a.newSubagent, MaxConcurrent: cfg.Router.MaxAgents, Sink: a.emit}
 	a.Dispatch.Register(a.Tools)
+	a.Dispatch.Features = a.dispatchFeatures()
 	if config.Bool(cfg.DeferredTools, true) {
 		a.deferred = agent.NewDeferred(coreToolNames)
 		agent.RegisterDeferred(a.Tools, a.deferred)
@@ -233,6 +245,9 @@ func Open(ctx context.Context, o Options) (*App, error) {
 		if json.Unmarshal(raw, &pl) == nil {
 			a.Planner.SetPlan(&pl)
 		}
+	}
+	if a.restoreNote > 0 {
+		a.emit(agent.Event{Kind: agent.EvNotice, Text: fmt.Sprintf("Restored session: dropped %d message part(s) that no longer match a tool call.", a.restoreNote)})
 	}
 	a.ext.sessionStart(ctx, a)
 	runOpenHooks(a)
@@ -339,7 +354,7 @@ func (a *App) systemPrompt(sub string) func(string) string {
 		if a.Agent != nil {
 			in.ModelRef = a.Agent.CurrentModel().Ref
 		}
-		if a.Skills != nil {
+		if a.Skills != nil && a.Cfg.AgentFeatures.Enabled("agent_skills") {
 			in.Skills = a.Skills.Catalog()
 		}
 		// Subagents get every tool they can use, so only the lead lists the
@@ -396,6 +411,9 @@ func (a *App) agentOptions(model agent.Model, mode string) agent.Options {
 		Hooks:     a.claimHooks(a.ext.hooks),
 		Headers:   map[string]string{"X-Session-Id": a.Meta.ID},
 		Deferred:  a.deferred,
+		// The dispatcher is the guard: while subagents run, the shell and git
+		// tools refuse repository changes (agent publishes it to Services).
+		Guard: a.Dispatch,
 	}
 	if config.Bool(a.Cfg.AutoCheck, true) {
 		o.Verify = autoVerify(a.Workdir)
@@ -408,20 +426,39 @@ func (a *App) agentOptions(model agent.Model, mode string) agent.Options {
 			o.Fallback = append(o.Fallback, m)
 		}
 	}
-	if config.Bool(a.Cfg.AutoCompact, true) {
+	// Per-model fallback chains (router.fallback_by_model) replace the shared
+	// list for the model they name.
+	for primary, refs := range a.Cfg.Router.FallbackByModel {
+		var chain []agent.Model
+		for _, ref := range refs {
+			if m, err := a.resolve(ref); err == nil {
+				chain = append(chain, m)
+			}
+		}
+		if o.FallbackFor == nil {
+			o.FallbackFor = map[string][]agent.Model{}
+		}
+		o.FallbackFor[primary] = chain
+	}
+	// compact_strategy "disabled" turns compaction off; v1 and v2 choose the
+	// summary style (see agent.SummaryCompactor).
+	compactOn := config.Bool(a.Cfg.AutoCompact, true) && a.Cfg.CompactStrategy != "disabled"
+	if compactOn {
 		cm := model
 		if a.Cfg.Router.Compact != "" {
 			if m, err := a.resolve(a.Cfg.Router.Compact); err == nil {
 				cm = m
 			}
 		}
-		o.Compactor = agent.SummaryCompactor{Model: cm}
+		o.Compactor = agent.SummaryCompactor{Model: cm, Strategy: a.Cfg.CompactStrategy}
 		o.CompactAt = a.Cfg.CompactAt
 	} else {
 		o.CompactAt = -1
 	}
 	if a.Memory != nil {
-		o.Recall = func(_ context.Context, prompt string) string { return a.Memory.Inject(prompt, nil) }
+		o.Recall = func(_ context.Context, prompt string) string {
+			return a.Memory.Inject(prompt, a.editedFilesSnapshot())
+		}
 	}
 	if !a.opts.Ephemeral {
 		o.Persist = a.persist
@@ -446,9 +483,63 @@ func (a *App) subagentTools(role string) *tools.Registry {
 		if role == "web" && n != "web_search" && n != "fetch_page" {
 			continue
 		}
+		if role == "explore" && n == "read" {
+			t = capReadLines{Tool: t, max: exploreReadLines}
+		}
 		reg.Register(t)
 	}
 	return reg
+}
+
+// dispatchFeatures maps the config agent_features switches onto the
+// dispatcher. Unset keys keep their documented defaults (config.AgentFeatures).
+func (a *App) dispatchFeatures() *agent.Features {
+	f := a.Cfg.AgentFeatures
+	return &agent.Features{
+		Desloppify:           f.Enabled("desloppify"),
+		TierRouting:          f.Enabled("tier_routing"),
+		DispatchCache:        f.Enabled("dispatch_cache"),
+		TargetFileValidation: f.Enabled("target_file_validation"),
+		VerifyEdits:          f.Enabled("verify_edits"),
+	}
+}
+
+// exploreReadLines caps one read call made by an explore subagent (spec 1.3).
+const exploreReadLines = 750
+
+// capReadLines wraps the read tool for explore subagents so one call never
+// returns more than max lines. An absent or larger limit is set to max; a
+// smaller one is kept.
+type capReadLines struct {
+	tools.Tool
+	max int
+}
+
+func (t capReadLines) Run(ctx context.Context, env *tools.Env, raw json.RawMessage) tools.Result {
+	var args map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &args); err != nil || args == nil {
+		return t.Tool.Run(ctx, env, raw)
+	}
+	cur := 0
+	if v, ok := args["limit"]; ok {
+		var n int
+		if json.Unmarshal(v, &n) == nil {
+			cur = n
+		} else {
+			var str string
+			if json.Unmarshal(v, &str) == nil {
+				fmt.Sscan(str, &cur)
+			}
+		}
+	}
+	if cur < 1 || cur > t.max {
+		b, _ := json.Marshal(t.max)
+		args["limit"] = b
+		if re, err := json.Marshal(args); err == nil {
+			raw = re
+		}
+	}
+	return t.Tool.Run(ctx, env, raw)
 }
 
 // newSubagent builds an explore, code or web subagent.
@@ -461,7 +552,9 @@ func (a *App) newSubagent(role, id string, sink agent.Sink) *agent.Agent {
 		ref = a.Cfg.Router.WebSearch
 	}
 	model := a.Agent.CurrentModel()
-	if ref != "" {
+	// tier_routing off sends subagents to the parent model, whatever the
+	// explore and code slots name.
+	if ref != "" && a.Cfg.AgentFeatures.Enabled("tier_routing") {
 		if m, err := a.resolve(ref); err == nil {
 			model = m
 		}
@@ -478,6 +571,19 @@ func (a *App) newSubagent(role, id string, sink agent.Sink) *agent.Agent {
 	if role == "explore" {
 		mode = "architect" // read-only gate as a second line of defence
 	}
+	// Subagents get the parent's reasoning effort; explore runs at low effort
+	// (spec 03 §3.4). Their budgets nudge them to wrap up (spec 03 §3.5).
+	reasoning := a.Agent.Reasoning()
+	if role == "explore" && reasoning != "" {
+		reasoning = "low"
+	}
+	var budget *agent.StepBudget
+	switch role {
+	case "explore":
+		budget = &agent.StepBudget{Kind: "explore", NudgeAt: 8, Window: model.Info.ContextWindow}
+	case "code":
+		budget = &agent.StepBudget{Kind: "code", NudgeAt: 12, Window: model.Info.ContextWindow}
+	}
 	return agent.New(agent.Options{
 		ID:        id,
 		Model:     model,
@@ -486,6 +592,7 @@ func (a *App) newSubagent(role, id string, sink agent.Sink) *agent.Agent {
 		System:    a.systemPrompt(role),
 		Mode:      mode,
 		MaxTokens: a.Cfg.MaxTokens,
+		Reasoning: reasoning,
 		Sink: func(e agent.Event) {
 			e.AgentID = id
 			sink(e)
@@ -493,8 +600,32 @@ func (a *App) newSubagent(role, id string, sink agent.Sink) *agent.Agent {
 		},
 		MaxSteps:  steps,
 		CompactAt: -1,
+		RetryBase: 2 * time.Second, // subagents back off from 2 s (spec 03 §10)
+		Budget:    budget,
 		Hooks:     a.claimHooks(a.ext.hooks),
 	})
+}
+
+// editedFilesSnapshot returns the files this session has changed, sorted.
+func (a *App) editedFilesSnapshot() []string {
+	a.editedMu.Lock()
+	defer a.editedMu.Unlock()
+	out := make([]string, 0, len(a.editedFiles))
+	for f := range a.editedFiles {
+		out = append(out, f)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// noteEdited records that the session changed rel (relative to the workdir).
+func (a *App) noteEdited(rel string) {
+	a.editedMu.Lock()
+	defer a.editedMu.Unlock()
+	if a.editedFiles == nil {
+		a.editedFiles = map[string]bool{}
+	}
+	a.editedFiles[filepath.ToSlash(rel)] = true
 }
 
 // Subscribe adds an event listener (TUI, headless printer, Lectern bridge).
@@ -635,6 +766,9 @@ func (a *App) SetModel(ref string) error {
 	a.mu.Lock()
 	a.Meta.Model = m.Ref
 	a.mu.Unlock()
+	// A model the user picked ranks higher in the picker next time (spec
+	// frecency). A failed write only costs the ranking.
+	_ = session.RecordPick("model", m.Ref)
 	if !a.opts.Ephemeral {
 		_ = a.Store.SaveMeta(&a.Meta)
 	}

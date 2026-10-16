@@ -37,18 +37,24 @@ const sessionSaveTimeout = 5 * time.Second
 // approval host. The first tab resumes what the flags asked for; later tabs
 // start fresh sessions in the same folder.
 //
-// SIGTERM and SIGHUP end the UI like a quit: the running turn is aborted, the
-// sessions are saved and the terminal is restored. Either way the exit prints
-// the session id and how to resume it, and a signal exits 0.
+// SIGINT, SIGTERM and SIGHUP end the UI like a quit: the running turn is
+// aborted, the sessions are saved and the terminal is restored. Either way the
+// exit prints the session id and how to resume it, and a signal exits 0. A
+// crash inside the UI exits 1, after the sessions are saved and the terminal is
+// restored.
 func runScribeTUI(ctx context.Context, opts app.Options, args []string) int {
 	topts := tui.Options{}
-	demo, resumeTurn := false, false
+	demo, resumeTurn, telegramFlag := false, false, false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--demo":
 			demo = true
+		case "--telegram":
+			telegramFlag = true
 		case "--pick":
 			topts.Pick = true
+		case "--wizard":
+			topts.Wizard = true
 		case "--continue-turn":
 			resumeTurn = true
 		case "--prompt":
@@ -84,6 +90,7 @@ func runScribeTUI(ctx context.Context, opts app.Options, args []string) int {
 				return nil, err
 			}
 			be := app.NewBackend(a, host)
+			attachRemote(a, be, first && (telegramFlag || telegramInConfig()))
 			if c, ok := be.(tui.Continuer); ok && first && resumeTurn {
 				started, cerr := c.Continue()
 				switch {
@@ -131,6 +138,9 @@ func runScribeTUI(ctx context.Context, opts app.Options, args []string) int {
 		printSavedBanners(list)
 	}
 	if err != nil {
+		// A crash in the UI: bubbletea has usually restored the terminal
+		// already, but restoring again is harmless and covers the rest.
+		restoreTerminal(fd, oldState)
 		fmt.Fprintf(os.Stderr, "lectern code: %v\n", err)
 		return 1
 	}
@@ -175,6 +185,14 @@ var headlessFlags = map[string]bool{
 // a stdin that is not a terminal, run Scribe non-interactively. Anything else
 // opens the full-screen TUI.
 func codeCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	// --version answers the same at a terminal and in a pipe, and does not
+	// attach to a Lectern session or start a UI.
+	for _, a := range args {
+		if a == "--version" || a == "-v" {
+			fmt.Fprintln(stdout, version.Version)
+			return 0
+		}
+	}
 	maybeLecternBridge()
 	if wantsHeadless(args, stdin) {
 		return headless.Run(context.Background(), stripHeadlessWords(args), stdin, stdout, stderr)
@@ -232,14 +250,14 @@ func codeTUI(args []string, stderr io.Writer) int {
 			return "", false
 		}
 		switch name {
-		case "--model", "--mode", "--cwd", "--preset":
+		case "--model", "-m", "--mode", "--cwd", "--preset":
 			v, ok := next()
 			if !ok {
 				fmt.Fprintf(stderr, "lectern code: %s needs a value\n", name)
 				return 2
 			}
 			switch name {
-			case "--model":
+			case "--model", "-m":
 				opts.Model = v
 			case "--mode":
 				opts.Mode = v
@@ -263,6 +281,15 @@ func codeTUI(args []string, stderr io.Writer) int {
 			cont = true
 		case "--demo":
 			tuiArgs = append(tuiArgs, "--demo")
+		case "--wizard":
+			tuiArgs = append(tuiArgs, "--wizard")
+		case "--telegram":
+			// The bot token is needed before the UI opens, so say so here.
+			if !telegramTokenSet() {
+				fmt.Fprintf(stderr, "lectern code: --telegram: no Telegram bot token: set %s to the token from @BotFather\n", telegramTokenEnv)
+				return 2
+			}
+			tuiArgs = append(tuiArgs, "--telegram")
 		case "--help", "-h":
 			fmt.Fprintln(stderr, "Run `lectern help code` for the flags.")
 			return 0
@@ -289,6 +316,15 @@ func codeTUI(args []string, stderr io.Writer) int {
 			return 1
 		}
 		cwd = wd
+	}
+	// Check the folder before anything reads or creates it, so a typo gets one
+	// clear line rather than a mkdir error from deep inside the session.
+	if fi, err := os.Stat(cwd); err != nil {
+		fmt.Fprintf(stderr, "lectern code: --cwd: %v\n", err)
+		return 1
+	} else if !fi.IsDir() {
+		fmt.Fprintf(stderr, "lectern code: --cwd: %s is not a directory\n", cwd)
+		return 1
 	}
 	opts.Workdir = cwd
 	if opts.Preset != "" {

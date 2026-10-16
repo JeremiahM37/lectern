@@ -90,6 +90,7 @@ func run(parent context.Context, args []string, stdin io.Reader, stdout, stderr 
 		Resume:    o.session,
 		NoRepoMap: o.noRepoMap,
 		System:    o.system,
+		Preset:    o.preset,
 		Version:   version.Version,
 		// Sessions are kept for --save-session, --chat and --session. A
 		// one-off run leaves nothing behind.
@@ -135,7 +136,7 @@ type turnResult struct {
 }
 
 func (r *runner) start(chat bool) {
-	r.out.start(r.app.Agent.CurrentModel().Ref, r.app.Agent.Mode(), chat, r.app.SessionID())
+	r.out.start(r.app.Agent.CurrentModel().Ref, r.app.Agent.Mode(), chat, r.app.SessionID(), !r.o.noRepoMap)
 }
 
 func (r *runner) once(prompt string) int {

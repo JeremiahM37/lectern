@@ -46,6 +46,70 @@ func TestShapesAreMasked(t *testing.T) {
 	}
 }
 
+func TestNewShapesAreMasked(t *testing.T) {
+	// Fake values with the right shape only.
+	cases := map[string]string{
+		"jwt":         "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJGQUtFMTIzIn0.SflKxwRJSMeKKF2QT4",
+		"stripe-sk":   "sk_live_FAKE0123456789abcdefgh",
+		"stripe-test": "sk_test_FAKE0123456789abcdefgh",
+		"stripe-rk":   "rk_live_FAKE0123456789abcdefgh",
+		"stripe-wh":   "whsec_FAKE0123456789abcdefgh",
+		"npm":         "npm_FAKE0123456789abcdefghijklmnopqrstu",
+	}
+	for name, key := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := New().Redact("token is " + key + " end")
+			if strings.Contains(got, key) {
+				t.Fatalf("raw secret survived: %q", got)
+			}
+			if !strings.HasSuffix(got, " end") {
+				t.Fatalf("surrounding text damaged: %q", got)
+			}
+		})
+	}
+}
+
+func TestURLUserinfoKeepsUserAndHost(t *testing.T) {
+	r := New()
+	cases := []struct{ in, want string }{
+		{"postgres://app:Sup3rS3cret@db.internal:5432/main", "postgres://app:[redacted]@db.internal:5432/main"},
+		{"mysql://root:hunter2hunter2@127.0.0.1/shop", "mysql://root:[redacted]@127.0.0.1/shop"},
+		{"mongodb+srv://svc:p4ssw0rd-xyz@cluster0.example.net/?retryWrites=true", "mongodb+srv://svc:[redacted]@cluster0.example.net/?retryWrites=true"},
+		{"redis://:r3disPassw0rd@cache:6379", "redis://:[redacted]@cache:6379"},
+		{"https://bot:tok3nvalue99@git.example.com/repo.git", "https://bot:[redacted]@git.example.com/repo.git"},
+		{`{"url":"postgres://app:Sup3rS3cret@db/x"}`, `{"url":"postgres://app:[redacted]@db/x"}`},
+	}
+	for _, c := range cases {
+		if got := r.Redact(c.in); got != c.want {
+			t.Errorf("Redact(%q)\n got %q\nwant %q", c.in, got, c.want)
+		}
+	}
+}
+
+// Code and output that look near the new shapes must pass through untouched.
+func TestNewShapesNoFalsePositives(t *testing.T) {
+	ok := []string{
+		`git clone git@github.com:JeremiahM37/lectern.git`,
+		`ssh://git@github.com/org/repo`,
+		`listen on https://example.com:8443/path`,
+		`url := "postgres://${DB_USER}:${DB_PASS}@db:5432/app"`,
+		`dsn: postgres://app:<password>@localhost/app`,
+		`see https://docs.example.com:443/guide and then stop`,
+		`export npm_config_cache=/home/admin/.npm npm_package_version`,
+		`npm install && npm run build`,
+		`stripe: sk_test_placeholder and pk_live_publishable00000000`,
+		`const kind = "eyJ"`,
+		`header.payload.sig in prose eyJ is base64 for {"`,
+		`whsec_ prefix only`,
+	}
+	r := New()
+	for _, in := range ok {
+		if got := r.Redact(in); got != in {
+			t.Errorf("ordinary text changed:\n%s", diff(in, got))
+		}
+	}
+}
+
 func TestPEMBlockMasked(t *testing.T) {
 	pem := "-----BEGIN RSA PRIVATE KEY-----\nMIIEFAKEBODY0123\nABCDEF\n-----END RSA PRIVATE KEY-----"
 	got := New().Redact("cat key.pem:\n" + pem + "\ndone")

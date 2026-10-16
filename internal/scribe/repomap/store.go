@@ -2,14 +2,14 @@ package repomap
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 
 	_ "modernc.org/sqlite"
 )
 
 // schemaVersion invalidates the cache when the extraction format changes.
-const schemaVersion = "repomap-2"
+// repomap-3: binary rows (codec.go), doc comments and call lists.
+const schemaVersion = "repomap-3"
 
 type cacheRow struct {
 	mtime, size int64
@@ -52,6 +52,12 @@ func openStore(dsn string) (*sql.DB, error) {
 		}
 	}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, mtime INTEGER NOT NULL, size INTEGER NOT NULL, hash TEXT NOT NULL, data BLOB NOT NULL)`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	// Summaries are keyed by content hash, so an edited file's summary is
+	// ignored until it is regenerated. They survive extractor changes.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS summaries (path TEXT PRIMARY KEY, hash TEXT NOT NULL, text TEXT NOT NULL)`); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -108,12 +114,44 @@ func writeRows(db *sql.DB, ups []upsert, dels []string) error {
 	return tx.Commit()
 }
 
-func encodeInfo(fi *fileInfo) ([]byte, error) { return json.Marshal(fi) }
-
-func decodeInfo(b []byte) (*fileInfo, error) {
-	var fi fileInfo
-	if err := json.Unmarshal(b, &fi); err != nil {
+func loadSummaries(db *sql.DB) (map[string]summaryEntry, error) {
+	rows, err := db.Query(`SELECT path, hash, text FROM summaries`)
+	if err != nil {
 		return nil, err
 	}
-	return &fi, nil
+	defer rows.Close()
+	out := map[string]summaryEntry{}
+	for rows.Next() {
+		var p string
+		var e summaryEntry
+		if err := rows.Scan(&p, &e.hash, &e.text); err != nil {
+			return nil, err
+		}
+		out[p] = e
+	}
+	return out, rows.Err()
+}
+
+// writeSummaries stores generated summaries and drops rows for files that
+// left the map.
+func writeSummaries(db *sql.DB, put map[string]summaryEntry, drop []string) error {
+	if len(put) == 0 && len(drop) == 0 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for p, e := range put {
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO summaries(path,hash,text) VALUES(?,?,?)`, p, e.hash, e.text); err != nil {
+			return err
+		}
+	}
+	for _, p := range drop {
+		if _, err := tx.Exec(`DELETE FROM summaries WHERE path=?`, p); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

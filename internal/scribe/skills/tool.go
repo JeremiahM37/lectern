@@ -79,11 +79,15 @@ func (skillsTool) Run(_ context.Context, env *tools.Env, raw json.RawMessage) to
 	case "":
 		return tools.Errorf("action is required: list or load.")
 	}
+	if near := closest(a.Action, []string{"list", "load"}); near != "" {
+		return tools.Errorf("unknown action %q. Did you mean %q? Use list or load.", a.Action, near)
+	}
 	return tools.Errorf("unknown action %q. Use list or load.", a.Action)
 }
 
-// namesOrNone lists skill names, closest to want first (substring match),
-// so a near-miss name gets a useful suggestion.
+// namesOrNone lists up to eight skill names for a name that did not match.
+// Names that contain the wanted text, or that it contains, come first, then
+// the rest by edit distance, so a near-miss gets a useful suggestion.
 func namesOrNone(set *Set, want string) string {
 	if len(set.Skills) == 0 {
 		return "none installed"
@@ -92,13 +96,19 @@ func namesOrNone(set *Set, want string) string {
 	type scored struct {
 		name string
 		hit  bool
+		dist int
 	}
 	var all []scored
 	for _, sk := range set.Skills {
 		n := strings.ToLower(sk.Name)
-		all = append(all, scored{sk.Name, strings.Contains(n, w) || strings.Contains(w, n)})
+		all = append(all, scored{sk.Name, strings.Contains(n, w) || strings.Contains(w, n), editDistance(n, w)})
 	}
-	sort.SliceStable(all, func(i, j int) bool { return all[i].hit && !all[j].hit })
+	sort.SliceStable(all, func(i, j int) bool {
+		if all[i].hit != all[j].hit {
+			return all[i].hit
+		}
+		return all[i].dist < all[j].dist
+	})
 	var names []string
 	for i, s := range all {
 		if i == 8 {
@@ -107,4 +117,46 @@ func namesOrNone(set *Set, want string) string {
 		names = append(names, s.name)
 	}
 	return strings.Join(names, ", ")
+}
+
+// closest returns the option within a small edit distance of word (and at
+// most a third of its length), or "" when none is near enough.
+func closest(word string, options []string) string {
+	w := strings.ToLower(strings.TrimSpace(word))
+	if w == "" {
+		return ""
+	}
+	best, bestD := "", -1
+	for _, o := range options {
+		d := editDistance(w, o)
+		if bestD < 0 || d < bestD {
+			best, bestD = o, d
+		}
+	}
+	if bestD <= 2 && bestD*3 <= len(w)+2 {
+		return best
+	}
+	return ""
+}
+
+// editDistance is the Levenshtein distance between a and b, in runes.
+func editDistance(a, b string) int {
+	ra, rb := []rune(a), []rune(b)
+	prev := make([]int, len(rb)+1)
+	cur := make([]int, len(rb)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(ra); i++ {
+		cur[0] = i
+		for j := 1; j <= len(rb); j++ {
+			cost := 1
+			if ra[i-1] == rb[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev, cur = cur, prev
+	}
+	return prev[len(rb)]
 }

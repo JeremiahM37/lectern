@@ -36,7 +36,8 @@ const (
 	EvPlan         EventKind = "plan"          // Plan (proposed or updated)
 	EvTasks        EventKind = "tasks"         // Tasks (task_list changed)
 	EvSubagent     EventKind = "subagent"      // Agent (id, task, status, model, step, tokens)
-	EvContext      EventKind = "context"       // ContextUsed, ContextWindow (after each step)
+	EvContext      EventKind = "context"       // ContextUsed, ContextWindow (after each step); Estimated before the first response
+	EvNotice       EventKind = "notice"        // Text: an information note, not a fault
 	EvTurnDone     EventKind = "turn_done"     // Stats; Text = final answer
 )
 
@@ -67,9 +68,14 @@ type Event struct {
 	MaxAttempts int               `json:"max_attempts,omitempty"`
 	Category    llm.ErrorCategory `json:"category,omitempty"`
 	Delay       time.Duration     `json:"delay,omitempty"`
+	// Status is the HTTP status the provider answered with, when it did.
+	Status int `json:"status,omitempty"`
 
 	ContextUsed   int `json:"context_used,omitempty"`
 	ContextWindow int `json:"context_window,omitempty"`
+	// Estimated marks a context count made from characters, not reported
+	// by the provider.
+	Estimated bool `json:"estimated,omitempty"`
 
 	Plan  *Plan      `json:"plan,omitempty"`
 	Tasks []Task     `json:"tasks,omitempty"`
@@ -88,6 +94,8 @@ type Plan struct {
 	Body string `json:"body,omitempty"`
 	// Path is where the plan was saved (.scribe/plans/<slug>.md).
 	Path string `json:"path,omitempty"`
+	// Verification is the checklist that proves the change works, in order.
+	Verification []string `json:"verification,omitempty"`
 }
 
 // PlanStep is one step of a Plan.
@@ -96,6 +104,8 @@ type PlanStep struct {
 	Text   string   `json:"text"`
 	Status string   `json:"status"` // pending | active | done | skipped
 	Files  []string `json:"files,omitempty"`
+	// Symbols are the code symbols the step adds, modifies, removes or renames.
+	Symbols []PlanSymbol `json:"symbols,omitempty"`
 }
 
 // Task is one task_list entry.
@@ -125,6 +135,7 @@ type TurnStats struct {
 	CostUSD     float64       `json:"cost_usd"`
 	ToolCalls   []string      `json:"tool_calls"`
 	FilesEdited []string      `json:"files_edited"`
+	FilesRead   []string      `json:"files_read,omitempty"`
 	Duration    time.Duration `json:"duration"`
 	Error       string        `json:"error,omitempty"`
 	Aborted     bool          `json:"aborted,omitempty"`

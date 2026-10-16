@@ -199,7 +199,8 @@ func findServer(spec *serverSpec, root string) (string, []string, bool) {
 	return "", nil, false
 }
 
-// lookBinary searches PATH, ~/go/bin, ~/.local/bin and node_modules/.bin in
+// lookBinary searches PATH, ~/go/bin, ~/.local/bin, the Mason bin directory
+// (where Neovim's installer puts language servers) and node_modules/.bin in
 // root and its ancestors.
 func lookBinary(name, root string) (string, bool) {
 	if p, err := exec.LookPath(name); err == nil {
@@ -207,7 +208,10 @@ func lookBinary(name, root string) (string, bool) {
 	}
 	var dirs []string
 	if home, err := os.UserHomeDir(); err == nil {
-		dirs = append(dirs, filepath.Join(home, "go", "bin"), filepath.Join(home, ".local", "bin"))
+		dirs = append(dirs,
+			filepath.Join(home, "go", "bin"),
+			filepath.Join(home, ".local", "bin"),
+			filepath.Join(home, ".local", "share", "nvim", "mason", "bin"))
 	}
 	for d := root; ; d = filepath.Dir(d) {
 		dirs = append(dirs, filepath.Join(d, "node_modules", ".bin"))

@@ -186,3 +186,84 @@ func TestMemoryWidthsAt80And140(t *testing.T) {
 		checkWidths(t, m, w, 30)
 	}
 }
+
+func TestMemoryPurgeAllNeedsAY(t *testing.T) {
+	b := memFixture()
+	m := openMemory(t, 140, 36, b)
+	send(m, "ctrl+x")
+	mustContain(t, screen(m), "Permanently clear all 3 memories from project + global?")
+	send(m, "n") // any key but y cancels
+	if len(b.deleted) != 0 || strings.Contains(screen(m), "Permanently clear") {
+		t.Fatalf("a non-y key must cancel the purge, deleted=%v", b.deleted)
+	}
+	send(m, "ctrl+x")
+	send(m, "y")
+	if len(b.deleted) != 3 {
+		t.Fatalf("y should clear all 3 memories, deleted=%v", b.deleted)
+	}
+	mustContain(t, screen(m), "Cleared 3 memories")
+}
+
+func TestMemoryPurgeWithNothingIsNoOp(t *testing.T) {
+	b := newRecBackend()
+	m := openMemory(t, 140, 36, b)
+	send(m, "ctrl+x")
+	if strings.Contains(screen(m), "Permanently clear") {
+		t.Fatal("ctrl+x with no memories should not ask")
+	}
+}
+
+func cleanupFixture() *recBackend {
+	b := memFixture()
+	b.cands = []CleanupCandidate{
+		{Item: MemoryItem{ID: "p2", Scope: "project", Category: "decision", Title: "Use bubbletea for the TUI", Body: "Chosen over tview."}, Reasons: []string{"file gone: internal/old.go"}},
+		{Item: MemoryItem{ID: "g1", Scope: "global", Category: "preference", Title: "Prefer short answers", Body: "Calm."}, Reasons: []string{"not used in 90 days"}},
+	}
+	return b
+}
+
+func TestMemoryCleanupTabListsReasons(t *testing.T) {
+	m := openMemory(t, 140, 36, cleanupFixture())
+	send(m, "tab")
+	send(m, "tab") // project, global, cleanup
+	s := screen(m)
+	mustContain(t, s, "Cleanup 2", "file gone", "not used in", "2 to review")
+	mustContain(t, s, "Listed because: file gone: internal/old.go")
+	mustNotContain(t, s, "Tests live next to the code")
+}
+
+func TestMemoryCleanupEmptyState(t *testing.T) {
+	m := openMemory(t, 140, 36, memFixture())
+	send(m, "tab")
+	send(m, "tab")
+	mustContain(t, screen(m), "Nothing to clean up")
+}
+
+func TestMemoryCleanupDeleteAsksFirstAndRefreshes(t *testing.T) {
+	b := cleanupFixture()
+	m := openMemory(t, 140, 36, b)
+	send(m, "tab")
+	send(m, "tab")
+	send(m, "d")
+	if m.topModal() == nil || topTitle(m) != "Delete memory" {
+		t.Fatalf("d on a candidate should ask first, top=%q", topTitle(m))
+	}
+	send(m, "esc")
+	if len(b.deleted) != 0 {
+		t.Fatal("nothing may be deleted before confirming")
+	}
+	send(m, "d")
+	send(m, "y")
+	if len(b.deleted) != 1 || b.deleted[0] != "p2" {
+		t.Fatalf("confirmed delete removed %v, want [p2]", b.deleted)
+	}
+}
+
+func TestMemoryCleanupTabDoesNotTypeSearch(t *testing.T) {
+	m := openMemory(t, 140, 36, cleanupFixture())
+	send(m, "tab")
+	send(m, "tab")
+	send(m, "/")
+	typeText(m, "zzz")
+	mustContain(t, screen(m), "Use bubbletea")
+}

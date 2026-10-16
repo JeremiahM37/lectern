@@ -49,8 +49,20 @@ type Compactor interface {
 type Options struct {
 	Model    Model
 	Fallback []Model // tried in order when Model keeps failing
+	// FallbackFor overrides Fallback for one primary model, keyed by its
+	// Ref. A model with no entry uses Fallback.
+	FallbackFor map[string][]Model
 
 	Tools *tools.Registry
+	// SequentialTools runs every tool call in order. By default consecutive
+	// read-only calls run in parallel.
+	SequentialTools bool
+	// ToolTimeout bounds one tool call; 0 takes 900 s, negative turns the
+	// bound off. A timed-out call returns an error to the model.
+	ToolTimeout time.Duration
+	// Guard is the dispatcher, consulted by DispatchActive. Nil is fine:
+	// the agent still reports its own dispatch calls.
+	Guard DispatchGuard
 	// Active lists the tool names offered to the model (nil = all).
 	Active map[string]bool
 	// Env is the template for every tool call (CallID/Mode are filled in).
@@ -82,6 +94,15 @@ type Options struct {
 	// retries are immediate and do not use MaxRetries.
 	MaxStallRetries int
 
+	// RetryBase is the base delay of transient retries: attempt n waits
+	// RetryBase×2^n plus up to half of it. Zero takes 1 s (chat); subagents
+	// use 2 s. Clamped to 250 ms–60 s.
+	RetryBase time.Duration
+
+	// Budget bounds a subagent's run: step nudges, a tool-less final step and
+	// a token limit (spec 03 §3.5). Nil for the main agent.
+	Budget *StepBudget
+
 	// Tune edits every model request after it is built, for example to set
 	// provider options that depend on the conversation. m is the model the
 	// request goes to (the current one, or a fallback). May be nil.
@@ -94,7 +115,7 @@ type Options struct {
 	AfterTool func(ctx context.Context, name string, args json.RawMessage, res *tools.Result)
 
 	Compactor Compactor
-	CompactAt float64 // fraction of the context window, default 0.8; <0 disables
+	CompactAt float64 // fraction of the context window, default 0.7; <0 disables
 
 	// Deferred, when set, offers only the core tools plus those the model
 	// activated with request_tools. Nil offers every tool (subagents).
@@ -150,6 +171,24 @@ type Agent struct {
 	// arguments were not valid JSON, keyed by call id. Their history parts
 	// carry "{}" so the transcript stays valid; runTool refuses to run them.
 	badArgs map[string]badArg
+
+	// Subagent budget state (budget.go). policy is decided before each step
+	// and read by request and execTool; tokenNudged and pendingText carry the
+	// token nudge; readStreak counts read-only steps in a row.
+	policy      stepPolicy
+	tokenNudged bool
+	pendingText bool
+	readStreak  int
+
+	// dispatching counts this agent's dispatch tool calls in flight.
+	dispatching int
+	// sysChars is the length of the last system prompt, for the context
+	// estimate before the first response.
+	sysChars int
+	// modelLog and compactLog are the bounded histories behind /model-events
+	// and the compaction log.
+	modelLog   []Event
+	compactLog []Event
 }
 
 // badArg is a tool call whose arguments the provider sent as invalid JSON.
@@ -171,6 +210,11 @@ const (
 	// forceResolveTimeout bounds how long a stalled stream is drained after
 	// it was cancelled, in case the provider does not close its channel.
 	forceResolveTimeout = 5 * time.Second
+	// defaultRetryBase is the transient retry base for the chat (spec 03 §10).
+	defaultRetryBase = time.Second
+	// maxFallbackCycles is how many times the fallback chain may restart
+	// from the primary model before the step fails.
+	maxFallbackCycles = 3
 	// resumeText is sent after a stalled answer's partial text, so the model
 	// continues it instead of starting over.
 	resumeText = "Continue exactly where you stopped."
@@ -201,8 +245,12 @@ func New(o Options) *Agent {
 	if o.StepTimeout == 0 {
 		o.StepTimeout = defaultStepTimeout
 	}
+	if o.RetryBase == 0 {
+		o.RetryBase = defaultRetryBase
+	}
+	o.RetryBase = min(max(o.RetryBase, 250*time.Millisecond), time.Minute)
 	if o.CompactAt == 0 {
-		o.CompactAt = 0.8
+		o.CompactAt = 0.7
 	}
 	if o.Mode == "" {
 		o.Mode = "default"
@@ -236,6 +284,17 @@ func (a *Agent) Messages() []llm.Message {
 }
 
 // SetMode changes the mode for the next step.
+// turnModeNow is the mode the tools and prompt use. It is the live mode: the
+// plan tool's Execute lifts the restrictions within the same turn, so freezing
+// the mode per turn (spec 03 §2.6) would need that path changed first.
+func (a *Agent) turnModeNow() string { return a.Mode() }
+
+// currentPolicy is the step policy in force.
+func (a *Agent) currentPolicy() stepPolicy { a.mu.Lock(); defer a.mu.Unlock(); return a.policy }
+
+// Reasoning is the reasoning effort set for the agent's model calls.
+func (a *Agent) Reasoning() string { a.mu.Lock(); defer a.mu.Unlock(); return a.opts.Reasoning }
+
 func (a *Agent) SetMode(m string) { a.mu.Lock(); a.mode = m; a.mu.Unlock() }
 
 // Mode returns the current mode.
@@ -259,9 +318,87 @@ func (a *Agent) Usage() (llm.Usage, float64) {
 
 // ContextUsed returns the tokens the last request used and the window.
 func (a *Agent) ContextUsed() (int, int) {
+	used, _ := a.ContextEstimate()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.lastIn, a.model.Info.ContextWindow
+	return used, a.model.Info.ContextWindow
+}
+
+// ContextEstimate is the context in use: the last response's count, or,
+// before any response has reported one, an estimate from the characters in
+// the system prompt and history. estimated says which it is.
+func (a *Agent) ContextEstimate() (used int, estimated bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.lastIn > 0 {
+		return a.lastIn, false
+	}
+	return a.sysChars/4 + estimateHistoryTokens(a.msgs), len(a.msgs) > 0
+}
+
+// DispatchActive reports whether subagents may be editing the project now:
+// this agent has a dispatch call in flight, or the guard reports one.
+// It implements DispatchGuard, which the shell and git tools consult.
+func (a *Agent) DispatchActive() bool {
+	a.mu.Lock()
+	own := a.dispatching > 0
+	a.mu.Unlock()
+	return own || (a.opts.Guard != nil && a.opts.Guard.DispatchActive())
+}
+
+// fallbackFor is the fallback chain for a primary model: its own list when
+// the config gave one, else the shared Fallback.
+func (a *Agent) fallbackFor(ref string) []Model {
+	if fb, ok := a.opts.FallbackFor[ref]; ok {
+		return fb
+	}
+	return a.opts.Fallback
+}
+
+// minCompactMessages is the history length below which automatic compaction
+// does not run: summarising a handful of messages saves nothing.
+const minCompactMessages = 6
+
+// ModelEvents returns the model log: each model call's usage, and the
+// retries, fallbacks and errors around it, oldest first.
+func (a *Agent) ModelEvents() []Event {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]Event(nil), a.modelLog...)
+}
+
+// CompactionLog returns the compactions that started, finished or were
+// refused, oldest first.
+func (a *Agent) CompactionLog() []Event {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]Event(nil), a.compactLog...)
+}
+
+// record appends e to the logs it belongs in.
+func (a *Agent) record(e Event) {
+	modelKind := modelLogKinds[e.Kind]
+	compactKind := compactLogKinds[e.Kind] ||
+		(e.Kind == EvWarning && strings.HasPrefix(e.Text, "compaction failed"))
+	if !modelKind && !compactKind {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if modelKind {
+		a.modelLog = appendEventCapped(a.modelLog, e)
+	}
+	if compactKind {
+		a.compactLog = appendEventCapped(a.compactLog, e)
+	}
+}
+
+func appendEventCapped(s []Event, e Event) []Event {
+	s = append(s, e)
+	if over := len(s) - journalCap; over > 0 {
+		s = append([]Event(nil), s[over:]...)
+	}
+	return s
 }
 
 // Running reports whether a turn is in progress.
@@ -329,6 +466,7 @@ func (a *Agent) emit(e Event) {
 	if e.AgentID == "" {
 		e.AgentID = a.opts.ID
 	}
+	a.record(e)
 	a.opts.Sink(e)
 }
 
@@ -402,6 +540,9 @@ func (a *Agent) Run(ctx context.Context, prompt string, images []llm.Part) (Turn
 	}
 	if a.opts.Hooks != nil {
 		a.opts.Hooks.Stop(context.WithoutCancel(ctx), stats)
+		if n, ok := a.opts.Hooks.(notifier); ok && stats.Error != "" && !stats.Aborted {
+			n.Notification(context.WithoutCancel(ctx), dispatchFailedNotice(stats))
+		}
 	}
 	a.emit(Event{Kind: EvTurnDone, Text: final, Stats: &stats})
 	return stats, err
@@ -423,9 +564,20 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 		if err := a.maybeCompact(ctx); err != nil && ctx.Err() != nil {
 			return final, ctx.Err()
 		}
+		a.setPolicy(step)
 		a.emit(Event{Kind: EvStepStart, Step: step})
+		if used, estimated := a.ContextEstimate(); estimated {
+			a.emit(Event{Kind: EvContext, ContextUsed: used, ContextWindow: a.CurrentModel().Info.ContextWindow, Estimated: true})
+		}
 		msg, finish, err := a.stepWithRetry(ctx, step)
 		if err != nil {
+			// An aborted step keeps the answer text it had produced.
+			if ctx.Err() != nil && len(msg.Parts) > 0 {
+				a.mu.Lock()
+				a.msgs = append(a.msgs, msg)
+				a.mu.Unlock()
+				a.persist(false)
+			}
 			return final, err
 		}
 		stats.Steps = step
@@ -460,6 +612,10 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 		if h := a.loopHint(); h != "" {
 			hints = append(hints, h)
 		}
+		budgetHint, stopNow := a.budgetHints(calls, step)
+		if budgetHint != "" {
+			hints = append(hints, budgetHint)
+		}
 		if q := a.drainSteering(); q != "" {
 			hints = append(hints, q)
 		}
@@ -474,7 +630,56 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 		if stop {
 			return msg.Text(), nil
 		}
+		if stopNow {
+			return msg.Text(), nil
+		}
 	}
+}
+
+// setPolicy records the step policy for step before the model is called.
+func (a *Agent) setPolicy(step int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.policy = policyFor(a.opts.Budget, a.opts.MaxSteps, step, a.pendingText)
+	a.pendingText = false
+}
+
+// budgetHints collects the subagent budget hints due after step: the
+// read-only streak, the wrap-up for the next step, and the token nudge. stop
+// is true when the token limit has ended the run. It returns nothing for the
+// main agent.
+func (a *Agent) budgetHints(calls []llm.Part, step int) (hint string, stop bool) {
+	b := a.opts.Budget
+	if b == nil {
+		return "", false
+	}
+	var hints []string
+	allRead := true
+	for _, c := range calls {
+		if !a.readOnly(c) {
+			allRead = false
+			break
+		}
+	}
+	a.mu.Lock()
+	if allRead {
+		a.readStreak++
+	} else {
+		a.readStreak = 0
+	}
+	streak := a.readStreak
+	a.mu.Unlock()
+	if streak == readOnlyStreakHint {
+		hints = append(hints, readStreakHint(b))
+	}
+	if h := wrapUpHint(b, a.opts.MaxSteps, step+1); h != "" {
+		hints = append(hints, h)
+	}
+	h, stop := a.tokenCheck()
+	if h != "" {
+		hints = append(hints, h)
+	}
+	return strings.Join(hints, "\n"), stop
 }
 
 // autoCheck runs Verify once the turn has edited files without a check after
@@ -593,16 +798,18 @@ func (a *Agent) request(extra ...llm.Message) llm.Request {
 	// without the lock held.
 	sys := ""
 	if a.opts.System != nil {
-		sys = a.opts.System(a.Mode())
+		sys = a.opts.System(a.turnModeNow())
 	}
 	offered := a.offeredNames() // takes the lock itself, so call it first
+	specs := a.opts.Tools.Specs(offered)
 	a.mu.Lock()
+	a.sysChars = len(sys)
 	msgs := append(append([]llm.Message(nil), a.msgs...), extra...)
 	req := llm.Request{
 		Model:       a.model.ID,
 		System:      sys,
 		Messages:    msgs,
-		Tools:       a.opts.Tools.Specs(offered),
+		Tools:       a.policy.filterTools(specs),
 		MaxTokens:   a.opts.MaxTokens,
 		Reasoning:   a.opts.Reasoning,
 		CacheSystem: true,
@@ -617,13 +824,32 @@ func (a *Agent) request(extra ...llm.Message) llm.Request {
 }
 
 // stepWithRetry runs one model call, retrying transient failures and then
-// walking the fallback chain.
+// walking the fallback chain. When the chain is exhausted it goes back to
+// the primary model, up to maxFallbackCycles times (spec 03 §5.1).
 func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.FinishReason, error) {
-	models := append([]Model{a.CurrentModel()}, a.opts.Fallback...)
+	primaryNow := a.CurrentModel()
+	chain := append([]Model{primaryNow}, a.fallbackFor(primaryNow.Ref)...)
+	primary := chain[0]
 	var lastErr error
-	for mi, m := range models {
-		if mi > 0 {
-			if m.Ref == models[0].Ref {
+	cycles := 0
+	for i := 0; ; i++ {
+		if i >= len(chain) {
+			// The chain is spent. Go back to the primary, or give up.
+			if len(chain) == 1 {
+				break
+			}
+			cycles++
+			if cycles > maxFallbackCycles {
+				lastErr = fmt.Errorf("exhausted %d fallback cycles: %w", maxFallbackCycles, lastErr)
+				break
+			}
+			a.emit(Event{Kind: EvFallback, Model: primary.Ref, Text: fmt.Sprintf("All fallbacks exhausted, retrying primary (cycle %d/%d): %s", cycles, maxFallbackCycles, errText(lastErr))})
+			a.SetModel(primary)
+			i = 0
+		}
+		m := chain[i]
+		if i > 0 {
+			if m.Ref == primary.Ref {
 				continue
 			}
 			a.emit(Event{Kind: EvFallback, Model: m.Ref, Text: errText(lastErr)})
@@ -639,7 +865,7 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 				return msg, finish, nil
 			}
 			if ctx.Err() != nil {
-				return llm.Message{}, "", ctx.Err()
+				return msg, "", ctx.Err()
 			}
 			lastErr = err
 			var st *stallError
@@ -648,24 +874,25 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 				stalls++
 				limit := max(a.opts.MaxStallRetries, 0)
 				if stalls > limit {
-					lastErr = fmt.Errorf("%s after %d retries; giving up, you can resend your message", st.describe(), limit)
+					lastErr = fmt.Errorf("%s after %d retries; giving up. You can resend your message", st.describe(), limit)
 					break
 				}
 				a.emit(Event{Kind: EvRetry, Attempt: stalls, MaxAttempts: limit, Category: llm.CatStream,
-					Text: fmt.Sprintf("%s. Retrying (%d/%d) from the partial answer.", st.describe(), stalls, limit)})
+					Text: fmt.Sprintf("%s. Auto-retrying (%d/%d)…", st.notice(), stalls, limit)})
 				continue
 			}
 			cat, retry := llm.Classify(err)
+			status := statusOf(err)
 			if !retry {
-				a.emit(Event{Kind: EvError, Category: cat, Text: err.Error()})
+				a.emit(Event{Kind: EvError, Category: cat, Text: err.Error(), Status: status})
 				return llm.Message{}, "", err
 			}
 			if attempt == a.opts.MaxRetries {
 				break
 			}
-			d := backoff(attempt, err)
+			d := backoffFrom(a.opts.RetryBase, attempt, err)
 			attempt++
-			a.emit(Event{Kind: EvRetry, Attempt: attempt, MaxAttempts: a.opts.MaxRetries, Category: cat, Text: err.Error(), Delay: d})
+			a.emit(Event{Kind: EvRetry, Attempt: attempt, MaxAttempts: a.opts.MaxRetries, Category: cat, Text: err.Error(), Delay: d, Status: status})
 			select {
 			case <-time.After(d):
 			case <-ctx.Done():
@@ -674,8 +901,17 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 		}
 	}
 	cat, _ := llm.Classify(lastErr)
-	a.emit(Event{Kind: EvError, Category: cat, Text: errText(lastErr)})
+	a.emit(Event{Kind: EvError, Category: cat, Text: errText(lastErr), Status: statusOf(lastErr)})
 	return llm.Message{}, "", lastErr
+}
+
+// statusOf is the HTTP status of a provider error, or 0 when there is none.
+func statusOf(err error) int {
+	var ae *llm.APIError
+	if errors.As(err, &ae) {
+		return ae.StatusCode
+	}
+	return 0
 }
 
 func errText(err error) string {
@@ -685,14 +921,21 @@ func errText(err error) string {
 	return err.Error()
 }
 
+// backoff is the pause before retry n (n counts from 0) with the chat's base.
 func backoff(attempt int, err error) time.Duration {
+	return backoffFrom(defaultRetryBase, attempt, err)
+}
+
+// backoffFrom is base×2^n plus jitter of up to half the base, or the
+// server's Retry-After when it gave one.
+func backoffFrom(base time.Duration, attempt int, err error) time.Duration {
 	var ae *llm.APIError
 	// An explicit Retry-After: 0 means retry immediately.
 	if errors.As(err, &ae) && ae.RetryAfterSet && ae.RetryAfter < 2*time.Minute {
 		return ae.RetryAfter
 	}
-	base := time.Duration(1<<attempt) * 2 * time.Second
-	return base + time.Duration(rand.Int64N(int64(base/2)))
+	d := base << attempt
+	return d + time.Duration(rand.Int64N(int64(base/2)+1))
 }
 
 // stallError is a model call that went silent. partial is the answer text
@@ -703,6 +946,18 @@ type stallError struct {
 	partial string
 	after   time.Duration // the threshold that tripped
 	total   bool          // true when StepTimeout tripped, not the idle timer
+}
+
+// notice is the user-facing line for a stall, in the chat's wording.
+func (e *stallError) notice() string {
+	if e.total {
+		return e.describe()
+	}
+	wait := e.after.Round(time.Second).String()
+	if e.after < time.Second {
+		wait = e.after.Round(time.Millisecond).String()
+	}
+	return "Connection stalled — no activity for " + wait
 }
 
 func (e *stallError) describe() string {
@@ -826,8 +1081,8 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 					// The adapter could not parse the arguments and passed
 					// the raw text as a JSON string (see llm.ToolArgs).
 					bad[id] = badArg{raw: raw, reason: argsProblem(raw)}
-				} else if raw := bytes.TrimSpace(ev.Args); len(raw) > 0 {
-					if json.Valid(raw) {
+				} else if raw := bytes.TrimSpace(ev.Args); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+					if json.Valid(raw) && raw[0] == '{' {
 						args = raw
 					} else {
 						bad[id] = badArg{raw: string(raw), reason: argsProblem(string(raw))}
@@ -842,7 +1097,7 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 				flushText()
 				flushReason()
 				if ctx.Err() != nil {
-					return llm.Message{}, "", ctx.Err()
+					return textOnly(parts), "", ctx.Err()
 				}
 				return llm.Message{}, "", ev.Err
 			}
@@ -878,7 +1133,9 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 		return llm.Message{}, "", stall
 	}
 	if ctx.Err() != nil {
-		return llm.Message{}, "", ctx.Err()
+		// Abort keeps the answer text produced so far (spec 03 §2.3).
+		flushText()
+		return textOnly(parts), "", ctx.Err()
 	}
 	flushReason()
 	flushText()
@@ -899,6 +1156,21 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 		return llm.Message{}, "", errContentFilter
 	}
 	return llm.Message{Role: llm.RoleAssistant, Parts: parts}, finish, nil
+}
+
+// textOnly keeps the text parts of a partial reply. Tool calls cannot be
+// kept without their results, so they are dropped.
+func textOnly(parts []llm.Part) llm.Message {
+	var keep []llm.Part
+	for _, p := range parts {
+		if p.Type == llm.PartText && strings.TrimSpace(p.Text) != "" {
+			keep = append(keep, p)
+		}
+	}
+	if len(keep) == 0 {
+		return llm.Message{}
+	}
+	return llm.Message{Role: llm.RoleAssistant, Parts: keep}
 }
 
 // argsProblem says why raw tool arguments cannot be used, in the parser's
@@ -945,7 +1217,7 @@ func (a *Agent) runTools(ctx context.Context, calls []llm.Part, stats *TurnStats
 	i := 0
 	for i < len(calls) {
 		j := i
-		for j < len(calls) && a.readOnly(calls[j]) {
+		for !a.opts.SequentialTools && j < len(calls) && a.readOnly(calls[j]) {
 			j++
 		}
 		if j > i+1 {
@@ -966,6 +1238,9 @@ func (a *Agent) runTools(ctx context.Context, calls []llm.Part, stats *TurnStats
 	}
 	for k, c := range calls {
 		stats.ToolCalls = append(stats.ToolCalls, c.ToolName)
+		if c.ToolName == "read" && !out[k].IsError {
+			stats.FilesRead = appendUnique(stats.FilesRead, readPaths(c.Args)...)
+		}
 		if isCheckCall(c) {
 			a.setEdited(false)
 		}
@@ -1018,6 +1293,16 @@ var RestrictedModes = map[string]bool{"plan": true, "architect": true, "socratic
 func (a *Agent) runTool(ctx context.Context, call llm.Part) llm.Part {
 	start := time.Now()
 	a.emit(Event{Kind: EvToolRun, CallID: call.ToolCallID, Tool: call.ToolName, Args: call.Args})
+	if call.ToolName == "dispatch" {
+		a.mu.Lock()
+		a.dispatching++
+		a.mu.Unlock()
+		defer func() {
+			a.mu.Lock()
+			a.dispatching--
+			a.mu.Unlock()
+		}()
+	}
 	res := a.execTool(ctx, call)
 	if a.opts.AfterTool != nil {
 		a.opts.AfterTool(ctx, call.ToolName, call.Args, &res)
@@ -1060,12 +1345,21 @@ func (a *Agent) execTool(ctx context.Context, call llm.Part) (res tools.Result) 
 		return tools.Errorf("the arguments for %s are not valid JSON (%s). The raw input starts with %q. The call was not run. Resend it with valid JSON arguments.",
 			call.ToolName, bad.reason, fragment(bad.raw, 200))
 	}
-	mode := a.Mode()
+	if pol := a.currentPolicy(); !pol.allows(call.ToolName) {
+		return tools.Errorf("%s is not available for this step. The budget for this agent is nearly used up, so reply in text with what you have.", call.ToolName)
+	}
+	mode := a.turnModeNow()
 	if RestrictedModes[mode] && !tools.IsReadOnlyCall(t, call.Args) {
 		return tools.Errorf("mode_restricted: %s mode is read-only, so %s cannot run. Investigate with read-only tools, then present your findings (in plan mode, call the plan tool).", mode, call.ToolName)
 	}
+	args := call.Args
 	if a.opts.Hooks != nil {
-		if block := a.opts.Hooks.PreTool(ctx, call.ToolName, call.Args); block != "" {
+		if rw, ok := a.opts.Hooks.(toolInputRewriter); ok {
+			var block string
+			if args, block = rw.PreToolUpdate(ctx, call.ToolName, args); block != "" {
+				return tools.Errorf("blocked by a hook: %s", block)
+			}
+		} else if block := a.opts.Hooks.PreTool(ctx, call.ToolName, args); block != "" {
 			return tools.Errorf("blocked by a hook: %s", block)
 		}
 	}
@@ -1073,13 +1367,53 @@ func (a *Agent) execTool(ctx context.Context, call llm.Part) (res tools.Result) 
 	env.CallID = call.ToolCallID
 	env.Mode = mode
 	env.Scope = a.scope()
-	res = t.Run(ctx, &env, call.Args)
+	env.Services = withService(env.Services, "dispatch", a)
+	res = a.runWithTimeout(ctx, call.ToolName, t, &env, args)
 	if a.opts.Hooks != nil {
-		if extra := a.opts.Hooks.PostTool(ctx, call.ToolName, call.Args, res); extra != "" {
+		if extra := a.opts.Hooks.PostTool(ctx, call.ToolName, args, res); extra != "" {
 			res.Output += "\n\n" + extra
 		}
 	}
 	return res
+}
+
+// runWithTimeout runs one tool under the tool timeout. A tool that ignores
+// its context and never returns is abandoned after the timeout, so the turn
+// can go on; the model gets an error in its place.
+func (a *Agent) runWithTimeout(ctx context.Context, name string, t tools.Tool, env *tools.Env, args json.RawMessage) tools.Result {
+	limit := a.opts.ToolTimeout
+	if limit < 0 || unbounded(name) {
+		return t.Run(ctx, env, args)
+	}
+	if limit == 0 {
+		limit = defaultToolTimeout
+	}
+	tctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	done := make(chan tools.Result, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				done <- tools.Errorf("internal error in %s: %v", name, r)
+			}
+		}()
+		done <- t.Run(tctx, env, args)
+	}()
+	select {
+	case res := <-done:
+		return res
+	case <-tctx.Done():
+	}
+	if ctx.Err() != nil {
+		return tools.Errorf("%s was stopped before it finished.", name)
+	}
+	// Give a tool that honours its context a moment to report what it did.
+	select {
+	case res := <-done:
+		return res
+	case <-time.After(2 * time.Second):
+	}
+	return tools.Errorf("%s did not finish within %s and was abandoned. Try a narrower request, or do the work in smaller steps.", name, limit.Round(time.Second))
 }
 
 // takeBadArg reports whether a call's arguments were invalid JSON, and
@@ -1142,9 +1476,9 @@ func (a *Agent) toolNames() []string {
 // past CompactAt.
 func (a *Agent) maybeCompact(ctx context.Context) error {
 	a.mu.Lock()
-	used, window, at := a.lastIn, a.model.Info.ContextWindow, a.opts.CompactAt
+	used, window, at, n := a.lastIn, a.model.Info.ContextWindow, a.opts.CompactAt, len(a.msgs)
 	a.mu.Unlock()
-	if a.opts.Compactor == nil || at < 0 || window <= 0 || float64(used) < at*float64(window) {
+	if a.opts.Compactor == nil || at < 0 || window <= 0 || float64(used) < at*float64(window) || n < minCompactMessages {
 		return nil
 	}
 	return a.Compact(ctx, fmt.Sprintf("context %d%% full", used*100/window))
@@ -1155,10 +1489,18 @@ func (a *Agent) Compact(ctx context.Context, reason string) error {
 	if a.opts.Compactor == nil {
 		return errors.New("compaction is not configured")
 	}
+	if h, ok := a.opts.Hooks.(compactObserver); ok {
+		h.PreCompact(context.WithoutCancel(ctx))
+	}
 	a.emit(Event{Kind: EvCompactStart, Text: reason})
 	before := a.Messages()
 	kept, summary, err := a.opts.Compactor.Compact(ctx, before)
 	if err != nil {
+		if errors.Is(err, ErrNotEnoughHistory) {
+			// Nothing is wrong: there is simply too little to summarise yet.
+			a.emit(Event{Kind: EvNotice, Text: "Nothing to compact yet: the history is too short."})
+			return err
+		}
 		a.emit(Event{Kind: EvWarning, Text: "compaction failed: " + err.Error()})
 		return err
 	}

@@ -15,11 +15,21 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/anthropic"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/copilot"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/openai"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/proxy"
 )
 
 // modelCacheTTL bounds how long ListModels results are reused.
-const modelCacheTTL = 10 * time.Minute
+const modelCacheTTL = 30 * time.Minute
+
+// customModelsTimeout bounds model listing and the keyless availability probe
+// for custom providers. Any failure falls back to the static list.
+const customModelsTimeout = 2 * time.Second
+
+// metadataTimeout bounds the metadata fetch ModelInfoAsync makes before it
+// answers.
+const metadataTimeout = 5 * time.Second
 
 // Definition describes one provider, built-in or custom.
 type Definition struct {
@@ -35,6 +45,8 @@ type Definition struct {
 	ASCIIIcon    string            // fallback when Nerd Fonts are off
 	Headers      map[string]string // extra request headers
 	Models       []string          // static model list (custom providers)
+	ModelsURL    string            // explicit model list URL (custom providers)
+	ModelsOff    bool              // never list models; use Models only
 	Custom       bool
 }
 
@@ -92,6 +104,11 @@ type Registry struct {
 	client   *http.Client
 	now      func() time.Time
 	cache    map[string]cachedModels
+	// keyPriority is "env" (default: environment first) or "app" (stored
+	// key first). See SetKeyPriority.
+	keyPriority string
+	// contextOverrides maps "provider/model" to a user-set context window.
+	contextOverrides map[string]int
 }
 
 // New builds the registry from the built-in table plus cfg.Providers. Custom
@@ -105,7 +122,11 @@ func New(cfg config.Config) *Registry {
 		client:   &http.Client{},
 		now:      time.Now,
 		cache:    map[string]cachedModels{},
+
+		keyPriority: "env",
 	}
+	r.SetKeyPriority(cfg.KeyPriority)
+	r.SetContextOverrides(cfg.ContextWindowOverrides)
 	for _, d := range builtins {
 		r.add(d)
 	}
@@ -135,11 +156,21 @@ func New(cfg config.Config) *Registry {
 			KeyOptional: p.APIKeyEnv == "",
 			Headers:     p.Headers,
 			Models:      p.Models,
+			ModelsURL:   modelsURLOf(p),
+			ModelsOff:   p.ModelsAPI != nil && p.ModelsAPI.Off,
 			ASCIIIcon:   "*",
 			Custom:      true,
 		})
 	}
 	return r
+}
+
+// modelsURLOf is the explicit model list URL of a custom provider, or "".
+func modelsURLOf(p config.Provider) string {
+	if p.ModelsAPI == nil {
+		return ""
+	}
+	return p.ModelsAPI.URL
 }
 
 func nonEmpty(s string) []string {
@@ -214,12 +245,22 @@ func localBase(v string) string {
 	return v
 }
 
-// key resolves a provider's key: the environment first, then the key store.
+// key resolves a provider's key. With keyPriority "env" (the default) the
+// environment wins; with "app" the key store wins and the environment is the
+// fallback.
 func (r *Registry) key(d Definition) (key, source string, err error) {
-	for _, e := range d.EnvVars {
-		if v := strings.TrimSpace(os.Getenv(e)); v != "" {
-			return v, "env:" + e, nil
+	if r.keyPriority == "app" {
+		keys, err := readKeys(r.keysPath)
+		if err == nil && keys[d.ID] != "" {
+			return keys[d.ID], "store", nil
 		}
+		if v, src, ok := envKey(d); ok {
+			return v, src, nil
+		}
+		return "", "", err
+	}
+	if v, src, ok := envKey(d); ok {
+		return v, src, nil
 	}
 	keys, err := readKeys(r.keysPath)
 	if err != nil {
@@ -229,6 +270,16 @@ func (r *Registry) key(d Definition) (key, source string, err error) {
 		return v, "store", nil
 	}
 	return "", "", nil
+}
+
+// envKey returns the first non-empty environment variable of d.
+func envKey(d Definition) (string, string, bool) {
+	for _, e := range d.EnvVars {
+		if v := strings.TrimSpace(os.Getenv(e)); v != "" {
+			return v, "env:" + e, true
+		}
+	}
+	return "", "", false
 }
 
 // Provider returns a ready llm.Provider for id. It fails when the provider is
@@ -250,7 +301,12 @@ func (r *Registry) Provider(id string) (llm.Provider, error) {
 		return nil, fmt.Errorf("%s: no API key stored; use SetKey", id)
 	}
 	base := r.baseURL(d)
-	if d.Anthropic {
+	switch {
+	case d.ID == "copilot":
+		return copilot.New(copilot.Options{OAuthToken: key, HTTPClient: r.client}), nil
+	case d.ID == "proxy":
+		return proxy.New(proxy.Options{BaseURL: base, APIKey: key, HTTPClient: r.client, Headers: d.Headers}), nil
+	case d.Anthropic:
 		return anthropic.New(anthropic.Options{
 			ID:           id,
 			APIKey:       key,
@@ -259,14 +315,20 @@ func (r *Registry) Provider(id string) (llm.Provider, error) {
 			ExtraHeaders: d.Headers,
 		}), nil
 	}
-	return openai.New(openai.Options{
-		ID:         id,
-		BaseURL:    base,
-		APIKey:     key,
-		HTTPClient: r.client,
-		Headers:    d.Headers,
-		Models:     d.Models,
-	}), nil
+	oo := openai.Options{
+		ID:          id,
+		BaseURL:     base,
+		APIKey:      key,
+		HTTPClient:  r.client,
+		Headers:     d.Headers,
+		Models:      d.Models,
+		ModelsURL:   d.ModelsURL,
+		NoModelList: d.ModelsOff,
+	}
+	if d.Custom {
+		oo.ModelsTimeout = customModelsTimeout
+	}
+	return openai.New(oo), nil
 }
 
 // Resolve splits "provider/model" and returns the provider and model id. The
@@ -325,7 +387,7 @@ func (r *Registry) RemoveKey(id string) error {
 	return writeKeys(r.keysPath, keys)
 }
 
-// ListModels returns the provider's models, cached in memory for ten minutes.
+// ListModels returns the provider's models, cached in memory for thirty minutes.
 // Errors are not cached. When the provider returns a partial list with an
 // error, that list is returned with the error.
 func (r *Registry) ListModels(ctx context.Context, id string) ([]llm.ModelInfo, error) {
@@ -354,13 +416,14 @@ func (r *Registry) ListModels(ctx context.Context, id string) ([]llm.ModelInfo, 
 }
 
 // enrich fills in pricing and context window from the static table where the
-// provider did not report them.
+// provider did not report them. A price from the provider's own catalog is
+// kept even when it is zero: that means free.
 func (r *Registry) enrich(provider string, m llm.ModelInfo) llm.ModelInfo {
 	known := lookupModel(provider, m.ID)
 	if m.ContextWindow == 0 {
 		m.ContextWindow = known.ContextWindow
 	}
-	if m.InputPerMTok == 0 && m.OutputPerMTok == 0 {
+	if !m.CatalogPriced && m.InputPerMTok == 0 && m.OutputPerMTok == 0 {
 		m.InputPerMTok, m.OutputPerMTok = known.InputPerMTok, known.OutputPerMTok
 		m.CacheReadPerMTok, m.CacheWritePerMTok = known.CacheReadPerMTok, known.CacheWritePerMTok
 		m.Estimated = known.Estimated
@@ -374,9 +437,22 @@ func (r *Registry) enrich(provider string, m llm.ModelInfo) llm.ModelInfo {
 	return m
 }
 
-// ModelInfo describes "provider/model" from the pricing table. Unknown models
-// have zero prices and a 128000-token context window.
+// ModelInfo describes "provider/model" without touching the network. It
+// prefers what a model listing already said (cached), then the static table.
+// Unknown models are priced at the Sonnet-class default and get the 128000
+// context window. A user context override wins over both.
 func (r *Registry) ModelInfo(ref string) llm.ModelInfo {
 	pid, model := llm.SplitModelRef(ref)
-	return lookupModel(pid, model)
+	info, ok := r.cachedInfo(pid, model)
+	if !ok {
+		info = lookupModel(pid, model)
+	}
+	info.ID = model
+	r.mu.Lock()
+	w, overridden := r.contextOverrides[ref]
+	r.mu.Unlock()
+	if overridden && w > 0 {
+		info.ContextWindow = w
+	}
+	return info
 }

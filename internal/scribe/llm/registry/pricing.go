@@ -32,10 +32,15 @@ type priceEntry struct {
 var priceTable = []priceEntry{
 	// Anthropic fallbacks (prefix match; exact ids come from anthropic.KnownModels).
 	{"claude-opus-4-1", 15, 75, 1.5, 18.75, 200000},
+	{"claude-opus-4-0", 15, 75, 1.5, 18.75, 200000},
 	{"claude-opus-4-5", 5, 25, 0.5, 6.25, 200000},
+	{"claude-opus-3", 15, 75, 1.5, 18.75, 200000},
 	{"claude-opus", 5, 25, 0.5, 6.25, 1000000},
 	{"claude-sonnet-4-6", 3, 15, 0.3, 3.75, 1000000},
+	{"claude-sonnet-5", 3, 15, 0.3, 3.75, 1000000},
 	{"claude-sonnet", 3, 15, 0.3, 3.75, 200000},
+	{"claude-fable", 15, 75, 1.5, 18.75, 1000000},
+	{"claude-mythos", 15, 75, 1.5, 18.75, 1000000},
 	{"claude-haiku-4-5", 1, 5, 0.1, 1.25, 200000},
 	{"claude-haiku", 1, 5, 0.1, 1.25, 200000},
 
@@ -78,13 +83,58 @@ var priceTable = []priceEntry{
 	{"grok-4", 3, 15, 0.75, 0, 256000},
 }
 
+// heuristicKeys prices an unknown model by a word in its id. The first word
+// found wins, and the entry it names is used as an estimate. A sonnet id
+// with no table match falls through to defaultPrice, which is the Sonnet tier.
+var heuristicKeys = []struct{ word, key string }{
+	{"fable", "claude-fable"},
+	{"mythos", "claude-fable"},
+	{"opus", "claude-opus"},
+	{"haiku", "claude-haiku-4-5"},
+	{"gemini", "gemini-2.5-flash"},
+	{"grok", "grok-4"},
+	{"gpt", "gpt-5.4"},
+	{"deepseek", "deepseek-chat"},
+}
+
+// heuristicPrice finds the table entry an unknown model id is priced like.
+func heuristicPrice(model string) (priceEntry, bool) {
+	m := strings.ToLower(model)
+	for _, h := range heuristicKeys {
+		if !strings.Contains(m, h.word) {
+			continue
+		}
+		for _, e := range priceTable {
+			if e.key == h.key {
+				return e, true
+			}
+		}
+	}
+	return priceEntry{}, false
+}
+
+// fireworksPrice is Fireworks' own tier pricing for the models that have a
+// published rate. Fireworks does not publish a separate cache rate, so cache
+// reads and writes are billed at the input rate (an upper bound).
+func fireworksPrice(provider, model string) (priceEntry, bool) {
+	if provider != "fireworks" {
+		return priceEntry{}, false
+	}
+	m := strings.ToLower(model)
+	if strings.Contains(m, "deepseek-v3") || strings.Contains(m, "deepseek-r1") {
+		return priceEntry{in: 0.56, out: 1.68, cacheRd: 0.56, cacheWr: 0.56}, true
+	}
+	return priceEntry{}, false
+}
+
 // lookupModel returns the table entry for a provider/model pair. Local
-// providers are free. A model the table does not know is priced at the
-// Sonnet-class default and marked Estimated, except ":free" and "-free"
-// variants, which are free.
+// providers are free, and so are ":free" and "-free" variants of any provider.
+// Then come Fireworks tier prices, the static table, and the family heuristics.
+// A model none of those know is priced at the Sonnet-class default. Anything
+// that is not in the table is marked Estimated.
 func lookupModel(provider, model string) llm.ModelInfo {
 	info := llm.ModelInfo{ID: model, Name: model, ContextWindow: defaultContext}
-	if provider == "ollama" || provider == "lmstudio" {
+	if provider == "ollama" || provider == "lmstudio" || isFree(model) {
 		return info
 	}
 	info.ReasoningStyle = reasoningStyle(model)
@@ -96,14 +146,19 @@ func lookupModel(provider, model string) llm.ModelInfo {
 			}
 		}
 	}
-	e, ok := matchPrice(model)
-	if !ok {
-		if isFree(model) {
-			return info
-		}
-		e = defaultPrice
-		info.Estimated = true
+	e, known := fireworksPrice(provider, model)
+	if !known {
+		e, known = matchPrice(model)
 	}
+	if !known {
+		// A heuristic is an estimate too, so the result stays Estimated.
+		if h, ok := heuristicPrice(model); ok {
+			e = h
+		} else {
+			e = defaultPrice
+		}
+	}
+	info.Estimated = !known
 	info.InputPerMTok = e.in
 	info.OutputPerMTok = e.out
 	info.CacheReadPerMTok = e.cacheRd

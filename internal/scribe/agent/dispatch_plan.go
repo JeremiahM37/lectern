@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 )
@@ -124,4 +125,97 @@ func withDependencyReports(task string, p dispatchPlan, i int, results []taskRes
 		fmt.Fprintf(&b, "\n### %s\n%s\n", p.ids[j], rep)
 	}
 	return b.String()
+}
+
+// mergeOverLimit folds explore tasks together until at most limit remain
+// (spec 03 §3.1 rule 4). Code tasks, tasks with dependencies and tasks other
+// tasks depend on are pinned. Of the rest, the last explore task is merged
+// into the one with the most target files, as an "Also:" paragraph. It
+// returns the remaining tasks and a note for each merge.
+func mergeOverLimit(tasks []subTask, limit int) ([]subTask, []string, error) {
+	out := slices.Clone(tasks)
+	var notes []string
+	for len(out) > limit {
+		referenced := map[string]bool{}
+		for _, t := range out {
+			for _, d := range t.DependsOn {
+				referenced[strings.TrimSpace(d)] = true
+			}
+		}
+		var free []int // explore tasks that can be merged
+		for i, t := range out {
+			pinned := t.Role != "explore" || len(t.DependsOn) > 0 ||
+				(strings.TrimSpace(t.ID) != "" && referenced[strings.TrimSpace(t.ID)])
+			if !pinned {
+				free = append(free, i)
+			}
+		}
+		if len(free) < 2 {
+			return nil, nil, fmt.Errorf("at most %d tasks per call; got %d, and only %d of them are explore tasks without dependencies that can be merged", limit, len(tasks), len(free))
+		}
+		target := free[0]
+		for _, i := range free[1:] {
+			if len(out[i].Files) > len(out[target].Files) {
+				target = i
+			}
+		}
+		from := free[len(free)-1]
+		if from == target {
+			from = free[len(free)-2]
+		}
+		src := out[from]
+		dst := out[target]
+		dst.Task += "\n\nAlso: " + src.Task
+		dst.Files = append(slices.Clone(dst.Files), src.Files...)
+		out[target] = dst
+		label := taskLabel(dst, target)
+		out = slices.Delete(out, from, from+1)
+		notes = append(notes, fmt.Sprintf("merged an explore task into the explore task %s (the dispatch allows %d tasks)", label, limit))
+	}
+	return out, notes, nil
+}
+
+// taskLabel names a task for a note: its id if it has one, else its position.
+func taskLabel(t subTask, i int) string {
+	if id := strings.TrimSpace(t.ID); id != "" {
+		return id
+	}
+	return fmt.Sprintf("%d", i+1)
+}
+
+// stripRange drops a trailing :start-end (or :line) from a target path.
+func stripRange(p string) string {
+	p = strings.TrimSpace(p)
+	if i := strings.LastIndex(p, ":"); i > 0 {
+		tail := p[i+1:]
+		if tail != "" && strings.Trim(tail, "0123456789-") == "" {
+			return p[:i]
+		}
+	}
+	return p
+}
+
+// fileExists reports whether path names an existing file or directory.
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// sortedKeys returns the keys of m in order.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// joinInts renders agent numbers as "1, 3".
+func joinInts(ns []int) string {
+	parts := make([]string, len(ns))
+	for i, n := range ns {
+		parts[i] = fmt.Sprint(n)
+	}
+	return strings.Join(parts, ", ")
 }

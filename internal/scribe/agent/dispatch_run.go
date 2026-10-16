@@ -20,14 +20,26 @@ const (
 	WebMaxSteps     = 15
 )
 
-// breakerThreshold is the number of provider failures after which one
-// dispatch stops launching subagents.
-const breakerThreshold = 3
+// breakerThreshold is the number of retryable provider failures within
+// breakerWindow that opens the circuit breaker: the dispatch stops launching
+// subagents and aborts the ones running (spec 03 §3.6).
+const (
+	breakerThreshold = 6
+	breakerWindow    = 30 * time.Second
+)
+
+// errBreakerTripped is what a subagent that was running when the breaker
+// opened reports.
+var errBreakerTripped = errors.New("circuit breaker tripped: the provider kept failing, so this agent was stopped")
 
 // defaultRetryWait is the pause before a code task's retry.
 const defaultRetryWait = 2 * time.Second
 
 var errBreakerOpen = fmt.Errorf("not started: %d provider failures in this dispatch opened the circuit breaker, so no more subagents are launched", breakerThreshold)
+
+// retryNoteEdited is the focused retry note for a code task that finished
+// without editing anything.
+const retryNoteEdited = "the previous attempt finished without editing any file"
 
 // board is the multi-agent display state of one dispatch. Each subagent,
 // including retries and fix-ups, has an index on it.
@@ -80,8 +92,13 @@ type dispatchRun struct {
 	board     *board
 	retryWait time.Duration
 
+	// cancel aborts every subagent of the dispatch when the breaker opens.
+	cancel context.CancelFunc
+
 	mu       sync.Mutex
-	failures int
+	failures int         // retryable provider failures, for the report
+	recent   []time.Time // when the failures in the window happened
+	open     bool        // the breaker has opened
 	total    llm.Usage
 	cost     float64
 }
@@ -106,13 +123,41 @@ func newDispatchRun(d *Dispatcher, env *tools.Env) *dispatchRun {
 func (r *dispatchRun) tripped() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.failures >= breakerThreshold
+	return r.open
 }
 
+// recordFailure counts a retryable provider failure. Six within the window
+// open the breaker and cancel the dispatch's running subagents.
 func (r *dispatchRun) recordFailure() {
 	r.mu.Lock()
 	r.failures++
+	now := time.Now()
+	r.recent = append(r.recent, now)
+	kept := r.recent[:0]
+	for _, t := range r.recent {
+		if now.Sub(t) <= breakerWindow {
+			kept = append(kept, t)
+		}
+	}
+	r.recent = kept
+	trip := !r.open && len(r.recent) >= breakerThreshold
+	if trip {
+		r.open = true
+	}
+	cancel := r.cancel
 	r.mu.Unlock()
+	if trip && cancel != nil {
+		cancel()
+	}
+}
+
+// stopErr is why a task that never got to run was stopped: the breaker, or
+// the caller's cancellation.
+func (r *dispatchRun) stopErr(ctx context.Context) error {
+	if r.tripped() {
+		return errBreakerOpen
+	}
+	return ctx.Err()
 }
 
 func (r *dispatchRun) failureCount() int {
@@ -136,11 +181,14 @@ func (r *dispatchRun) costUSD() float64 {
 
 // taskResult is how one task of a dispatch ended.
 type taskResult struct {
-	report string
-	err    error
-	edited []string
-	notes  []string        // retries and other events, shown under the report
-	reg    *tools.Registry // the registry the last code attempt ran with
+	report   string
+	err      error
+	edited   []string
+	read     []string        // files the subagent read
+	attempts int             // subagent runs that started
+	noDone   bool            // a code task that edited nothing
+	notes    []string        // retries and other events, shown under the report
+	reg      *tools.Registry // the registry the last code attempt ran with
 }
 
 // attempt is one subagent run.
@@ -150,6 +198,7 @@ type attempt struct {
 	usage  llm.Usage
 	cost   float64
 	edited []string
+	read   []string
 	reg    *tools.Registry
 }
 
@@ -191,6 +240,7 @@ func (r *dispatchRun) attempt(ctx context.Context, idx int, role, task string) a
 		usage:  stats.Tokens,
 		cost:   stats.CostUSD,
 		edited: stats.FilesEdited,
+		read:   stats.FilesRead,
 		reg:    sub.opts.Tools,
 	}
 }
@@ -207,18 +257,33 @@ func (r *dispatchRun) launch(ctx context.Context, idx int, role, task string) at
 	r.total.Add(res.usage)
 	r.cost += res.cost
 	r.mu.Unlock()
-	if providerFailure(ctx, res.err) {
+	if retryableFailure(ctx, res.err) {
 		r.recordFailure()
 	}
 	return res
 }
 
-// runTask runs one task. A code task gets one retry, with a note saying why,
-// when it finished without editing any file or stopped on a retryable
-// provider error. Explore and web tasks are not retried.
+// runTask runs one task and marks a code task that edited nothing as
+// no-done.
 func (r *dispatchRun) runTask(ctx context.Context, idx int, role, task string) taskResult {
+	res := r.runTaskOnce(ctx, idx, role, task)
+	if role == "code" && res.err == nil && len(res.edited) == 0 {
+		res.noDone = true
+	}
+	return res
+}
+
+// runTaskOnce runs one task. A code task gets one retry, with a note saying why,
+// when it finished without editing any file or stopped on a retryable
+// provider error. Explore and web tasks are not retried. A code task that
+// still edited nothing is marked no-done.
+func (r *dispatchRun) runTaskOnce(ctx context.Context, idx int, role, task string) taskResult {
 	first := r.launch(ctx, idx, role, task)
-	res := taskResult{report: first.report, err: first.err, edited: first.edited, reg: first.reg}
+	res := taskResult{report: first.report, err: first.err, edited: first.edited, read: first.read, reg: first.reg}
+	res.attempts = startedAttempts(first.err)
+	if r.tripped() && errors.Is(res.err, context.Canceled) {
+		res.err = errBreakerTripped
+	}
 	if role != "code" || ctx.Err() != nil || r.tripped() {
 		return res
 	}
@@ -227,7 +292,7 @@ func (r *dispatchRun) runTask(ctx context.Context, idx int, role, task string) t
 	case retryableFailure(ctx, first.err):
 		why = "the previous attempt stopped on a provider error (" + first.err.Error() + ")"
 	case first.err == nil && len(first.edited) == 0:
-		why = "the previous attempt finished without editing any file"
+		why = retryNoteEdited
 	default:
 		return res
 	}
@@ -236,18 +301,36 @@ func (r *dispatchRun) runTask(ctx context.Context, idx int, role, task string) t
 	case <-ctx.Done():
 		return res
 	}
-	second := r.launch(ctx, idx, role, task+"\n\nNote: "+why+". Make the edits the task asks for now. If the change is already in place, say so and give the file:line that shows it.")
+	note := task + "\n\nNote: " + why + ". Make the edits the task asks for now. If the change is already in place, say so and give the file:line that shows it."
+	if len(first.read) > 0 {
+		note += "\nYou already read these files, so do not read them again: " + strings.Join(first.read, ", ") + "."
+	}
+	second := r.launch(ctx, idx, role, note)
 	if errors.Is(second.err, errBreakerOpen) {
 		res.notes = append(res.notes, "retry skipped: "+errBreakerOpen.Error())
 		return res
 	}
+	res.attempts += startedAttempts(second.err)
 	res.notes = append(res.notes, "retried once: "+why)
 	res.report, res.err = second.report, second.err
 	res.edited = sortedUnique(append(append([]string(nil), first.edited...), second.edited...))
+	res.read = sortedUnique(append(append([]string(nil), first.read...), second.read...))
 	if second.reg != nil {
 		res.reg = second.reg
 	}
+	if r.tripped() && errors.Is(res.err, context.Canceled) {
+		res.err = errBreakerTripped
+	}
 	return res
+}
+
+// startedAttempts is 1 when a subagent ran, 0 when the breaker kept it from
+// starting.
+func startedAttempts(err error) int {
+	if errors.Is(err, errBreakerOpen) {
+		return 0
+	}
+	return 1
 }
 
 // providerFailure reports whether err came from the model provider (an HTTP

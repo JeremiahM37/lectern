@@ -23,7 +23,14 @@ func (e *editor) close() {
 }
 
 // symbols locates every definition in text.
+// maxParseBytes is the largest file the symbol tools will parse. Bigger files
+// are generated or vendored, and parsing them costs more than the edit is worth.
+const maxParseBytes = 1 << 20
+
 func (e *editor) symbols(text string) ([]symbol, error) {
+	if len(text) > maxParseBytes {
+		return nil, fmt.Errorf("%s is over 1 MB, which is too large for symbol editing. Use edit_file on the lines you need.", e.rel)
+	}
 	if e.lang.fam == famGo {
 		return goSymbols(text)
 	}

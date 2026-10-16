@@ -33,7 +33,7 @@ func Register(r *tools.Registry, m *Map) {
 	}, run: runFindSymbol})
 	r.Register(&mapTool{m: m, spec: llm.ToolSpec{
 		Name:        "symbol_refs",
-		Description: "List every use of an identifier across the repository (file:line and the line text). Strings and comments are excluded.",
+		Description: "List every use of an identifier across the repository (file:line, the line text, and the enclosing function when there is one). Strings and comments are excluded.",
 		Schema: tools.Schema(map[string]any{
 			"name":  tools.Str("Exact identifier name"),
 			"limit": tools.Int("Maximum results (default 100)"),
@@ -41,7 +41,7 @@ func Register(r *tools.Registry, m *Map) {
 	}, run: runSymbolRefs})
 	r.Register(&mapTool{m: m, spec: llm.ToolSpec{
 		Name:        "code_impact",
-		Description: "Estimate what a change to one file affects: files that import it (direct and one level further), files that change together with it in git history, and a risk summary.",
+		Description: "Estimate what a change to one file affects: what it imports, files that import it (direct and one level further), files that change together with it in git history, and a risk summary.",
 		Schema: tools.Schema(map[string]any{
 			"file": tools.Str("Repo-relative file path"),
 		}, "file"),
@@ -170,7 +170,11 @@ func runSymbolRefs(m *Map, args json.RawMessage) tools.Result {
 			fmt.Fprintf(&sb, "... %d more. Raise limit to see them.\n", len(refs)-a.Limit)
 			break
 		}
-		fmt.Fprintf(&sb, "%s:%d  %s\n", r.File, r.Line, r.Text)
+		fmt.Fprintf(&sb, "%s:%d  %s", r.File, r.Line, r.Text)
+		if s, ok := m.EnclosingSymbol(r.File, r.Line); ok {
+			fmt.Fprintf(&sb, "  (in %s)", s.Name)
+		}
+		sb.WriteByte('\n')
 	}
 	return tools.Result{Output: sb.String(), Summary: fmt.Sprintf("%d refs", len(refs))}
 }
@@ -189,6 +193,10 @@ func runCodeImpact(m *Map, args json.RawMessage) tools.Result {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Impact of %s\n", im.File)
 	fmt.Fprintf(&sb, "Risk: %s\n", im.Risk)
+	fmt.Fprintf(&sb, "Imports (%d):\n", len(im.Imports))
+	for _, p := range im.Imports {
+		fmt.Fprintf(&sb, "  %s\n", p)
+	}
 	fmt.Fprintf(&sb, "Direct importers (%d):\n", im.Direct)
 	for _, d := range im.Dependents {
 		if d.Level == 1 {

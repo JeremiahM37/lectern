@@ -23,9 +23,8 @@ const imageOnlyPrompt = "Look at the attached image."
 
 // Input limits from the spec.
 const (
-	maxInputLines   = 10
 	maxSteerQueue   = 5
-	pasteCollapseAt = 5 // more lines than this collapse to a placeholder
+	pasteCollapseAt = 3 // more lines than this (4 or more) collapse to a placeholder
 	historyKeep     = 500
 	historySearchN  = 50
 )
@@ -34,13 +33,17 @@ const (
 // placeholders, history search and the popup selection.
 type inputState struct {
 	ta      textarea.Model
-	history []string // oldest first
-	hidx    int      // -1 = not browsing history; 0 = newest entry
-	draft   string   // draft held while browsing history
-	stashes []string // Alt+S drafts, newest last
-	pastes  map[int]string
-	pasteN  int
+	history []string          // oldest first
+	hidx    int               // -1 = not browsing history; 0 = newest entry
+	draft   string            // draft held while browsing history
+	stashes []string          // Alt+S drafts, newest last
+	pastes  map[string]string // placeholder -> pasted text, expanded on submit
 	search  *histSearch
+	width   int // textarea width, for counting visual rows
+	// probing is true while a clipboard image read is in flight; Enter waits.
+	probing bool
+	// mounted is set once the stashes for this tab's directory are loaded.
+	mounted bool
 	acSel   int
 	// dismissed hides the popup until the text changes again (Esc).
 	dismissed string
@@ -49,6 +52,7 @@ type inputState struct {
 	images []inputImage
 	imageN int // last chip label handed out; back to 0 when the chips are gone
 	clip   clipboardReader
+	cwd    string // working directory the stashes belong to
 }
 
 // inputImage is one attached image.
@@ -73,7 +77,7 @@ func newInputState() *inputState {
 	ta.SetHeight(1)
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 	ta.Focus()
-	return &inputState{ta: ta, hidx: -1, pastes: map[int]string{}, clip: systemClipboardImage}
+	return &inputState{ta: ta, hidx: -1, pastes: map[string]string{}, clip: systemClipboardImage}
 }
 
 // ---------------------------------------------------------------- images
@@ -122,19 +126,46 @@ func (s *inputState) chips() string {
 	return strings.Join(out, " ")
 }
 
-// pasteImage attaches the image on the clipboard, or says why it cannot.
-func (m *Model) pasteImage(t *tab) {
-	data, mt, err := t.in.clip()
-	if err != nil {
+// pasteImage starts a clipboard image read off the UI loop. The result comes
+// back as an imageProbeMsg; until then the box shows "reading image" and Enter
+// waits. A second Ctrl+V during a read does nothing.
+func (m *Model) pasteImage(t *tab) tea.Cmd {
+	s := t.in
+	if s.probing {
+		return nil
+	}
+	s.probing = true
+	clip, id := s.clip, t.id
+	return func() tea.Msg {
+		data, mt, err := clip()
+		return imageProbeMsg{tab: id, data: data, mt: mt, err: err}
+	}
+}
+
+// finishImageProbe attaches the clipboard image a probe read, or reports why
+// there is none. A clipboard with no image is only logged, as the spec has it:
+// the error log holds it and nothing pops up.
+func (m *Model) finishImageProbe(msg imageProbeMsg) tea.Cmd {
+	t := m.tabByID(msg.tab)
+	if t == nil {
+		return nil
+	}
+	t.in.probing = false
+	if err := msg.err; err != nil {
+		if errors.Is(err, errNoClipboardImage) {
+			m.logError(t, err.Error())
+			return nil
+		}
 		kind := "err"
-		if errors.Is(err, errNoClipboardImage) || errors.Is(err, errNoClipboardTool) {
+		if errors.Is(err, errNoClipboardTool) {
 			kind = "info"
 		}
 		m.setFlash(kind, err.Error())
-		return
+		return nil
 	}
-	n := t.in.attach(data, mt)
+	n := t.in.attach(msg.data, msg.mt)
 	m.setFlash("ok", fmt.Sprintf("Attached image %d from the clipboard", n))
+	return nil
 }
 
 // attachImageFile attaches an image named by a pasted file path.
@@ -156,6 +187,7 @@ func (s *inputState) clear() {
 	s.ta.Reset()
 	s.hidx = -1
 	s.acSel = 0
+	s.pastes = map[string]string{}
 }
 
 func (s *inputState) setValue(v string) {
@@ -168,15 +200,36 @@ func (s *inputState) resize(w int) {
 	if w < 8 {
 		w = 8
 	}
+	s.width = w
 	s.ta.SetWidth(w)
 }
 
-// inputHeight is the number of text rows, 1 to maxInputLines.
-func (s *inputState) inputHeight() int {
+// inputHeight is the number of text rows for a terminal rows tall. The box
+// grows with its visual lines, from 1 up to 40% of the screen (at least 4
+// rows); anything taller scrolls inside the textarea.
+func (s *inputState) inputHeight(rows int) int {
 	if s.search != nil {
 		return 1
 	}
-	return clamp(s.ta.LineCount(), 1, maxInputLines)
+	return clamp(s.visualLines(), 1, max(4, rows*2/5))
+}
+
+// visualLines counts the rows the text takes after wrapping. Each logical line
+// costs ceil(width / box width) rows, and an empty line costs one.
+func (s *inputState) visualLines() int {
+	w := s.width
+	if w <= 0 {
+		w = s.ta.Width()
+	}
+	if w <= 0 {
+		return max(1, s.ta.LineCount())
+	}
+	n := 0
+	for _, line := range strings.Split(s.ta.Value(), "\n") {
+		cells := ansi.StringWidth(line)
+		n += max(1, (cells+w-1)/w)
+	}
+	return n
 }
 
 // ---------------------------------------------------------------- popups
@@ -187,7 +240,7 @@ func (s *inputState) slashMatches() []*command {
 	if !strings.HasPrefix(v, "/") || strings.Contains(v, "\n") {
 		return nil
 	}
-	return matchCommands(strings.TrimPrefix(v, "/"))
+	return rankSlash(strings.TrimPrefix(v, "/"))
 }
 
 // mentionToken is the trailing "@..." word, if the text ends in one.
@@ -220,6 +273,9 @@ func (s *inputState) popupKind() string {
 
 // popupLines draws the popup above the box. m may be nil when only sizing.
 func (s *inputState) popupLines(m *Model, w int) []string {
+	if s.search != nil && m != nil {
+		return s.searchPopupLines(m, w)
+	}
 	kind := s.popupKind()
 	if kind == "" || m == nil {
 		return nil
@@ -232,7 +288,7 @@ func (s *inputState) popupLines(m *Model, w int) []string {
 		cmds := s.slashMatches()
 		s.acSel = clamp(s.acSel, 0, len(cmds)-1)
 		start := 0
-		maxRows := 8
+		maxRows := slashPopupRows(m.height)
 		if s.acSel >= maxRows {
 			start = s.acSel - maxRows + 1
 		}
@@ -386,26 +442,35 @@ func (s *inputState) refreshSearch() {
 
 // ---------------------------------------------------------------- paste
 
-// collapsePaste returns the text to insert for a paste. Long pastes become a placeholder.
+// collapsePaste returns the text to insert for a paste. Four or more lines
+// become a placeholder; the full text is kept until submit.
 func (s *inputState) collapsePaste(text string) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	text = strings.ReplaceAll(text, "\r", "\n")
-	lines := strings.Count(text, "\n") + 1
-	if lines <= pasteCollapseAt {
+	if strings.Count(text, "\n")+1 <= pasteCollapseAt {
 		return text
 	}
-	s.pasteN++
-	s.pastes[s.pasteN] = text
-	return fmt.Sprintf("[Pasted text #%d +%d lines]", s.pasteN, lines)
+	ph := pastePlaceholder(text)
+	s.pastes[ph] = text
+	return ph
 }
 
-// expand replaces paste placeholders with the text they stand for.
+// pastePlaceholder is the inline token for a long paste: the first line,
+// trimmed and cut to 30 characters with "..." when cut, then the line count.
+func pastePlaceholder(text string) string {
+	first := strings.TrimSpace(strings.SplitN(text, "\n", 2)[0])
+	if r := []rune(first); len(r) > 30 {
+		first = string(r[:30]) + "..."
+	}
+	return fmt.Sprintf("<pasted (%s +%d lines)>", first, strings.Count(text, "\n")+1)
+}
+
+// expand replaces paste placeholders with the text they stand for. A token the
+// user edited no longer matches, so it is sent as typed.
 func (s *inputState) expand(v string) string {
-	for n, text := range s.pastes {
-		ph := fmt.Sprintf("[Pasted text #%d +%d lines]", n, strings.Count(text, "\n")+1)
+	for ph, text := range s.pastes {
 		if strings.Contains(v, ph) {
-			v = strings.Replace(v, ph, text, 1)
-			delete(s.pastes, n)
+			v = strings.ReplaceAll(v, ph, text)
 		}
 	}
 	return v
@@ -420,6 +485,10 @@ func (m *Model) handleInputKey(km tea.KeyMsg) tea.Cmd {
 	key := km.String()
 	if s.search != nil {
 		return m.searchKey(t, km)
+	}
+	if s.probing && key == "enter" {
+		// the image read decides what the message carries; Enter waits for it
+		return nil
 	}
 	if kind := s.popupKind(); kind != "" {
 		switch key {
@@ -475,8 +544,9 @@ func (m *Model) handleInputKey(km tea.KeyMsg) tea.Cmd {
 		return nil
 	case "alt+s":
 		if !s.empty() {
-			s.stashes = append(s.stashes, s.value())
+			s.stashes = append(s.stashes, s.expand(s.value()))
 			s.clear()
+			m.saveStashes(t)
 			m.setFlash("ok", "Draft stashed (Alt+P to pop)")
 		}
 		return nil
@@ -484,14 +554,14 @@ func (m *Model) handleInputKey(km tea.KeyMsg) tea.Cmd {
 		if n := len(s.stashes); n > 0 && s.empty() {
 			s.setValue(s.stashes[n-1])
 			s.stashes = s.stashes[:n-1]
+			m.saveStashes(t)
 		}
 		return nil
 	case "ctrl+r":
 		s.openSearch()
 		return nil
 	case "ctrl+v", "alt+v":
-		m.pasteImage(t)
-		return nil
+		return m.pasteImage(t)
 	case "backspace":
 		// on an empty input, Backspace takes off the last image chip first
 		if s.empty() && s.popImage() {
@@ -624,6 +694,9 @@ func (m *Model) submit(raw string) tea.Cmd {
 	s.clear()
 	s.dismissed = ""
 	if strings.HasPrefix(text, "/") {
+		if c, _ := findCommand(text); c != nil {
+			bumpFrecency(c.Name)
+		}
 		return m.runCommand(text)
 	}
 	if strings.HasPrefix(text, "!") {
@@ -661,6 +734,7 @@ func (m *Model) startTurnWith(t *tab, text string, images []llm.Part) tea.Cmd {
 	now := time.Now()
 	m.enterChat()
 	t.chat.AddUser(text, len(images), now, false)
+	t.chat.AttachImages(images)
 	t.busy = true
 	t.since = now
 	t.be.Submit(text, images)
@@ -701,11 +775,8 @@ func (m *Model) boxLines(t *tab, w int, modeCol lipgloss.TerminalColor) []string
 	th := m.th
 	s := t.in
 	s.ta.FocusedStyle.Prompt = lipgloss.NewStyle().Bold(true).Foreground(modeCol)
-	s.ta.Placeholder = "Ask about your code, or type / for commands"
-	if t.busy {
-		s.ta.Placeholder = "'/' for commands · or steer by sending a new message"
-	}
-	s.ta.SetHeight(s.inputHeight())
+	s.ta.Placeholder, s.ta.FocusedStyle.Placeholder = inputPlaceholder(t, th)
+	s.ta.SetHeight(s.inputHeight(m.height))
 	var body []string
 	border := th.Border
 	footer := ""
@@ -731,6 +802,10 @@ func (m *Model) boxLines(t *tab, w int, modeCol lipgloss.TerminalColor) []string
 		}
 		if strings.Contains(s.value(), "\n") {
 			footer = "Shift+⏎ newline · ^U del line"
+		}
+		if s.probing {
+			// the right-hand slot of the box while the clipboard is read
+			footer = "reading image…"
 		}
 		title = s.chips()
 	}

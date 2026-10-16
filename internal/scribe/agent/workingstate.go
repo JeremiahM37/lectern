@@ -1,0 +1,273 @@
+package agent
+
+import (
+	"encoding/json"
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
+)
+
+// WorkingState is the structured record of a conversation that compaction
+// keeps instead of asking a model to summarise it. It is extracted from the
+// messages being compacted, with the caps the spec sets for each field.
+type WorkingState struct {
+	Task             string
+	UserRequirements []string
+	Environment      []string
+	Files            []fileState
+	Decisions        []string
+	AssistantNotes   []string
+	ToolResults      []toolSummary
+	Failures         []string
+	Discoveries      []string
+}
+
+// fileState lists what happened to one path, in the order it happened.
+type fileState struct {
+	Path    string
+	Actions []string
+}
+
+type toolSummary struct {
+	Tool    string
+	Summary string
+}
+
+// Caps from the spec's working-state model.
+const (
+	maxUserRequirements = 25
+	maxToolResults      = 30
+	maxAssistantNotes   = 25
+	maxFailures         = 25
+	maxTaskChars        = 300
+	maxCommandChars     = 200
+	richStateSlots      = 15 // at or above this the state is the summary, no model call
+)
+
+// summaryHeadPrefix marks a message that is itself a compaction summary, so
+// a second compaction does not record the summary as a user requirement.
+const summaryHeadPrefix = "<conversation_summary>"
+
+var sentenceEnd = regexp.MustCompile(`[.!?](\s+|$)`)
+
+// BuildWorkingState extracts the working state from msgs in one pass.
+func BuildWorkingState(msgs []llm.Message) WorkingState {
+	var ws WorkingState
+	files := map[string]*fileState{}
+	var fileOrder []string
+	addAction := func(path, action string) {
+		fs, ok := files[path]
+		if !ok {
+			fs = &fileState{Path: path}
+			files[path] = fs
+			fileOrder = append(fileOrder, path)
+		}
+		if n := len(fs.Actions); n == 0 || fs.Actions[n-1] != action {
+			fs.Actions = append(fs.Actions, action)
+		}
+	}
+	// names maps a call id to its tool name, so results can be labelled.
+	names := map[string]string{}
+	failed := map[string]bool{}
+	for _, m := range msgs {
+		for _, p := range m.Parts {
+			if p.Type == llm.PartToolResult && p.IsError {
+				failed[p.ToolCallID] = true
+			}
+		}
+	}
+
+	for _, m := range msgs {
+		for _, p := range m.Parts {
+			switch p.Type {
+			case llm.PartText:
+				text := strings.TrimSpace(p.Text)
+				switch m.Role {
+				case llm.RoleUser:
+					if strings.HasPrefix(text, summaryHeadPrefix) {
+						continue
+					}
+					if len(text) >= 5 {
+						ws.UserRequirements = appendCapped(ws.UserRequirements, clip(flatten(text), 300), maxUserRequirements)
+						ws.Task = clip(flatten(text), maxTaskChars)
+					}
+				case llm.RoleAssistant:
+					if note := assistantNote(text); note != "" {
+						ws.AssistantNotes = appendCapped(ws.AssistantNotes, note, maxAssistantNotes)
+					}
+				}
+			case llm.PartToolCall:
+				names[p.ToolCallID] = p.ToolName
+				// A failed file operation changed nothing. A shell command
+				// ran even when it exited non-zero, so it is always recorded.
+				if failed[p.ToolCallID] && p.ToolName != "shell" {
+					continue
+				}
+				recordCall(p, addAction, &ws)
+			case llm.PartToolResult:
+				tool := p.ToolName
+				if tool == "" {
+					tool = names[p.ToolCallID]
+				}
+				first := clip(firstLine(p.Result), 120)
+				if p.IsError {
+					ws.Failures = appendCapped(ws.Failures, clip(tool+": "+firstLine(p.Result), 200), maxFailures)
+					continue
+				}
+				ws.ToolResults = appendToolResult(ws.ToolResults, toolSummary{Tool: tool, Summary: first}, maxToolResults)
+			}
+		}
+	}
+	for _, path := range fileOrder {
+		ws.Files = append(ws.Files, *files[path])
+	}
+	return ws
+}
+
+// recordCall turns one successful tool call into state: files touched, and
+// for shell calls a "ran:" line in the tool results.
+func recordCall(p llm.Part, addAction func(path, action string), ws *WorkingState) {
+	var a struct {
+		Path      string   `json:"path"`
+		Paths     []string `json:"paths"`
+		Command   string   `json:"command"`
+		OldString string   `json:"old_string"`
+		NewString string   `json:"new_string"`
+	}
+	_ = json.Unmarshal(p.Args, &a)
+	switch p.ToolName {
+	case "read":
+		if a.Path != "" {
+			addAction(a.Path, "read")
+		}
+		for _, x := range a.Paths {
+			addAction(x, "read")
+		}
+	case "edit_file", "multi_edit", "ast_edit", "rename_symbol":
+		if a.Path != "" {
+			addAction(a.Path, "edited: "+clip(flatten(a.OldString), 60)+" -> "+clip(flatten(a.NewString), 60))
+		}
+	case "write_file":
+		if a.Path != "" {
+			addAction(a.Path, "created")
+		}
+	case "shell":
+		if a.Command != "" {
+			ws.ToolResults = appendToolResult(ws.ToolResults, toolSummary{Tool: "shell", Summary: "ran: " + clip(a.Command, maxCommandChars)}, maxToolResults)
+		}
+	}
+}
+
+// assistantNote keeps assistant text that is at least 20 characters. Short
+// texts (up to three sentences) are kept whole up to 300 characters; longer
+// ones keep up to five sentences within a 500-character budget.
+func assistantNote(text string) string {
+	if len(text) < 20 {
+		return ""
+	}
+	flat := flatten(text)
+	ends := sentenceEnd.FindAllStringIndex(flat, -1)
+	if len(ends) <= 3 {
+		return clip(flat, 300)
+	}
+	var b strings.Builder
+	n, start := 0, 0
+	for _, loc := range ends {
+		if n == 5 {
+			break
+		}
+		sentence := strings.TrimSpace(flat[start:loc[1]])
+		start = loc[1]
+		if b.Len()+len(sentence)+1 > 500 {
+			break
+		}
+		if b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteString(sentence)
+		n++
+	}
+	if b.Len() == 0 {
+		return clip(text, 300)
+	}
+	return b.String()
+}
+
+// Slots is the count the spec uses to decide whether the structured state
+// is rich enough to be the whole summary.
+func (ws WorkingState) Slots() int {
+	n := len(ws.Files) + len(ws.Decisions) + len(ws.Failures) + len(ws.Discoveries) +
+		len(ws.ToolResults) + len(ws.Environment) + len(ws.UserRequirements) + len(ws.AssistantNotes)
+	if ws.Task != "" {
+		n++
+	}
+	return n
+}
+
+// Serialize writes the state in the fixed section order, omitting empty
+// sections. The output is the summary body used by compaction.
+func (ws WorkingState) Serialize() string {
+	var b strings.Builder
+	section := func(title string, lines []string) {
+		if len(lines) == 0 {
+			return
+		}
+		fmt.Fprintf(&b, "## %s\n", title)
+		for _, l := range lines {
+			b.WriteString(l)
+			b.WriteByte('\n')
+		}
+		b.WriteByte('\n')
+	}
+	if ws.Task != "" {
+		section("Task", []string{ws.Task})
+	}
+	section("User Requirements", bullets(ws.UserRequirements))
+	section("Environment", bullets(ws.Environment))
+	var files []string
+	for _, f := range ws.Files {
+		files = append(files, "- "+f.Path+": "+strings.Join(f.Actions, "; "))
+	}
+	section("Files Touched", files)
+	section("Key Decisions", bullets(ws.Decisions))
+	section("Assistant Notes", bullets(ws.AssistantNotes))
+	var results []string
+	for _, r := range ws.ToolResults {
+		results = append(results, "- "+r.Tool+": "+r.Summary)
+	}
+	section("Tool Results", results)
+	section("Errors & Failures", bullets(ws.Failures))
+	section("Discoveries", bullets(ws.Discoveries))
+	return strings.TrimSpace(b.String())
+}
+
+func bullets(xs []string) []string {
+	out := make([]string, 0, len(xs))
+	for _, x := range xs {
+		out = append(out, "- "+x)
+	}
+	return out
+}
+
+func appendCapped(xs []string, v string, max int) []string {
+	xs = append(xs, v)
+	if len(xs) > max {
+		xs = xs[len(xs)-max:]
+	}
+	return xs
+}
+
+func appendToolResult(xs []toolSummary, v toolSummary, max int) []toolSummary {
+	xs = append(xs, v)
+	if len(xs) > max {
+		xs = xs[len(xs)-max:]
+	}
+	return xs
+}
+
+// flatten collapses whitespace so a value fits on one bullet.
+func flatten(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}

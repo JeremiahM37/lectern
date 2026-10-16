@@ -379,7 +379,7 @@ func TestRenderRespectsBudget(t *testing.T) {
 		}
 	}
 	full := m.Render(2500, nil)
-	if !strings.Contains(full, "  func (s *Server) Start(ctx context.Context) error :") {
+	if !strings.Contains(full, "  +func (s *Server) Start(ctx context.Context) error :") {
 		t.Errorf("signature line missing:\n%s", full)
 	}
 	focused := m.Render(2500, []string{"web/src/app.ts"})
@@ -569,7 +569,8 @@ func TestWalkHonoursGitignoreWithoutGit(t *testing.T) {
 		"sub/d.go":              "package sub\n",
 	})
 	got := map[string]bool{}
-	for _, f := range walkFiles(root) {
+	walked, _ := walkFiles(root)
+	for _, f := range walked {
 		got[f] = true
 	}
 	for _, want := range []string{"a.go", "sub/d.go", "keep.tmp.go"} {

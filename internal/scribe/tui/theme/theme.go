@@ -18,9 +18,10 @@ import (
 
 // Theme is a fully resolved palette ready for styling.
 type Theme struct {
-	Name    string
-	Label   string
-	Variant string // "dark" or "light"
+	Name        string
+	Label       string
+	Description string // from a user theme's _description
+	Variant     string // "dark" or "light"
 
 	// Brand
 	Brand, BrandSecondary, BrandDim, BrandAlt lipgloss.TerminalColor
@@ -70,9 +71,10 @@ var SyntaxTokens = []string{
 
 // palette is the string form of a theme: label, variant and token values.
 type palette struct {
-	Label   string
-	Variant string
-	Tokens  map[string]string
+	Label       string
+	Description string
+	Variant     string
+	Tokens      map[string]string
 }
 
 // ScribeID and ScribeLightID name Scribe's own palettes.
@@ -146,7 +148,7 @@ func Build(name string, p palette) Theme {
 			tok[k] = tok[derivedSyntax[k]]
 		}
 	}
-	t := Theme{Name: name, Label: p.Label, Variant: p.Variant}
+	t := Theme{Name: name, Label: p.Label, Description: p.Description, Variant: p.Variant}
 	if t.Label == "" {
 		t.Label = name
 	}
@@ -284,7 +286,7 @@ func Resolve(name string) Theme {
 // Plain returns t with every colour token cleared. Bold, underline and italic
 // still work, so structure survives.
 func Plain(t Theme) Theme {
-	p := palette{Label: t.Label, Variant: t.Variant, Tokens: map[string]string{}}
+	p := palette{Label: t.Label, Description: t.Description, Variant: t.Variant, Tokens: map[string]string{}}
 	for _, k := range append(append([]string{}, UITokens...), SyntaxTokens...) {
 		p.Tokens[k] = ""
 	}

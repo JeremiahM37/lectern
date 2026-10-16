@@ -67,11 +67,17 @@ func (t *fetchTool) Run(ctx context.Context, env *tools.Env, args json.RawMessag
 
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
-	pg, err := t.w.fetch(ctx, u)
+	pg, cached := t.w.pages.Get(u.String())
+	if !cached {
+		pg, err = t.w.fetch(ctx, u)
+	}
 	if err != nil {
 		return tools.Errorf("fetch_page failed for %s: %s. The page may be down or blocked; try another source.", u.Redacted(), describeErr(err))
 	}
 
+	if !cached && pg.note == "" && len(pg.text) <= maxCachedPageChars {
+		t.w.pages.Put(u.String(), pg)
+	}
 	var b strings.Builder
 	if pg.title != "" {
 		fmt.Fprintf(&b, "Title: %s\n", pg.title)

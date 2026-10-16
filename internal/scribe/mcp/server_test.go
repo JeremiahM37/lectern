@@ -15,7 +15,7 @@ import (
 
 // The test binary doubles as a minimal MCP server when SCRIBE_MCP_TEST_SERVER
 // is set. Behaviour is chosen with env vars the test passes in the server
-// config: SCRIBE_MCP_TEST_MODE (hang | exit), SCRIBE_MCP_TEST_PAGE (tools
+// config: SCRIBE_MCP_TEST_MODE (hang | exit | crash-once), SCRIBE_MCP_TEST_PAGE (tools
 // per page).
 func TestMain(m *testing.M) {
 	if os.Getenv("SCRIBE_MCP_TEST_SERVER") == "1" {
@@ -69,6 +69,17 @@ func serveStdio() {
 		fmt.Fprintln(os.Stderr, "fatal: missing API token")
 		os.Exit(3)
 	}
+	// crash-once dies right after its first tool listing, the first time it
+	// runs (the marker file is absent), and behaves normally afterwards.
+	crashOnce := false
+	if mode == "crash-once" {
+		if marker := os.Getenv("SCRIBE_MCP_TEST_MARK"); marker != "" {
+			if _, err := os.Stat(marker); err != nil {
+				_ = os.WriteFile(marker, nil, 0o600)
+				crashOnce = true
+			}
+		}
+	}
 	br := bufio.NewReader(os.Stdin)
 	for {
 		line, err := br.ReadBytes('\n')
@@ -108,6 +119,10 @@ func serveStdio() {
 					}
 					res["tools"] = all[start:end]
 					reply(res)
+					if crashOnce {
+						out.Flush()
+						os.Exit(1)
+					}
 				case "tools/call":
 					var p struct {
 						Name      string          `json:"name"`

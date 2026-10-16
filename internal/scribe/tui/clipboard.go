@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -21,6 +22,14 @@ import (
 // clipboardReader returns the image on the clipboard and its media type. Each
 // input box holds one, so tests can put a fake clipboard in its place.
 type clipboardReader func() (data []byte, mediaType string, err error)
+
+// imageProbeMsg is the result of a clipboard image read started by Ctrl+V.
+type imageProbeMsg struct {
+	tab  int
+	data []byte
+	mt   string
+	err  error
+}
 
 // clipImageMax is the largest image attached. The API takes 5 MB of base64,
 // which is about 3.75 MB of raw bytes.
@@ -220,4 +229,19 @@ func loadImageFile(path string) ([]byte, string, error) {
 // imageTooBig explains the size limit for an image of n bytes.
 func imageTooBig(n int) error {
 	return fmt.Errorf("Image is %.1f MB; the limit is 3.75 MB", float64(n)/1e6)
+}
+
+// osc52 is the escape sequence that asks the terminal to put text on the
+// system clipboard. It works over ssh and needs no helper program.
+func osc52(text string) string {
+	return "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte(text)) + "\a"
+}
+
+// clipboardOut is where copyToTerminal writes; tests point it away from the
+// real terminal.
+var clipboardOut io.Writer = os.Stdout
+
+// copyToTerminal sends text to the clipboard through the terminal (OSC 52).
+func copyToTerminal(text string) {
+	fmt.Fprint(clipboardOut, osc52(text))
 }

@@ -32,55 +32,6 @@ func actionSymbol(v *View, m map[string]any) string {
 	return clip(strings.TrimSpace(argStr(m, "action")+" "+argStr(m, "symbol", "file")), 50)
 }
 
-func readArgs(v *View, m map[string]any) string {
-	if p, ok := m["paths"].([]any); ok && len(p) > 1 {
-		return fmt.Sprintf("%d files", len(p))
-	}
-	p := v.relPath(argStr(m, "path"))
-	off, lim := argInt(m, "offset"), argInt(m, "limit")
-	switch {
-	case off > 0 && lim > 0:
-		return fmt.Sprintf("%s (L%d-%d)", p, off, off+lim-1)
-	case off > 0:
-		return fmt.Sprintf("%s (L%d-)", p, off)
-	}
-	return p
-}
-
-func dispatchArgs(_ *View, m map[string]any) string {
-	tasks, _ := m["tasks"].([]any)
-	if len(tasks) == 0 {
-		return ""
-	}
-	roles := []string{}
-	seen := map[string]bool{}
-	first := ""
-	for i, t := range tasks {
-		tm, _ := t.(map[string]any)
-		role := argStr(tm, "role")
-		if role == "" {
-			role = "explore"
-		}
-		if !seen[role] {
-			seen[role] = true
-			roles = append(roles, role)
-		}
-		if i == 0 {
-			first = argStr(tm, "task")
-		}
-	}
-	if len(tasks) == 1 {
-		return clip(roles[0]+" · "+first, 45)
-	}
-	return clip(strings.Join(roles, "/")+" · "+first, 55)
-}
-
-func memoryArgs(_ *View, m map[string]any) string {
-	action := argStr(m, "action")
-	detail := argStr(m, "query", "title", "id", "summary")
-	return clip(joinNonEmpty(": ", action, detail), 60)
-}
-
 func codeArgs(_ *View, m map[string]any) string {
 	code := argStr(m, "code")
 	if n := strings.Count(code, "await"); n > 0 {
@@ -98,21 +49,21 @@ var toolDefs = map[string]toolDef{
 	"edit_file":        {"Editing", "Edited", "pencil", "amber", argPath},
 	"multi_edit":       {"Editing", "Edited", "pencil", "amber", argPath},
 	"write_file":       {"Writing", "Wrote", "write", "amber", argPath},
-	"undo_edit":        {"Undoing", "Undid", "rewind", "amber", argPath},
-	"list_dir":         {"Listing", "Listed", "list", "info", argPath},
+	"undo_edit":        {"Undoing", "Undid", "pencil", "amber", argPath},
+	"list_dir":         {"Listing", "Listed", "changes", "info", argPath},
 	"shell":            {"Running", "Ran", "terminal", "error", argText(60, "command")},
 	"shell_output":     {"Reading output", "Read output", "terminal", "info", argText(50, "id", "job")},
 	"shell_kill":       {"Stopping", "Stopped", "shell_kill", "error", argText(50, "id", "job")},
 	"grep":             {"Searching", "", "search", "warning", argText(55, "pattern")},
-	"glob":             {"Globbing", "", "glob", "info", argText(55, "pattern")},
+	"glob":             {"Globbing", "", "changes", "info", argText(55, "pattern")},
 	"dispatch":         {"Dispatching", "Dispatched", "dispatch", "brand", dispatchArgs},
-	"web_search":       {"Searching web", "Searched web", "web_search", "info", argText(50, "query")},
-	"fetch_page":       {"Fetching page", "Fetched page", "fetch", "info", argText(50, "url")},
+	"web_search":       {"Searching web", "Searched web", "globe", "info", argText(50, "query")},
+	"fetch_page":       {"Fetching page", "Fetched page", "file", "info", argText(50, "url")},
 	"memory":           {"Memory", "Memory", "memory", "amber", memoryArgs},
-	"skills":           {"Skills", "Skills", "skills", "brand", argText(50, "query", "name")},
+	"skills":           {"Skills", "Skills", "skills", "brand", skillsArgs},
 	"editor":           {"Editor", "Editor", "pencil", "info", argPath},
-	"git":              {"Git", "Git", "git", "success", argText(50, "message", "action")},
-	"project":          {"Project", "Project", "terminal", "error", argText(50, "action", "command")},
+	"git":              {"Git", "Git", "git", "success", gitArgs},
+	"project":          {"Project", "Project", "terminal", "error", projectArgs},
 	"navigate":         {"Navigating", "Navigated", "arrow_right", "brandAlt", actionSymbol},
 	"analyze":          {"Analyzing", "Analyzed", "search", "brandAlt", actionSymbol},
 	"code_map":         {"Mapping code", "Mapped code", "map", "info", argText(50, "path", "query")},
@@ -120,9 +71,9 @@ var toolDefs = map[string]toolDef{
 	"symbol_refs":      {"Finding references", "Found references", "references", "info", actionSymbol},
 	"code_impact":      {"Impact analysis", "Impact analysis", "impact", "info", actionSymbol},
 	"diagnostics":      {"Checking diagnostics", "Checked diagnostics", "diagnostics", "warning", argPath},
-	"rename_symbol":    {"Renaming symbol", "Renamed symbol", "rename", "amber", argText(50, "new_name", "to")},
-	"move_symbol":      {"Moving symbol", "Moved symbol", "arrow_right", "amber", argText(50, "to")},
-	"rename_file":      {"Moving file", "Moved file", "arrow_right", "amber", argText(60, "to")},
+	"rename_symbol":    {"Renaming symbol", "Renamed symbol", "rename", "amber", renameSymbolArgs},
+	"move_symbol":      {"Moving symbol", "Moved symbol", "arrow_right", "amber", moveSymbolArgs},
+	"rename_file":      {"Moving file", "Moved file", "arrow_right", "amber", renameFileArgs},
 	"refactor":         {"Refactoring", "Refactored", "wrench", "amber", actionSymbol},
 	"format_file":      {"Formatting", "Formatted", "format", "amber", argPath},
 	"discover_pattern": {"Discovering", "Discovered", "search", "brandAlt", argText(50, "query")},
@@ -131,7 +82,7 @@ var toolDefs = map[string]toolDef{
 	"write_plan":       {"Planning", "Planned", "plan", "info", argText(50, "title")},
 	"update_plan_step": {"Updating plan", "Updated plan", "check", "info", argText(50, "stepId", "step_id")},
 	"ask_user":         {"Asking", "Asked", "question", "amber", argText(50, "question")},
-	"task_list":        {"Tasks", "Tasks", "task", "info", nil},
+	"task_list":        {"Tasks", "Tasks", "plan", "info", nil},
 	"code_execution":   {"Running code", "Ran code", "smithy", "amber", codeArgs},
 	"ast_edit":         {"Morphing", "Morphed", "morph", "brandAlt", argPath},
 	"_nudge":           {"Output nudge", "Output nudge", "lightning", "warning", nil},
@@ -175,7 +126,8 @@ func batchKind(tool string) string {
 		return "edit"
 	case "read":
 		return "read"
-	case "grep", "glob", "soul_grep", "soul_find", "navigate", "soul_analyze", "soul_impact":
+	case "grep", "glob", "navigate", "find_symbol", "symbol_refs", "code_impact", "code_map",
+		"soul_grep", "soul_find", "soul_analyze", "soul_impact":
 		return "search"
 	case "plan", "write_plan", "ask_user", "editor_panel":
 		return "meta"
@@ -199,6 +151,7 @@ type rowT struct {
 	lines []string
 	call  *Call
 	calls []*Call
+	rail  bool // the rail's fold row; a click toggles the fold
 }
 
 // visibleCalls drops hidden tools and failed edits that a later edit to the
@@ -258,16 +211,24 @@ func (v *View) singleRow(c *Call, now time.Time, cw int) rowT {
 	r.lines = append(r.lines, v.agentLines(c, now)...)
 	if v.expandedFor(c) {
 		r.lines = append(r.lines, v.callDetails(c, cw)...)
+	} else if line := v.compactEdit(c); line != "" {
+		r.lines = append(r.lines, line)
 	}
 	return r
 }
 
-// callHeader is the one-line summary of a call.
+// callHeader is the one-line summary of a call. Its parts, in order: status
+// glyph, tool icon, category tag, backend tag, location badge, label, args
+// and the suffix (duration while running, else the result or error).
 func (v *View) callHeader(c *Call, now time.Time) string {
 	th := v.th
 	d := defFor(c.Tool)
 	m := argsOf(c.Args)
 	running := c.running()
+	if rt, code, ok := inlineCode(argStr(m, "command")); c.Tool == "shell" && ok {
+		d = toolDef{run: rt, done: rt, icon: "smithy", tone: "amber",
+			args: func(*View, map[string]any) string { return codeRowArgs(rt, code) }}
+	}
 
 	var status string
 	switch {
@@ -287,6 +248,11 @@ func (v *View) callHeader(c *Call, now time.Time) string {
 	}
 	iconStr := fg(v.tone(iconTone), icons.Icon(d.icon))
 
+	// A finished edit replaces its label and args with its own first line.
+	if isEditResultRow(c) {
+		return joinNonEmpty(" ", status, iconStr, fg(th.TextMuted, editResultText(c)))
+	}
+
 	label := ""
 	if running {
 		label = bold(th.Brand, d.run)
@@ -304,6 +270,10 @@ func (v *View) callHeader(c *Call, now time.Time) string {
 		args = fg(th.TextMuted, args)
 	}
 
+	tags := joinNonEmpty(" ", v.categoryTag(c.Tool, running), v.backendTag(c.Result),
+		v.badgeTag(locationBadge(v.opt.Workdir, pathArgs(m)...)))
+	head := joinNonEmpty(" ", status, iconStr, tags, label, args)
+
 	suffix := ""
 	switch {
 	case running:
@@ -316,17 +286,16 @@ func (v *View) callHeader(c *Call, now time.Time) string {
 			msg = firstLine(c.Result.Output)
 		}
 		suffix = fg(th.Error, " → "+clip(msg, 60))
+	case c.Status == "denied" && c.Tool == "dispatch" && rejectedDispatch(c):
+		suffix = fg(th.Warning, " → rejected — "+clip(rejectReason(c.Result.Output), 60))
 	case c.Status == "denied":
 		suffix = fg(th.TextSecondary, " → denied")
 	default:
-		if c.Result != nil && c.Result.Summary != "" {
-			suffix = fg(th.TextMuted, " → "+clip(c.Result.Summary, 60))
-		}
-		if c.Duration >= time.Second {
-			suffix += fg(th.TextDim, " · "+render.HumanDuration(c.Duration))
+		if s := v.resultSuffix(c); s != "" {
+			suffix = fg(th.TextMuted, " → "+s)
 		}
 	}
-	return joinNonEmpty(" ", status, iconStr, label, args) + suffix
+	return head + suffix
 }
 
 // callDetails is the expanded body of a call, indented under its row.
@@ -342,17 +311,19 @@ func (v *View) callDetails(c *Call, cw int) []string {
 	switch c.Tool {
 	case "shell":
 		out = append(out, "  "+fg(th.TextSecondary, "$ "+clip(argStr(m, "command"), cw-4)))
+		// Live progress keeps its tail; a finished call keeps its full output.
 		src := c.Progress
 		if !c.running() && c.Result != nil {
-			src = strings.Split(strings.TrimRight(c.Result.Output, "\n"), "\n")
+			src = splitLines(c.Result.Output)
+			lines = src
+		} else {
+			lines = tailOf(src, 20)
 		}
-		lines = tailOf(src, 20)
 	case "read":
 		if c.Result == nil {
 			return nil
 		}
-		src := headOf(strings.Split(c.Result.Output, "\n"), 30)
-		lines = splitLines(render.Highlight(strings.Join(src, "\n"), render.LangFromPath(argStr(m, "path")), th))
+		lines = v.readDetail(c, argStr(m, "path"))
 	default:
 		if c.Result == nil {
 			return nil
@@ -364,6 +335,9 @@ func (v *View) callDetails(c *Call, cw int) []string {
 		for _, l := range headOf(strings.Split(strings.TrimRight(c.Result.Output, "\n"), "\n"), 20) {
 			lines = append(lines, fg(col, l))
 		}
+	}
+	if c.Result != nil && !c.running() && len(lines) > 0 {
+		out = append(out, "", "  "+fg(th.TextMuted, "╰─ result ── click to collapse"))
 	}
 	for _, l := range lines {
 		out = append(out, "  "+l)
@@ -407,6 +381,9 @@ func (v *View) editDetails(c *Call, m map[string]any, cw int) []string {
 	if total > largeDiff && !c.Toggled {
 		return []string{"  " + fg(th.TextMuted, fmt.Sprintf("%d lines changed (click to show)", total))}
 	}
+	if v.opt.DiffStyle == DiffSideBySide {
+		return v.sideBySideBody(c.Result.Diff, cw)
+	}
 	verb := "Edit"
 	if di.created {
 		verb = "New"
@@ -426,17 +403,31 @@ func (v *View) editDetails(c *Call, m map[string]any, cw int) []string {
 	return out
 }
 
+// dispatchWindow is how many subagent rows a dispatch shows at once. Older
+// rows fold into a "+N earlier" line.
+const dispatchWindow = 6
+
 // agentLines is the subagent tree under a dispatch row.
 func (v *View) agentLines(c *Call, now time.Time) []string {
 	th := v.th
 	var out []string
-	n := len(c.Agents)
-	for i, a := range c.Agents {
+	// A finished dispatch collapses to its header; its children show when expanded.
+	if !c.running() && !v.expandedFor(c) {
+		return nil
+	}
+	agents := c.Agents
+	if len(agents) > dispatchWindow {
+		hidden := len(agents) - dispatchWindow
+		out = append(out, fg(th.TextFaint, fmt.Sprintf("  ┌ +%d earlier", hidden)))
+		agents = agents[hidden:]
+	}
+	n := len(agents)
+	for i, a := range agents {
 		conn := "├ "
 		switch {
 		case n == 1:
 			conn = "└ "
-		case i == 0:
+		case i == 0 && len(out) == 0:
 			conn = "┌ "
 		case i == n-1:
 			conn = "└ "
@@ -452,7 +443,13 @@ func (v *View) agentLines(c *Call, now time.Time) []string {
 		default:
 			glyph = fg(th.TextMuted, "○")
 		}
-		meta := fmt.Sprintf("%s %s · %s", a.ID, a.Role, shortModelId(a.Model))
+		meta := fmt.Sprintf("%s %s", a.ID, a.Role)
+		if a.ID == "" {
+			meta = a.Role
+		}
+		if a.Model != "" {
+			meta += " · " + shortModelId(a.Model)
+		}
 		if a.Step > 0 {
 			meta += fmt.Sprintf(" · step %d", a.Step)
 		}
@@ -562,6 +559,12 @@ func (v *View) batchRow(kind string, calls []*Call, now time.Time, cw int) rowT 
 		}
 		r.lines = []string{joinNonEmpty(" ", status, iconStr,
 			label(fmt.Sprintf("%d %s (%s)", len(calls), noun, strings.Join(names, ", "))))}
+		for _, c := range calls {
+			if (c.Tool == "plan" || c.Tool == "write_plan") && c.running() {
+				r.lines = append(r.lines, "  "+v.awaitingPlanReview())
+				break
+			}
+		}
 		return r
 	}
 
@@ -596,7 +599,11 @@ func (v *View) batchRow(kind string, calls []*Call, now time.Time, cw int) rowT 
 				summary = c.Result.Summary
 			}
 		}
-		line := fg(th.TextFaint, "  "+conn) + st + " " + fg(th.TextPrimary, v.relPath(p))
+		shown := v.relPath(p)
+		if kind == "read" {
+			shown = v.outsideTreePath(p)
+		}
+		line := fg(th.TextFaint, "  "+conn) + st + " " + fg(th.TextPrimary, shown)
 		if summary != "" {
 			line += " " + fg(th.TextMuted, clip(summary, 40))
 		}
@@ -612,6 +619,8 @@ func (v *View) batchDetails(calls []*Call, cw int) []string {
 	for _, c := range calls {
 		if v.expandedFor(c) {
 			out = append(out, v.callDetails(c, cw)...)
+		} else if line := v.compactEdit(c); line != "" {
+			out = append(out, line)
 		}
 	}
 	return out
@@ -643,6 +652,8 @@ func (v *View) assembleRows(rows []rowT) builder {
 				prefix = conn
 				if r.call != nil {
 					b.mark(r.call, nil)
+				} else if r.rail {
+					b.markRail()
 				}
 			}
 			if prefix != "" {
@@ -660,8 +671,12 @@ func (v *View) assembleRows(rows []rowT) builder {
 func (v *View) renderRail(rec *Record, now time.Time, cw int, thinking bool) builder {
 	var b builder
 	calls := allCalls(rec)
-	rows := v.railRows(rec, now, cw, rec.Done && v.expanded)
-	if len(rows) > 5 {
+	rows := v.railRows(rec, now, cw, (rec.Done && v.expanded) || rec.RailOpen)
+	if len(rows) > 5 && rec.RailOpen {
+		// Unfolded: every row shows, and one row folds them again.
+		txt := fg(v.th.TextMuted, fmt.Sprintf("▴ collapse +%d above", len(rows)-4))
+		rows = append([]rowT{{lines: []string{txt}, rail: true}}, rows...)
+	} else if len(rows) > 5 {
 		hidden := rows[:len(rows)-4]
 		edits := 0
 		for _, r := range hidden {
@@ -673,9 +688,10 @@ func (v *View) renderRail(rec *Record, now time.Time, cw int, thinking bool) bui
 		}
 		txt := fg(v.th.Success, icons.Icon("success")) + fg(v.th.TextMuted, fmt.Sprintf(" +%d completed", len(hidden)))
 		if edits > 0 {
-			txt += fg(v.th.TextDim, fmt.Sprintf(" · %d edits", edits))
+			txt += fg(v.th.TextDim, fmt.Sprintf(" [%d edits]", edits))
 		}
-		rows = append([]rowT{{lines: []string{txt}}}, rows[len(rows)-4:]...)
+		txt += fg(v.th.TextSubtle, " (click to expand)")
+		rows = append([]rowT{{lines: []string{txt}, rail: true}}, rows[len(rows)-4:]...)
 	}
 	if thinking {
 		frame := render.Frame(render.LoadingDots, frameAt(now)/4)
@@ -754,4 +770,20 @@ func phaseOf(calls []*Call) string {
 		return "edit"
 	}
 	return "explore"
+}
+
+// rejectedDispatch reports whether a dispatch was turned away (its result says
+// so), which is shown as rejected rather than denied.
+func rejectedDispatch(c *Call) bool {
+	return c.Result != nil && strings.Contains(strings.ToLower(c.Result.Output), "rejected")
+}
+
+// rejectReason is the reason in a rejected dispatch's first line: the text
+// after "rejected", without the separators around it.
+func rejectReason(out string) string {
+	line := firstLine(out)
+	if i := strings.Index(strings.ToLower(line), "rejected"); i >= 0 {
+		line = line[i+len("rejected"):]
+	}
+	return strings.Trim(strings.TrimSpace(line), ":—-–. ")
 }

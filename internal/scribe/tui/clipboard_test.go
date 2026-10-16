@@ -84,11 +84,28 @@ func boxText(m *Model) string {
 
 func ctrlV() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyCtrlV} }
 
+// finishProbe runs the clipboard read that a key started and feeds its result
+// back into the model, as the bubbletea loop would.
+func finishProbe(t *testing.T, m *Model, cmd tea.Cmd) {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("the key started no clipboard read")
+	}
+	m.Update(cmd())
+}
+
+// pressCtrlV is Ctrl+V followed by the clipboard read it starts.
+func pressCtrlV(t *testing.T, m *Model) {
+	t.Helper()
+	_, cmd := m.Update(ctrlV())
+	finishProbe(t, m, cmd)
+}
+
 func TestCtrlVAttachesClipboardImageAsChip(t *testing.T) {
 	m, _ := newImageModel(t)
 	fc := withClipboard(m, t)
 
-	m.Update(ctrlV())
+	pressCtrlV(t, m)
 
 	if fc.reads != 1 {
 		t.Fatalf("clipboard read %d times, want 1", fc.reads)
@@ -112,13 +129,17 @@ func TestCtrlVWithNoImageShowsNoticeAndAttachesNothing(t *testing.T) {
 	m, _ := newImageModel(t)
 	m.cur().in.clip = (&fakeClipboard{err: errNoClipboardImage}).read
 
-	m.Update(ctrlV())
+	pressCtrlV(t, m)
 
 	if n := len(m.cur().in.images); n != 0 {
 		t.Fatalf("attached %d images from an empty clipboard", n)
 	}
-	if m.flash != "No image on the clipboard" || m.flashKind != "info" {
-		t.Fatalf("flash = %q (%s), want the no-image notice", m.flash, m.flashKind)
+	// spec: no toast; the notice goes to the error log
+	if m.flash != "" {
+		t.Fatalf("flash = %q, want none (the notice belongs in the error log)", m.flash)
+	}
+	if len(m.errLog) != 1 || m.errLog[0].Text != "No image on the clipboard" {
+		t.Fatalf("error log = %+v, want the no-image notice", m.errLog)
 	}
 	if strings.Contains(boxText(m), "[image") {
 		t.Fatal("box shows a chip with nothing attached")
@@ -129,7 +150,8 @@ func TestAltVAlsoProbesClipboard(t *testing.T) {
 	m, _ := newImageModel(t)
 	withClipboard(m, t)
 
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v"), Alt: true})
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v"), Alt: true})
+	finishProbe(t, m, cmd)
 
 	if len(m.cur().in.images) != 1 {
 		t.Fatal("Alt+v did not attach the clipboard image")
@@ -142,8 +164,8 @@ func TestAltVAlsoProbesClipboard(t *testing.T) {
 func TestBackspaceOnEmptyInputRemovesLastChip(t *testing.T) {
 	m, _ := newImageModel(t)
 	withClipboard(m, t)
-	m.Update(ctrlV())
-	m.Update(ctrlV())
+	pressCtrlV(t, m)
+	pressCtrlV(t, m)
 	in := m.cur().in
 	if len(in.images) != 2 || !strings.Contains(boxText(m), "[image 2]") {
 		t.Fatalf("setup: want two chips, got %d", len(in.images))
@@ -167,7 +189,7 @@ func TestBackspaceOnEmptyInputRemovesLastChip(t *testing.T) {
 func TestBackspaceWithTextDeletesTextNotChip(t *testing.T) {
 	m, _ := newImageModel(t)
 	withClipboard(m, t)
-	m.Update(ctrlV())
+	pressCtrlV(t, m)
 	typeText(m, "hi")
 
 	m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
@@ -183,7 +205,7 @@ func TestBackspaceWithTextDeletesTextNotChip(t *testing.T) {
 func TestSubmitSendsAttachedImagesAsParts(t *testing.T) {
 	m, rec := newImageModel(t)
 	withClipboard(m, t)
-	m.Update(ctrlV())
+	pressCtrlV(t, m)
 	typeText(m, "what is this")
 
 	m.Update(key("enter"))
@@ -208,7 +230,7 @@ func TestSubmitSendsAttachedImagesAsParts(t *testing.T) {
 func TestImageAloneIsAMessage(t *testing.T) {
 	m, rec := newImageModel(t)
 	withClipboard(m, t)
-	m.Update(ctrlV())
+	pressCtrlV(t, m)
 
 	m.Update(key("enter"))
 

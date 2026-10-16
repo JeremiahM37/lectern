@@ -3,6 +3,7 @@ package chat
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"strings"
 	"time"
 
@@ -57,6 +58,27 @@ func (v *View) collapseBody(lines []string) []string {
 	return append(out, lines[len(lines)-4:]...)
 }
 
+// planExecuteLead opens the message that starts a plan's execution.
+const planExecuteLead = "Execute this plan."
+
+// planExecution reports whether a user message is the plan-execution request,
+// and returns its title (the first heading, else "Plan") and line count.
+func planExecution(text string) (title string, lines int, ok bool) {
+	if !strings.HasPrefix(text, planExecuteLead) {
+		return "", 0, false
+	}
+	title = "Plan"
+	for _, l := range strings.Split(text, "\n") {
+		if h := strings.TrimSpace(l); strings.HasPrefix(h, "# ") {
+			if t := strings.TrimSpace(strings.TrimPrefix(h, "# ")); t != "" {
+				title = t
+			}
+			break
+		}
+	}
+	return title, strings.Count(text, "\n") + 1, true
+}
+
 func (v *View) renderUser(rec *Record, w int) builder {
 	if v.opt.ChatStyle == "bubble" {
 		return v.renderBubble(rec, w)
@@ -70,10 +92,24 @@ func (v *View) renderUser(rec *Record, w int) builder {
 	bg := th.BgUser
 	rail := fg(th.AccentUser, "▌") + " "
 	row := func(s string) string { return bgLine(rail+s, w, bg) }
+	if title, n, ok := planExecution(rec.Text); ok && !v.expanded {
+		b.add(row(""))
+		head := fg(th.Brand, icons.Icon("plan")) + " " + fg(th.TextSecondary, "Execute plan: "+title) +
+			fg(th.TextFaint, fmt.Sprintf(" (%d lines)", n)) + " " + fg(th.TextSubtle, "^O")
+		b.add(row(fit(head, cw)))
+		b.add(row(""))
+		return b
+	}
 	b.add(row(""))
 	b.add(row(fit(bold(th.AccentUser, "You")+fg(th.TextDim, " · "+clockText(rec.At))+userSuffix(v, rec), cw)))
 	for _, l := range v.collapseBody(wrapText(rec.Text, cw)) {
 		b.add(row(fit(l, cw)))
+	}
+	if len(rec.imgs) > 0 {
+		b.add(row(""))
+		for _, l := range v.imageLines(rec, cw) {
+			b.add(row(fit(l, cw)))
+		}
 	}
 	b.add(row(""))
 	return b
@@ -105,6 +141,9 @@ func userSuffix(v *View, rec *Record) string {
 	s := ""
 	if rec.Steering {
 		s += fg(v.th.Warning, " · steering")
+	}
+	if rec.Origin != "" && rec.Origin != "local" {
+		s += fg(v.th.Info, " · "+rec.Origin)
 	}
 	if rec.Images > 0 {
 		noun := "images"
@@ -236,7 +275,7 @@ func (v *View) renderBody(rec *Record, cw int, now time.Time) builder {
 	answer := answerText(rec)
 	if v.opt.Verbose {
 		prev := ""
-		for _, s := range rec.Segments {
+		for _, s := range mergeTools(rec.Segments) {
 			if s.Kind == "reasoning" && isDupReasoning(s, answer) {
 				prev = s.Kind
 				continue
@@ -246,7 +285,7 @@ func (v *View) renderBody(rec *Record, cw int, now time.Time) builder {
 		}
 		return out
 	}
-	lastTools := -1
+	lastTools, answerFrom := -1, lastModelTools(rec)
 	for i, s := range rec.Segments {
 		if s.Kind == "tools" {
 			lastTools = i
@@ -258,8 +297,11 @@ func (v *View) renderBody(rec *Record, cw int, now time.Time) builder {
 		case "tools", "reasoning":
 			continue
 		case "text":
-			if i < lastTools {
-				continue // intermediate text: shown by the head or the rail
+			// Intermediate text is shown by the head or the rail. Text after
+			// the model's last tool call is the answer, even when checks that
+			// run after it has answered (auto_check) add rows below it.
+			if i < answerFrom {
+				continue
 			}
 			post.block(v.renderSeg(s, cw, now, i > 0 && rec.Segments[i-1].Kind == "tools"))
 		default: // plan and tasks keep their place
@@ -291,6 +333,9 @@ func (v *View) renderSeg(s *Segment, cw int, now time.Time, afterTools bool) bui
 			return b
 		}
 		src := txt
+		if v.opt.Verbose {
+			src = quoteReminders(src)
+		}
 		if s.Open {
 			src += "▊"
 		}
@@ -308,6 +353,40 @@ func (v *View) renderSeg(s *Segment, cw int, now time.Time, afterTools bool) bui
 		b.block(v.assembleRows(v.groupRows(s.Calls, now, cw)))
 	}
 	return b
+}
+
+// mergeTools joins adjacent tool segments into one, so a run of tool calls
+// batches the same way whether or not the stream split it. The records are
+// not changed: a merged segment is a copy holding the same call pointers.
+func mergeTools(segs []*Segment) []*Segment {
+	out := make([]*Segment, 0, len(segs))
+	for _, s := range segs {
+		if n := len(out); s.Kind == "tools" && n > 0 && out[n-1].Kind == "tools" {
+			prev := out[n-1]
+			merged := *prev
+			merged.Calls = append(append([]*Call{}, prev.Calls...), s.Calls...)
+			out[n-1] = &merged
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+var reminderBlockRe = regexp.MustCompile(`(?s)<system-reminder>(.*?)</system-reminder>[ \t]*\n?`)
+
+// quoteReminders turns each complete <system-reminder> block into a blockquote
+// headed by the gear glyph, for the verbose layout. Unclosed blocks are left
+// alone; the renderer hides those while streaming.
+func quoteReminders(src string) string {
+	return reminderBlockRe.ReplaceAllStringFunc(src, func(m string) string {
+		body := strings.TrimSpace(reminderBlockRe.FindStringSubmatch(m)[1])
+		lines := []string{"> ⚙ **system reminder**", ">"}
+		for _, l := range strings.Split(body, "\n") {
+			lines = append(lines, strings.TrimRight("> "+l, " "))
+		}
+		return strings.Join(lines, "\n") + "\n\n"
+	})
 }
 
 func minInt(a, b int) int {

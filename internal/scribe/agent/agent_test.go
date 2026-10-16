@@ -41,7 +41,8 @@ func TestPlainTextAnswerEventsAndUsage(t *testing.T) {
 	stats, err := a.Run(context.Background(), "hi", nil)
 	must(t, err)
 
-	want := []EventKind{EvTurnStart, EvStepStart, EvText, EvText, EvText, EvStepFinish, EvContext, EvTurnDone}
+	// The first step reports an estimated context before any response.
+	want := []EventKind{EvTurnStart, EvStepStart, EvContext, EvText, EvText, EvText, EvStepFinish, EvContext, EvTurnDone}
 	if got := log.kinds(); !kindsEqual(got, want) {
 		t.Fatalf("event order = %v, want %v", got, want)
 	}
@@ -49,8 +50,10 @@ func TestPlainTextAnswerEventsAndUsage(t *testing.T) {
 	if done.Text != "Hello there" || stats.Error != "" || stats.Steps != 1 {
 		t.Fatalf("final text %q, stats %+v", done.Text, stats)
 	}
-	ctxEv := log.of(EvContext)[0]
-	if ctxEv.ContextUsed != 1100 || ctxEv.ContextWindow != priced.ContextWindow {
+	// The last context event is the provider's count, not the estimate.
+	ctxs := log.of(EvContext)
+	ctxEv := ctxs[len(ctxs)-1]
+	if ctxEv.Estimated || ctxEv.ContextUsed != 1100 || ctxEv.ContextWindow != priced.ContextWindow {
 		t.Fatalf("context event used=%d window=%d, want 1100/%d", ctxEv.ContextUsed, ctxEv.ContextWindow, priced.ContextWindow)
 	}
 	// Adapter splits cached tokens out of the prompt count.

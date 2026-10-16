@@ -35,6 +35,7 @@ type Options struct {
 	Height      int    // tests: initial terminal height
 	Pick        bool   // open the session picker on start (`lectern code --resume`)
 	Prompt      string // send this prompt first (`lectern code "text"`)
+	Wizard      bool   // open the setup wizard on start (`lectern code --wizard`)
 }
 
 // Run starts the full-screen UI. newBackend makes the first tab's Backend and
@@ -45,6 +46,7 @@ func Run(ctx context.Context, newBackend func() (Backend, error), opts Options) 
 		return err
 	}
 	icons.SetNerd(icons.DetectNerd())
+	loadUserThemes()
 	m := NewModel(be, newBackend, opts)
 	popts := []tea.ProgramOption{tea.WithMouseCellMotion(), tea.WithContext(ctx)}
 	if !opts.NoAltScreen {
@@ -99,6 +101,11 @@ type tab struct {
 	steerQ []string // steering messages sent but not yet consumed
 	browse int      // checkpoint browsing: index into cps, -1 = live
 	cps    []CheckpointInfo
+
+	defModel   string  // the model the tab opened with; another one gets a badge
+	compacting bool    // a compaction is running
+	tokens     int     // input and output tokens used so far
+	cacheHit   float64 // share of input tokens served from the prompt cache
 }
 
 // errEntry is one row of the error log (Alt+R).
@@ -151,7 +158,12 @@ type Model struct {
 	land   landingState
 	sd     *shutdownState
 
-	frame      int // animation counter, one step per tick
+	frame      int       // animation counter, one step per frameGap
+	frameAt    time.Time // when frame last stepped
+	wheelAt    time.Time // last mouse wheel event, for scroll acceleration
+	wheelRun   int       // wheel events in a row, each close to the last
+	themesSeen time.Time // newest mtime of the user theme files, for hot reload
+	themesAt   time.Time // last time the theme files were checked
 	quitAt     time.Time
 	errLog     []errEntry
 	flash      string
@@ -210,17 +222,19 @@ func (m *Model) addTab(be Backend, name string) *tab {
 		Workdir:       be.Workdir(),
 	}
 	t := &tab{
-		id:     id,
-		name:   name,
-		be:     be,
-		mode:   be.Mode(),
-		in:     newInputState(),
-		browse: -1,
-		model:  be.Model(),
-		copt:   copt,
-		chat:   newTranscript(copt),
+		id:       id,
+		name:     name,
+		be:       be,
+		mode:     be.Mode(),
+		in:       newInputState(),
+		browse:   -1,
+		model:    be.Model(),
+		defModel: be.Model(),
+		copt:     copt,
+		chat:     newTranscript(copt),
 	}
 	t.in.history = historyFromTranscript(be.Transcript())
+	t.in.mountStash(be.Workdir())
 	if hl, ok := be.(HistoryLoader); ok && len(t.in.history) == 0 {
 		t.in.history = hl.History()
 	}
@@ -278,7 +292,11 @@ func (m *Model) Init() tea.Cmd {
 	for _, t := range m.tabs {
 		cmds = append(cmds, waitEvent(t.id, t.be), waitPrompt(t.id, t.be), gitCmd(t.id, t.be))
 	}
-	cmds = append(cmds, m.maybeOpenWizard())
+	if m.opts.Wizard {
+		cmds = append(cmds, m.openWizard())
+	} else {
+		cmds = append(cmds, m.maybeOpenWizard())
+	}
 	if m.opts.Pick {
 		m.openSessionPicker()
 	}
@@ -289,8 +307,18 @@ func (m *Model) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// frameGap is one animation step. The tick runs at 50 ms, and at 16 ms while
+// the landing page hands over to the chat, but frame (and everything that
+// steps with it) only moves once per frameGap, so the spinners keep their
+// speed during the transition.
+const frameGap = 45 * time.Millisecond
+
 func tickCmd() tea.Cmd {
 	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg { return tickMsg(t) })
+}
+
+func fastTickCmd() tea.Cmd {
+	return tea.Tick(16*time.Millisecond, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
 func waitEvent(id int, be Backend) tea.Cmd {
@@ -356,6 +384,8 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return nil
 	case modalDone:
 		return m.deliverModal(msg)
+	case imageProbeMsg:
+		return m.finishImageProbe(msg)
 	case shellMsg:
 		if t := m.tabByID(msg.tab); t != nil {
 			t.chat.AddSystem("shell", msg.text)
@@ -373,10 +403,22 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			return cmd
 		}
 		t := m.cur()
-		if m.phase == phaseLanding {
+		if m.phase == phaseLanding || m.inSidePanel(msg) {
 			return nil
 		}
-		t.chat.HandleMouse(msg)
+		cm := m.chatMouse(msg)
+		if cmd, handled := m.railMouse(cm); handled {
+			return cmd
+		}
+		switch cm.Button {
+		case tea.MouseButtonWheelUp:
+			t.chat.ScrollUp(m.wheelLines(time.Now()))
+			return nil
+		case tea.MouseButtonWheelDown:
+			t.chat.ScrollDown(m.wheelLines(time.Now()))
+			return nil
+		}
+		t.chat.HandleMouse(cm)
 		return nil
 	case tea.KeyMsg:
 		return m.onKey(msg)
@@ -411,9 +453,30 @@ func (m *Model) onKey(km tea.KeyMsg) tea.Cmd {
 }
 
 func (m *Model) onTick(now time.Time) tea.Cmd {
-	m.frame++
 	var cmds []tea.Cmd
-	cmds = append(cmds, tickCmd())
+	if m.phase == phaseTransition {
+		cmds = append(cmds, fastTickCmd())
+	} else {
+		cmds = append(cmds, tickCmd())
+	}
+	if m.phase == phaseTransition && time.Since(m.trans) >= 600*time.Millisecond {
+		m.phase = phaseChat
+	}
+	if m.phase == phaseShutdown && m.sd != nil {
+		if c := m.tickShutdown(now); c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	if !m.flashTill.IsZero() && now.After(m.flashTill) {
+		m.flash = ""
+		m.flashTill = time.Time{}
+	}
+	if now.Sub(m.frameAt) < frameGap {
+		return tea.Batch(cmds...)
+	}
+	m.frame++
+	m.frameAt = now
+	m.checkThemes(now)
 	// ease the context bar of every tab
 	for _, t := range m.tabs {
 		target := 0.0
@@ -431,18 +494,6 @@ func (m *Model) onTick(now time.Time) tea.Cmd {
 	}
 	if m.frame%40 == 0 {
 		cmds = append(cmds, gitCmd(m.cur().id, m.cur().be))
-	}
-	if m.phase == phaseTransition && time.Since(m.trans) >= 600*time.Millisecond {
-		m.phase = phaseChat
-	}
-	if m.phase == phaseShutdown && m.sd != nil {
-		if c := m.tickShutdown(now); c != nil {
-			cmds = append(cmds, c)
-		}
-	}
-	if !m.flashTill.IsZero() && now.After(m.flashTill) {
-		m.flash = ""
-		m.flashTill = time.Time{}
 	}
 	cmds = append(cmds, m.syncTitle())
 	return tea.Batch(cmds...)
@@ -509,6 +560,14 @@ func (m *Model) onEvent(msg eventMsg) tea.Cmd {
 		if ev.Total.InputTokens+ev.Total.OutputTokens > 0 {
 			t.cost = ev.CostUSD
 		}
+		t.tokens = ev.Total.InputTokens + ev.Total.OutputTokens
+		if in := ev.Total.InputTokens + ev.Total.CacheReadTokens + ev.Total.CacheWriteTokens; in > 0 {
+			t.cacheHit = float64(ev.Total.CacheReadTokens) / float64(in)
+		}
+	case agent.EvCompactStart:
+		t.compacting = true
+	case agent.EvCompactDone:
+		t.compacting = false
 	case agent.EvError:
 		m.logError(t, ev.Text)
 	case agent.EvTurnDone:
@@ -618,7 +677,7 @@ func (m *Model) bottomHeight() int {
 	if t.pui != nil {
 		h += len(m.promptLines(t))
 	} else if m.phase != phaseLanding {
-		h += len(t.in.popupLines(m, m.width)) + t.in.inputHeight() + 2
+		h += len(t.in.popupLines(m, m.width)) + t.in.inputHeight(m.height) + 2
 	}
 	if m.phase != phaseLanding && m.phase != phaseShutdown && m.flash != "" {
 		// flash shares the busy row when idle; keep it as its own row otherwise
@@ -631,13 +690,17 @@ func (m *Model) bottomHeight() int {
 
 // chatRows is the height left for the transcript.
 func (m *Model) chatRows() int {
-	t := m.cur()
-	rows := m.height - 1 - m.tabBarRows() - 1 - m.bottomHeight()
-	if m.phase == phaseLanding || m.phase == phaseTransition {
-		rows = m.height - 2 - m.tabBarRows()
+	if m.phase == phaseLanding {
+		return m.landingRows()
 	}
-	_ = t
-	return max(rows, 1)
+	return max(m.height-1-m.tabBarRows()-1-m.bottomHeight(), 1)
+}
+
+// landingRows is the height of the landing page: everything but the header,
+// the tab bar and the footer. Its input box is part of the page, not the
+// bottom panel, so the transcript's bottom rows do not apply.
+func (m *Model) landingRows() int {
+	return max(m.height-2-m.tabBarRows(), 1)
 }
 
 // tabBarRows is 1 when the tab bar is shown (more than one tab).
@@ -655,7 +718,8 @@ func (m *Model) relayout() {
 	}
 	rows := m.chatRows()
 	for _, t := range m.tabs {
-		t.chat.SetSize(m.bodyWidth(), rows)
+		cols, insetRows := m.chatInset()
+		t.chat.SetSize(max(1, m.bodyWidth()-m.sideWidth()-cols), max(0, rows-insetRows))
 		t.in.resize(m.inputWidth())
 	}
 	m.resizePanes()
@@ -664,10 +728,24 @@ func (m *Model) relayout() {
 // inputWidth is the textarea width: the box is two border and two padding columns wider.
 func (m *Model) inputWidth() int {
 	w := m.bodyWidth()
-	if m.phase == phaseLanding {
-		w = m.width * 60 / 100
+	if m.phase == phaseLanding || m.phase == phaseTransition {
+		w = m.width * m.landingPct() / 100
 	}
 	return max(w-4, 10)
+}
+
+// landingPct is the input box's share of the screen while the landing page
+// hands over to the chat: 60 on the landing page, growing to the full width
+// by the end of the 600 ms transition (spec 1, useLandingTransition).
+func (m *Model) landingPct() int {
+	switch m.phase {
+	case phaseLanding:
+		return 60
+	case phaseTransition:
+		p := clampF(float64(time.Since(m.trans))/float64(600*time.Millisecond), 0, 1)
+		return 60 + int(40*p)
+	}
+	return 100
 }
 
 // ---------------------------------------------------------------- View
@@ -688,11 +766,11 @@ func (m *Model) View() string {
 	rows := m.chatRows()
 	switch m.phase {
 	case phaseLanding:
-		lines = append(lines, m.viewLanding(m.width, rows)...)
+		lines = append(lines, m.viewLanding(m.width, m.landingRows())...)
 	case phaseTransition:
 		p := clampF(float64(time.Since(m.trans))/float64(600*time.Millisecond), 0, 1)
 		if p < 0.5 {
-			lines = append(lines, m.viewLanding(m.width, rows)...)
+			lines = append(lines, m.viewLanding(m.width, m.landingRows())...)
 		} else {
 			lines = append(lines, m.viewChatBody(rows)...)
 		}
@@ -709,14 +787,28 @@ func (m *Model) View() string {
 	return strings.Join(base, "\n")
 }
 
-// viewChatBody is the transcript plus the bottom panel.
+// viewChatBody is the transcript plus the bottom panel. The transcript sits
+// in a rounded border and, on wide screens, beside the changes and terminals
+// panels; the bottom panel runs under all of it.
 func (m *Model) viewChatBody(rows int) []string {
 	t := m.cur()
 	var out []string
 	if m.phase != phaseLanding {
 		// the transcript fills what the bottom panel leaves
 		m.syncRail(t)
-		out = append(out, fitLines(strings.Split(t.chat.View(), "\n"), m.width, rows)...)
+		side := m.sideWidth()
+		colW := m.width - side
+		cols, insetRows := m.chatInset()
+		innerW, innerH := max(1, colW-cols), max(0, rows-insetRows)
+		t.chat.SetSize(innerW, innerH)
+		col := fitLines(strings.Split(t.chat.View(), "\n"), innerW, innerH)
+		if m.chatFramed() {
+			col = m.frameChat(t, col, colW)
+		}
+		if side > 0 {
+			col = joinCols(col, m.sideColumn(t, rows))
+		}
+		out = append(out, col...)
 	}
 	out = append(out, m.viewBottom()...)
 	return out
@@ -782,7 +874,8 @@ func (m *Model) busyLine(t *tab) string {
 	if !t.since.IsZero() {
 		elapsed = render.Elapsed(now.Sub(t.since))
 	}
-	left := fgb(m.th.Brand).Render(spin) + " " + fg(m.th.TextPrimary).Render(t.chat.LivePhrase(now)) +
+	phrase := fg(theme.Breath(m.th.TextMuted, m.th.Brand, m.frame, 60)).Render(t.chat.LivePhrase(now))
+	left := fgb(m.th.Brand).Render(spin) + " " + phrase +
 		" " + fg(m.th.TextDim).Render(elapsed)
 	right := fgb(m.th.Error).Render("■ Esc to stop")
 	if m.flash != "" {
@@ -799,6 +892,9 @@ func (m *Model) steerLines(t *tab) []string {
 			break
 		}
 		line := fg(m.th.Warning).Render("│ Steering: ") + fg(m.th.TextSecondary).Render(render.Truncate(oneLine(s), m.width-30))
+		if n := strings.Count(s, "\n"); n > 0 {
+			line += " " + fg(m.th.TextDim).Render("(+"+itoa(n)+" lines)")
+		}
 		if n := len(t.steerQ); n > 1 {
 			line += " " + fg(m.th.TextDim).Render("(+"+itoa(n-1)+" queued)")
 		}
@@ -807,20 +903,33 @@ func (m *Model) steerLines(t *tab) []string {
 	return out
 }
 
-// changedBar lists files touched this session: created, modified and the
-// first few names, with a pointer to /changes.
+// changedBar lists files touched this session: +created in success, ~modified
+// in amber, then the first three names coloured the same way, then the count
+// of the rest.
 func (m *Model) changedBar(t *tab) string {
-	files := changedFiles(t.chat)
-	var names []string
-	for i, f := range files {
-		if i < 3 {
-			names = append(names, render.Truncate(baseName(f), 24))
-		}
+	created, modified := t.chat.ChangedFiles()
+	line := fg(m.th.Amber).Render(" ✎ ")
+	if len(created) > 0 {
+		line += fg(m.th.Success).Render("+"+itoa(len(created))) + " "
 	}
-	line := fg(m.th.Amber).Render(" ✎ ") + fg(m.th.TextSecondary).Render(itoa(len(files))+" changed") + " " +
-		fg(m.th.TextFaint).Render("│ ") + fg(m.th.TextMuted).Render(strings.Join(names, ", "))
-	if len(files) > 3 {
-		line += fg(m.th.TextDim).Render(" +" + itoa(len(files)-3))
+	if len(modified) > 0 {
+		line += fg(m.th.Amber).Render("~"+itoa(len(modified))) + " "
+	}
+	line += fg(m.th.TextFaint).Render("│ ")
+	var names []string
+	for i, f := range append(append([]string{}, created...), modified...) {
+		if i >= 3 {
+			break
+		}
+		col := m.th.Amber
+		if i < len(created) {
+			col = m.th.Success
+		}
+		names = append(names, fg(col).Render(render.Truncate(baseName(f), 24)))
+	}
+	line += strings.Join(names, fg(m.th.TextMuted).Render(", "))
+	if total := len(created) + len(modified); total > 3 {
+		line += fg(m.th.TextDim).Render(" +" + itoa(total-3))
 	}
 	return render.Truncate(line, m.width)
 }

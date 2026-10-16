@@ -120,12 +120,28 @@ func readPreset(path string, project bool) (Preset, error) {
 		return Preset{}, err
 	}
 	var c Config
+	b = expandPresetEnv(b)
 	if len(strings.TrimSpace(string(b))) > 0 {
 		if err := json.Unmarshal(b, &c); err != nil {
 			return Preset{}, fmt.Errorf("preset %s: %w", path, err)
 		}
 	}
 	return Preset{Name: name, Path: path, Project: project, Config: c}, nil
+}
+
+// presetEnvRef matches ${NAME} placeholders in a preset file.
+var presetEnvRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+
+// expandPresetEnv replaces ${NAME} with the environment variable NAME, so a
+// preset can name a secret or a host without storing it. A missing variable
+// is the empty string. Values are escaped for a JSON string, so placeholders
+// belong inside string values (for example "base_url": "${HOST}/v1").
+func expandPresetEnv(b []byte) []byte {
+	return presetEnvRef.ReplaceAllFunc(b, func(m []byte) []byte {
+		name := presetEnvRef.FindSubmatch(m)[1]
+		esc, _ := json.Marshal(os.Getenv(string(name)))
+		return esc[1 : len(esc)-1]
+	})
 }
 
 // FindPreset returns the preset called name, or an error that lists the ones

@@ -12,13 +12,13 @@ import (
 )
 
 const (
-	// outputLimit caps what the model reads from one command, in bytes.
-	// The head keeps a third and the tail two thirds: errors and final
-	// results are usually at the end.
-	outputLimit = 30000
-	// collectLimit bounds what a foreground call keeps in memory before
-	// truncation. Output past it is dropped and noted.
-	collectLimit = 8 << 20
+	// outputLimit caps what the model reads from one shell or project
+	// command, in bytes. Past it the head and tail are kept and the full
+	// text goes to a tee file.
+	outputLimit = 16384
+	// collectLimit bounds what a foreground call keeps per stream. Output
+	// past it is dropped and the result says so.
+	collectLimit = 256 << 10
 	// killGrace is how long a process group gets between SIGTERM and SIGKILL.
 	killGrace = 500 * time.Millisecond
 	// waitDelay bounds how long Wait waits for output pipes to close after
@@ -39,6 +39,7 @@ type procSpec struct {
 type procResult struct {
 	output    string
 	truncated bool // collection stopped at collectLimit
+	total     int  // bytes written, including any past collectLimit
 	exitCode  int  // -1 when killed, signalled or never started
 	cancelled bool // ctx ended before the process exited on its own
 	err       error
@@ -87,7 +88,7 @@ func runProcess(ctx context.Context, spec procSpec) procResult {
 		code = cmd.ProcessState.ExitCode()
 	}
 	out, truncated := sink.result()
-	return procResult{output: out, truncated: truncated, exitCode: code, cancelled: cancelled}
+	return procResult{output: out, truncated: truncated, total: sink.size(), exitCode: code, cancelled: cancelled}
 }
 
 // lineSink receives combined stdout and stderr. It splits lines for onLine and
@@ -98,12 +99,14 @@ type lineSink struct {
 	onLine       func(string)
 	collectLimit int
 	collected    bytes.Buffer
+	total        int
 	truncated    bool
 }
 
 func (s *lineSink) Write(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.total += len(p)
 	if s.collectLimit > 0 {
 		room := collectLimit - s.collected.Len()
 		if len(p) <= room {
@@ -146,20 +149,32 @@ func (s *lineSink) emit(line string) {
 	}
 }
 
+// size returns how many bytes the process wrote, collected or not.
+func (s *lineSink) size() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.total
+}
+
 func (s *lineSink) result() (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.collected.String(), s.truncated
 }
 
-// truncateOutput caps s at outputLimit bytes, keeping the head and the tail
-// with a marker that says how much was dropped. Cuts land on line breaks
-// where possible and never split a UTF-8 sequence.
+// truncateOutput caps s at outputLimit bytes; see truncateTo.
 func truncateOutput(s string) (string, int) {
-	if len(s) <= outputLimit {
+	return truncateTo(s, outputLimit)
+}
+
+// truncateTo caps s at limit bytes, keeping the head (a quarter of the limit)
+// and the tail (five eighths) with a marker that says how much was dropped.
+// Cuts land on line breaks where possible and never split a UTF-8 sequence.
+func truncateTo(s string, limit int) (string, int) {
+	if len(s) <= limit {
 		return s, 0
 	}
-	h := outputLimit / 3
+	h := limit / 4
 	if i := strings.LastIndexByte(s[:h], '\n'); i >= 0 {
 		h = i + 1
 	} else {
@@ -167,7 +182,7 @@ func truncateOutput(s string) (string, int) {
 			h--
 		}
 	}
-	t := len(s) - outputLimit*2/3
+	t := len(s) - limit*5/8
 	if i := strings.IndexByte(s[t:], '\n'); i >= 0 {
 		t += i + 1
 	} else {

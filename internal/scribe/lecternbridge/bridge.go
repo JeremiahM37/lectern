@@ -28,6 +28,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/app"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/redact"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
 )
 
@@ -147,7 +148,7 @@ func (b *bridge) enqueue(path string, body map[string]any) {
 // send POSTs body to hook path (an event name or "statusline"). With
 // wantAnswer it decodes the JSON reply; otherwise the reply is discarded.
 func (b *bridge) send(ctx context.Context, path string, body map[string]any, wantAnswer bool) (map[string]any, error) {
-	raw, err := json.Marshal(body)
+	raw, err := json.Marshal(redactBody(body))
 	if err != nil {
 		return nil, err
 	}
@@ -443,6 +444,35 @@ func approvalTool(ap tools.Approval) (string, map[string]any) {
 		name = "scribe"
 	}
 	return name, map[string]any{"detail": ap.Detail, "description": title, "kind": ap.Kind}
+}
+
+// redactBody masks secrets in every string value of an outbound hook body
+// (tool input, prompts, answers, statusline text). Keys are left alone.
+func redactBody(v any) any {
+	r := redact.Default()
+	switch t := v.(type) {
+	case string:
+		return r.Redact(t)
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, x := range t {
+			out[k] = redactBody(x)
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, x := range t {
+			out[i] = redactBody(x)
+		}
+		return out
+	case []string:
+		out := make([]string, len(t))
+		for i, x := range t {
+			out[i] = r.Redact(x)
+		}
+		return out
+	}
+	return v
 }
 
 // toolInput decodes a tool call's arguments into the object Lectern expects.

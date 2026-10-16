@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -19,11 +20,12 @@ const projectTimeout = 10 * time.Minute
 type projectTool struct{ jobs *Jobs }
 
 type projectArgs struct {
-	Action    string `json:"action"`
-	Target    string `json:"target"`
-	Args      string `json:"args"`
-	Fix       bool   `json:"fix"`
-	TimeoutMS int    `json:"timeout_ms"`
+	Action    string            `json:"action"`
+	Target    string            `json:"target"`
+	Args      string            `json:"args"`
+	Fix       bool              `json:"fix"`
+	Env       map[string]string `json:"env"`
+	TimeoutMS int               `json:"timeout_ms"`
 }
 
 func (t *projectTool) Spec() llm.ToolSpec {
@@ -40,7 +42,8 @@ func (t *projectTool) Spec() llm.ToolSpec {
 			"target":     tools.Str("Optional file, package or test filter (test, lint), or script/target name (run)."),
 			"args":       tools.Str("Optional extra arguments appended to the command, e.g. \"-run TestFoo -v\"."),
 			"fix":        tools.Bool("lint: apply the linter's auto-fix (e.g. eslint --fix, ruff check --fix). check: apply it to the lint stage. Changes files."),
-			"timeout_ms": tools.Int("Timeout in milliseconds (default 600000, max 600000; per stage for check)."),
+			"env":        map[string]any{"type": "object", "description": "Extra environment variables for the command, as name: value. FORCE_COLOR and NO_COLOR are always set.", "additionalProperties": map[string]any{"type": "string"}},
+			"timeout_ms": tools.Int("Timeout in milliseconds (default 600000, max 1800000 = 30 min; per stage for check)."),
 		}, "action"),
 	}
 }
@@ -106,9 +109,30 @@ func (t *projectTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessa
 		return res
 	}
 
-	timeout := clampTimeout(a.TimeoutMS, projectTimeout)
-	fg := runForeground(ctx, env, cmd, timeout, []string{"FORCE_COLOR=0", "NO_COLOR=1"})
+	extra, err := envPairs(a.Env)
+	if err != nil {
+		return tools.Errorf("%v", err)
+	}
+	timeout := clampTimeout(a.TimeoutMS, t.jobs.defaultTimeout(projectTimeout))
+	fg := runForeground(ctx, env, cmd, timeout, append([]string{"FORCE_COLOR=0", "NO_COLOR=1"}, extra...))
 	return projectResult(action, cmd, fg, timeout)
+}
+
+// envPairs turns the env argument into NAME=value pairs. Names must be plain
+// identifiers; the scrubbed credential variables cannot be set back.
+func envPairs(env map[string]string) ([]string, error) {
+	var out []string
+	for k, v := range env {
+		if k == "" || strings.ContainsAny(k, "=\x00 \t") {
+			return nil, fmt.Errorf("env name %q is not a valid variable name", k)
+		}
+		if !keepEnv(k) {
+			return nil, fmt.Errorf("env %s cannot be set: credential variables are removed from the environment", k)
+		}
+		out = append(out, k+"="+v)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // commandFor returns the command for action, with target applied. For run,

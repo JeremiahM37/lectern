@@ -168,3 +168,24 @@ func TestLoadWithPresetOverlaysLoadedConfig(t *testing.T) {
 }
 
 func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
+
+// ${NAME} in a preset file is replaced from the environment; a missing name
+// is empty, and a value with JSON-special characters stays valid JSON.
+func TestPresetExpandsEnvPlaceholders(t *testing.T) {
+	_, root := fixture(t)
+	t.Setenv("SCRIBE_TEST_HOST", `10.0.0.5"x`)
+	t.Setenv("SCRIBE_TEST_EMPTY_UNSET", "")
+	os.Unsetenv("SCRIBE_TEST_MISSING")
+	writeFile(t, filepath.Join(PresetDir(), "lab.json"),
+		`{"search_url":"http://${SCRIBE_TEST_HOST}/search","theme":"${SCRIBE_TEST_MISSING}t"}`)
+	p, err := FindPreset(root, "lab")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `http://10.0.0.5"x/search`; p.Config.SearchURL != want {
+		t.Fatalf("search_url = %q, want %q", p.Config.SearchURL, want)
+	}
+	if p.Config.Theme != "t" {
+		t.Fatalf("theme = %q, want %q", p.Config.Theme, "t")
+	}
+}

@@ -4,7 +4,9 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -33,18 +35,65 @@ type serversView struct {
 	th       theme.Theme
 	be       Backend
 	kind     string // "" lists both kinds
+	lsp      map[string]LSPSession
 	cursor   int
 	off      int
 	note     string
 	noteKind string
 }
 
-// servers reads the current state; it is cheap and always fresh.
+// ServerToolLister is optionally implemented by a Backend that can list the
+// tools an MCP server registered. The servers view opens them with v.
+type ServerToolLister interface {
+	ServerTools(name string) ([]string, error)
+}
+
+// LSPSession describes one language server, for the servers view. Command is
+// empty until the binary is found; LastError is set when a start failed.
+type LSPSession struct {
+	Language, Command, Root, State, LastError string
+	PID, OpenDocs                             int
+	Since                                     time.Time
+}
+
+// LSPSessioner is optionally implemented by a Backend that can list its
+// language servers. The servers view shows them alongside the MCP servers.
+type LSPSessioner interface {
+	LSPSessions() []LSPSession
+}
+
+// lspName is the row name of a language server: its language, plus the
+// project folder when the same language runs in more than one root.
+func lspName(s LSPSession) string {
+	return s.Language + " " + filepath.Base(s.Root)
+}
+
+// lspState maps a language server's state onto the row glyphs the view uses.
+func lspState(state string) string {
+	switch state {
+	case "running":
+		return "ready"
+	case "starting", "failed":
+		return state
+	}
+	return "stopped"
+}
+
+// servers reads the current state; it is cheap and always fresh. The lsp
+// view and the combined view also list language servers.
 func (v *serversView) servers() []ServerStatus {
 	var out []ServerStatus
 	for _, s := range v.be.Servers() {
-		if v.kind == "" || s.Kind == v.kind {
+		if v.kind == "" || v.kind == "lsp" || s.Kind == v.kind {
 			out = append(out, s)
+		}
+	}
+	v.lsp = map[string]LSPSession{}
+	if ls, ok := v.be.(LSPSessioner); ok && (v.kind == "" || v.kind == "lsp") {
+		for _, s := range ls.LSPSessions() {
+			name := lspName(s)
+			v.lsp[name] = s
+			out = append(out, ServerStatus{Name: name, Kind: "lsp", State: lspState(s.State), Error: s.LastError})
 		}
 	}
 	return out
@@ -67,9 +116,9 @@ func (v *serversView) Icon() string { return "plug" }
 // Footer implements Footered.
 func (v *serversView) Footer() string {
 	if v.kind == "lsp" {
-		return "↑↓ move · r restart · Esc close"
+		return "↑↓ move · Enter details · r restart · v tools · Esc close"
 	}
-	return "↑↓ move · a add · e edit · t on/off · d remove · r restart · Esc close"
+	return "↑↓ move · a add · e edit · t on/off · v tools · Enter details · d remove · r restart · Esc close"
 }
 
 // Size implements Sized.
@@ -105,8 +154,78 @@ func (v *serversView) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 		return v, v.toggle(), false
 	case "d":
 		v.confirmRemove()
+	case "v":
+		v.showTools()
+	case "enter":
+		v.showDetails()
 	}
 	return v, nil, false
+}
+
+// showDetails opens the highlighted language server's details: command, root,
+// state, process and open documents, and the last error. Read only.
+func (v *serversView) showDetails() {
+	list := v.servers()
+	if v.cursor < 0 || v.cursor >= len(list) || list[v.cursor].Kind != "lsp" {
+		return
+	}
+	s, ok := v.lsp[list[v.cursor].Name]
+	if !ok {
+		return
+	}
+	cmd := s.Command
+	if cmd == "" {
+		cmd = "not found on PATH"
+	}
+	pid := "none"
+	if s.PID > 0 {
+		pid = fmt.Sprint(s.PID)
+	}
+	items := []PickItem{
+		{Value: "command", Label: "Command", Desc: cmd},
+		{Value: "root", Label: "Root", Desc: s.Root},
+		{Value: "state", Label: "State", Desc: lspState(s.State)},
+		{Value: "pid", Label: "Process", Desc: pid},
+		{Value: "docs", Label: "Open documents", Desc: fmt.Sprint(s.OpenDocs)},
+	}
+	if s.LastError != "" {
+		items = append(items, PickItem{Value: "error", Label: "Last error", Desc: oneLine(s.LastError)})
+	}
+	p := NewPicker(v.th, "Language server · "+s.Language, "lsp")
+	p.SetItems(items)
+	v.m.pushModal(p)
+}
+
+// showTools lists the tools the highlighted MCP server registered. Nothing
+// in the list changes anything, so it is a plain picker that Esc closes.
+func (v *serversView) showTools() {
+	list := v.servers()
+	if v.cursor < 0 || v.cursor >= len(list) || list[v.cursor].Kind != "mcp" {
+		v.say("info", "Select an MCP server first.")
+		return
+	}
+	s := list[v.cursor]
+	lister, ok := v.be.(ServerToolLister)
+	if !ok {
+		v.say("info", "This build cannot list server tools.")
+		return
+	}
+	names, err := lister.ServerTools(s.Name)
+	if err != nil {
+		v.say("err", err.Error())
+		return
+	}
+	if len(names) == 0 {
+		v.say("info", fmt.Sprintf("%s has no tools (state: %s).", s.Name, s.State))
+		return
+	}
+	p := NewPicker(v.th, "Tools · "+s.Name, "tools")
+	items := make([]PickItem, 0, len(names))
+	for _, n := range names {
+		items = append(items, PickItem{Value: n, Label: n})
+	}
+	p.SetItems(items)
+	v.m.pushModal(p)
 }
 
 // selectedMCP returns the definition of the highlighted MCP server.
@@ -258,6 +377,9 @@ func (v *serversView) header(s ServerStatus, sel bool, w int) string {
 	kind := fg(th.TextDim).Render(padRight(s.Kind, 5))
 	state := fg(th.TextMuted).Render(padRight(s.State, 9))
 	tools := fg(th.TextDim).Render(fmt.Sprintf("%d tools", s.Tools))
+	if s.Kind == "lsp" {
+		tools = fg(th.TextDim).Render(v.lspDetail(s.Name))
+	}
 	line := marker + serverGlyph(th, s.State) + " " + name + " " + kind + " " + state + " " + tools
 	return render.Truncate(line, w)
 }
@@ -280,4 +402,17 @@ func (v *serversView) emptyText() string {
 		return "No language servers have started yet."
 	}
 	return "No MCP or language servers yet."
+}
+
+// lspDetail is the short tail of a language server's row: its process and
+// open document count, or nothing when the row has no session.
+func (v *serversView) lspDetail(name string) string {
+	ls, ok := v.lsp[name]
+	if !ok {
+		return ""
+	}
+	if ls.PID > 0 {
+		return fmt.Sprintf("pid %d · %d open", ls.PID, ls.OpenDocs)
+	}
+	return fmt.Sprintf("%d open", ls.OpenDocs)
 }

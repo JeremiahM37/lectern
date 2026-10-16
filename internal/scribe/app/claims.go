@@ -198,7 +198,11 @@ func (a *App) onFileClaims(e agent.Event) {
 		if !filepath.IsAbs(abs) {
 			abs = filepath.Join(a.Workdir, f)
 		}
-		fileClaims.claim(filepath.Clean(abs), a.claimOwner, a.claimLabel)
+		abs = filepath.Clean(abs)
+		fileClaims.claim(abs, a.claimOwner, a.claimLabel)
+		if rel, err := filepath.Rel(a.Workdir, abs); err == nil && !strings.HasPrefix(rel, "..") {
+			a.noteEdited(rel)
+		}
 	}
 }
 

@@ -1,9 +1,13 @@
 package session
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func setupHistory(t *testing.T) {
@@ -31,7 +35,7 @@ func eq(a, b []string) bool {
 	return true
 }
 
-func TestHistoryDedupesConsecutiveOnly(t *testing.T) {
+func TestHistoryDedupesRepeats(t *testing.T) {
 	setupHistory(t)
 	for _, p := range []string{"a", "a", "b", "a", "   ", ""} {
 		if err := AppendHistory(p, "/proj"); err != nil {
@@ -42,8 +46,9 @@ func TestHistoryDedupesConsecutiveOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Newest first; the second "a" is not kept, but a later "a" is (not consecutive).
-	if want := []string{"a", "b", "a"}; !eq(texts(got), want) {
+	// Newest first. The second "a" is dropped as a consecutive repeat, and
+	// the later "a" moves the earlier copy to the top: each text appears once.
+	if want := []string{"a", "b"}; !eq(texts(got), want) {
 		t.Fatalf("Recent = %v, want %v", texts(got), want)
 	}
 }
@@ -69,20 +74,49 @@ func TestHistoryRecentFiltersByCWD(t *testing.T) {
 
 func TestHistoryCap(t *testing.T) {
 	setupHistory(t)
-	for i := 0; i < HistoryCap+5; i++ {
-		if err := AppendHistory(fmt.Sprintf("prompt %04d", i), "/p"); err != nil {
-			t.Fatal(err)
-		}
+	// Write past the prune threshold directly; the file is rewritten only
+	// once it passes HistoryCap+HistoryPruneSlack, so one more append trims it.
+	total := HistoryCap + HistoryPruneSlack + 1
+	var buf strings.Builder
+	for i := 0; i < total; i++ {
+		b, _ := json.Marshal(HistoryEntry{Text: fmt.Sprintf("prompt %04d", i), CWD: "/p", At: time.Now().UTC()})
+		buf.Write(b)
+		buf.WriteByte('\n')
+	}
+	if err := os.MkdirAll(filepath.Dir(historyPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(historyPath(), []byte(buf.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendHistory("newest", "/p"); err != nil {
+		t.Fatal(err)
 	}
 	got, _ := Recent("", 0)
 	if len(got) != HistoryCap {
 		t.Fatalf("kept %d entries, want %d", len(got), HistoryCap)
 	}
-	if got[0].Text != fmt.Sprintf("prompt %04d", HistoryCap+4) {
+	if got[0].Text != "newest" {
 		t.Fatalf("newest = %q", got[0].Text)
 	}
-	if got[len(got)-1].Text != "prompt 0005" {
-		t.Fatalf("oldest kept = %q", got[len(got)-1].Text)
+	// total+1 entries, newest HistoryCap kept: the oldest survivor is index total+1-HistoryCap.
+	want := fmt.Sprintf("prompt %04d", total+1-HistoryCap)
+	if got[len(got)-1].Text != want {
+		t.Fatalf("oldest kept = %q, want %q", got[len(got)-1].Text, want)
+	}
+}
+
+func TestRepeatMovesToTop(t *testing.T) {
+	setupHistory(t)
+	for _, p := range []string{"alpha", "beta", "alpha", "gamma"} {
+		if err := AppendHistory(p, "/p"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ := Recent("", 0)
+	want := []string{"gamma", "alpha", "beta"}
+	if fmt.Sprint(texts(got)) != fmt.Sprint(want) {
+		t.Fatalf("got %v, want %v (each prompt once, repeat moved to top)", texts(got), want)
 	}
 }
 

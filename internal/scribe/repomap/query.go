@@ -7,6 +7,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Ref is one place an identifier is used.
@@ -41,6 +42,7 @@ type Dependent struct {
 // Impact describes what a change to one file touches.
 type Impact struct {
 	File       string      `json:"file"`
+	Imports    []string    `json:"imports"`
 	Dependents []Dependent `json:"dependents"`
 	Direct     int         `json:"direct"`
 	Transitive int         `json:"transitive"`
@@ -94,6 +96,25 @@ func (m *Map) FileSymbols(file string) ([]Symbol, bool) {
 	out := append([]Symbol(nil), syms...)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Line < out[j].Line })
 	return out, true
+}
+
+// EnclosingSymbol returns the innermost symbol whose line range contains
+// line of file, such as the function a reference sits in.
+func (m *Map) EnclosingSymbol(file string, line int) (Symbol, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var best Symbol
+	found := false
+	for _, s := range m.fileSyms[m.relPath(file)] {
+		end := s.EndLine
+		if end < s.Line {
+			end = s.Line
+		}
+		if s.Line <= line && line <= end && (!found || s.Line >= best.Line) {
+			best, found = s, true
+		}
+	}
+	return best, found
 }
 
 // Definition returns the symbols named name. Exact matches win; otherwise a
@@ -305,7 +326,8 @@ func (m *Map) Impact(file string) (Impact, error) {
 	if _, ok := m.nodeIdx[rel]; !ok {
 		return Impact{}, fmt.Errorf("%q is not in the code map", file)
 	}
-	im := Impact{File: rel}
+	im := Impact{File: rel, Imports: append([]string(nil), m.imports[rel]...)}
+	sort.Strings(im.Imports)
 	direct := sortByRank(m, m.in[rel])
 	seen := map[string]bool{rel: true}
 	for _, d := range direct {
@@ -396,6 +418,13 @@ func (m *Map) fileRank(p string) float64 {
 // their key symbols as one-line signatures, cut to budgetTokens (estimated as
 // characters/4). focus files, and files updated with Update, are personalized
 // into the ranking.
+//
+// Ranking for display follows spec 4.6: rank scaled to a score, a bump for
+// files next to the focus, a bump for co-change partners of the focus, and a
+// halving for type modules that are not in focus. Blocks are taken in score
+// order while they fit. A block that does not fit is skipped, not allowed to
+// end the map, and no directory may take more than dirCap blocks before the
+// budget is used up.
 func (m *Map) Render(budgetTokens int, focus []string) string {
 	if budgetTokens <= 0 {
 		budgetTokens = 2500
@@ -417,20 +446,35 @@ func (m *Map) Render(budgetTokens int, focus []string) string {
 	if len(fx) > 0 {
 		rank = m.pagerank(m.focusVector(fx))
 	}
+	nb := m.neighbours(fx)
+	boost := map[string]float64{}
+	for _, c := range fx {
+		for _, pr := range m.cochange[c] {
+			boost[pr.File] += math.Min(float64(pr.Count)/5, 3)
+		}
+	}
 	type cand struct {
-		i int
-		r float64
+		i     int
+		score float64
 	}
 	var order []cand
 	for i, p := range m.paths {
 		if len(m.fileSyms[p]) == 0 && !inFocus[p] {
 			continue
 		}
-		order = append(order, cand{i, rank[i]})
+		s := rank[i] * 1000
+		if nb[p] {
+			s++
+		}
+		s += boost[p]
+		if !inFocus[p] && len(m.fileSyms[p]) >= 5 && typeHeavyFile(m.fileSyms[p]) {
+			s *= 0.5
+		}
+		order = append(order, cand{i, s})
 	}
 	sort.SliceStable(order, func(a, b int) bool {
-		if order[a].r != order[b].r {
-			return order[a].r > order[b].r
+		if order[a].score != order[b].score {
+			return order[a].score > order[b].score
 		}
 		return m.paths[order[a].i] < m.paths[order[b].i]
 	})
@@ -441,24 +485,116 @@ func (m *Map) Render(budgetTokens int, focus []string) string {
 	if len(order) > limit {
 		order = order[:limit]
 	}
-	var sb strings.Builder
 	header := fmt.Sprintf("Code map: %d files, %d symbols\n", len(m.paths), len(m.syms))
 	used := estTokens(header)
 	if used > budgetTokens {
+		m.recordRendered(nil)
 		return ""
 	}
-	sb.WriteString(header)
-	for _, c := range order {
-		block := m.renderBlock(m.paths[c.i])
+	// Pass 1 fills within the budget and respects dirCap. Pass 2 spends what
+	// is left on the blocks pass 1 held back for directory diversity. The
+	// budget stays a hard cap: the spec's 10% fill allowance is not used.
+	type pick struct {
+		pos   int
+		block string
+	}
+	var picks []pick
+	perDir := map[string]int{}
+	var skipped []int
+	take := func(pos int, limit float64, dirLimit bool) bool {
+		p := m.paths[order[pos].i]
+		d := path.Dir(p)
+		if dirLimit && perDir[d] >= dirCap {
+			return false
+		}
+		block := m.renderBlock(p)
 		t := estTokens(block)
-		if used+t > budgetTokens {
-			break // keep rank order: stop at the first block that does not fit
+		if float64(used+t) > limit {
+			return false
 		}
 		used += t
-		sb.WriteString(block)
+		perDir[d]++
+		picks = append(picks, pick{pos, block})
+		return true
 	}
+	for pos := range order {
+		if !take(pos, float64(budgetTokens), true) {
+			skipped = append(skipped, pos)
+		}
+	}
+	for _, pos := range skipped {
+		take(pos, float64(budgetTokens), false)
+	}
+	sort.Slice(picks, func(a, b int) bool { return picks[a].pos < picks[b].pos })
+	var sb strings.Builder
+	var shown []string
+	sb.WriteString(header)
+	for _, pk := range picks {
+		sb.WriteString(pk.block)
+		shown = append(shown, m.paths[order[pk.pos].i])
+	}
+	m.recordRendered(shown)
 	return sb.String()
 }
+
+// dirCap is how many blocks one directory may take in the first render pass.
+const dirCap = 4
+
+// typeHeavyFile reports whether a file is a type module: most of its symbols
+// are structural (spec 4.6).
+func typeHeavyFile(syms []Symbol) bool {
+	n := 0
+	for _, s := range syms {
+		if structuralKinds[s.Kind] {
+			n++
+		}
+	}
+	return float64(n) > typeRatio*float64(len(syms))
+}
+
+// neighbours returns the files that share an import edge with any file in
+// focus. Callers hold m.mu.
+func (m *Map) neighbours(focus []string) map[string]bool {
+	out := map[string]bool{}
+	if len(focus) == 0 {
+		return out
+	}
+	ctx := map[int32]bool{}
+	for _, f := range focus {
+		ctx[int32(m.nodeIdx[f])] = true
+	}
+	for k := range m.eFrom {
+		a, b := m.eFrom[k], m.eTo[k]
+		if ctx[a] {
+			out[m.paths[b]] = true
+		}
+		if ctx[b] {
+			out[m.paths[a]] = true
+		}
+	}
+	for _, f := range focus {
+		delete(out, f)
+	}
+	return out
+}
+
+// recordRendered keeps the paths shown by the last render, so memory
+// injection can say which files the model was just told about.
+func (m *Map) recordRendered(paths []string) {
+	m.renderMu.Lock()
+	m.rendered = append([]string(nil), paths...)
+	m.renderMu.Unlock()
+}
+
+// RenderedPaths returns the files shown by the most recent Render.
+func (m *Map) RenderedPaths() []string {
+	m.renderMu.Lock()
+	defer m.renderMu.Unlock()
+	return append([]string(nil), m.rendered...)
+}
+
+// newWindow is how recent a modification must be for the [NEW] tag.
+const newWindow = 48 * time.Hour
 
 func (m *Map) renderBlock(p string) string {
 	var sb strings.Builder
@@ -466,7 +602,13 @@ func (m *Map) renderBlock(p string) string {
 	if deps := len(m.in[p]); deps >= 2 {
 		fmt.Fprintf(&sb, " (→%d)", deps)
 	}
+	if fi := m.files[p]; fi != nil && fi.Mtime > 0 && time.Since(time.Unix(0, fi.Mtime)) < newWindow {
+		sb.WriteString(" [NEW]")
+	}
 	sb.WriteByte('\n')
+	if h := m.headerFor(p, m.files[p]); h != "" {
+		fmt.Fprintf(&sb, "  ~ %s\n", h)
+	}
 	syms := append([]Symbol(nil), m.fileSyms[p]...)
 	sort.SliceStable(syms, func(i, j int) bool { return syms[i].Line < syms[j].Line })
 	var shown []Symbol
@@ -497,12 +639,35 @@ func (m *Map) renderBlock(p string) string {
 		if len(sig) > 120 {
 			sig = sig[:120] + "..."
 		}
-		fmt.Fprintf(&sb, "  %s :%d\n", sig, s.Line)
+		mark := ""
+		if s.Exported {
+			mark = "+"
+		}
+		badge := ""
+		if n := len(m.callers[s.Name]); n > 0 && s.Exported {
+			badge = fmt.Sprintf(" <-%d", n)
+		}
+		fmt.Fprintf(&sb, "  %s%s :%d%s\n", mark, sig, s.Line, badge)
 	}
 	if more > 0 {
 		fmt.Fprintf(&sb, "  ... +%d more\n", more)
 	}
 	return sb.String()
+}
+
+// Budget is the token budget for the map given the size of the conversation
+// (spec 4.7). A short conversation gets the default; past 1,000 tokens the
+// budget shrinks toward 60% of the 2,500-token span as the conversation grows
+// to 100,000 tokens, so a deep session keeps most of its map.
+func Budget(conversationTokens int) int {
+	if conversationTokens <= 1000 {
+		return 2500
+	}
+	scale := 1 - 0.4*float64(conversationTokens)/100000
+	if scale < 0.6 {
+		scale = 0.6
+	}
+	return int(math.Round(1500 + 2500*scale))
 }
 
 func estTokens(s string) int { return (len(s) + 3) / 4 }

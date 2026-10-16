@@ -51,6 +51,11 @@ func main() {
 			ev(agent.Event{Kind: agent.EvToolResult, CallID: id, Tool: tool, Result: res, Duration: d})
 		}
 	}
+	if args["wave5"] {
+		wave5(v, ev, call, clock)
+		fmt.Println(v.View())
+		return
+	}
 
 	v.AddUser("Why do sessions vanish after a restart? Please check the store and fix it.", 0, now, false)
 	ev(agent.Event{Kind: agent.EvTurnStart, Prompt: "why do sessions vanish"})
@@ -141,4 +146,26 @@ func main() {
 	clock = clock.Add(2 * time.Second) // let the newest system row finish typing
 	v.Tick(clock)
 	fmt.Println(v.View())
+}
+
+// wave5 shows the transcript blocks added in wave 5: a phone message, a
+// dispatch that is still starting its subagents, a finished plan and a task
+// list, and a pasted image. Usage: sample wave5
+func wave5(v *chat.View, ev func(agent.Event), call func(string, string, map[string]any, *tools.Result, time.Duration), clock time.Time) {
+	// A local question, then a phone message: the turn it starts has no row yet.
+	v.AddUser("Did the migration finish?", 0, clock, false)
+	ev(agent.Event{Kind: agent.EvTurnStart, Prompt: "Did the migration finish?"})
+	ev(agent.Event{Kind: agent.EvText, Text: "Not yet."})
+	ev(agent.Event{Kind: agent.EvTurnDone, Stats: &agent.TurnStats{Duration: 2 * time.Second}})
+	ev(agent.Event{Kind: agent.EvTurnStart, Prompt: "[via telegram] check the logs for errors"})
+	call("d1", "dispatch", map[string]any{"tasks": []any{
+		map[string]any{"task": "read the migration log", "role": "explore"},
+		map[string]any{"task": "count the failed rows", "role": "code"},
+	}}, nil, 0)
+	ev(agent.Event{Kind: agent.EvPlan, Plan: &agent.Plan{Title: "Fix session location", Path: ".scribe/plans/sessions.md", Steps: []agent.PlanStep{
+		{ID: "1", Text: "Find where sessions are written", Status: "done", Files: []string{"store.go"}},
+		{ID: "2", Text: "Move the store under the home directory", Status: "done", Files: []string{"paths.go"}},
+	}, Verification: []string{"go test ./internal/scribe/session/... passes"}}})
+	ev(agent.Event{Kind: agent.EvTasks, Tasks: []agent.Task{{ID: "1", Text: "write the test", Status: "in_progress"}, {ID: "2", Text: "update docs", Status: "pending"}}})
+	ev(agent.Event{Kind: agent.EvText, Text: "Working on it."})
 }

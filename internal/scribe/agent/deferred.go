@@ -268,12 +268,12 @@ func DeferredCatalog(r *tools.Registry, core func(string) bool) string {
 		if !ok {
 			continue
 		}
-		fmt.Fprintf(&b, "- %s — %s\n", n, oneLine(t.Spec().Description))
+		fmt.Fprintf(&b, "- %s — %s\n", n, toolSummaryLine(t.Spec().Description))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func oneLine(s string) string {
+func toolSummaryLine(s string) string {
 	s = strings.Join(strings.Fields(s), " ")
 	if i := strings.Index(s, ". "); i > 0 {
 		s = s[:i+1]

@@ -23,6 +23,7 @@ type Record struct {
 	Text     string    `json:"text,omitempty"`
 	Images   int       `json:"images,omitempty"`
 	Steering bool      `json:"steering,omitempty"`
+	Origin   string    `json:"origin,omitempty"` // where a user message came from when not this terminal
 	Prompt   string    `json:"prompt,omitempty"`
 
 	// System rows.
@@ -42,9 +43,11 @@ type Record struct {
 	Reasoned    bool          `json:"reasoned,omitempty"`
 	Steps       int           `json:"steps,omitempty"`       // highest step number seen this turn
 	ReasonOpen  bool          `json:"reason_open,omitempty"` // thought summary expanded by a click
+	RailOpen    bool          `json:"rail_open,omitempty"`   // final rail unfolded by a click
 	Segments    []*Segment    `json:"segments,omitempty"`
 
 	cache *cached
+	imgs  [][]byte // pasted images, for display only (AttachImages)
 }
 
 // Segment is one block of an assistant turn, in arrival order.
@@ -56,6 +59,7 @@ type Segment struct {
 	Calls   []*Call      `json:"calls,omitempty"`
 	Plan    *agent.Plan  `json:"plan,omitempty"`
 	Tasks   []agent.Task `json:"tasks,omitempty"`
+	DoneAt  time.Time    `json:"done_at,omitempty"` // when every task became done (task list)
 
 	// Reasoning: the step it belongs to and the time spent streaming it.
 	Step  int           `json:"step,omitempty"`
@@ -63,6 +67,7 @@ type Segment struct {
 
 	// Typewriter state for open text segments.
 	shown  int
+	fed    int // rune length of the text the last time the drip ran
 	vel    float64
 	dripAt time.Time
 	// seen is the time of the last reasoning delta, for Spent.

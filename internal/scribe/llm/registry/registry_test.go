@@ -303,7 +303,7 @@ func TestLocalBaseNormalising(t *testing.T) {
 	}
 }
 
-func TestListModelsCachesTenMinutes(t *testing.T) {
+func TestListModelsCachesThirtyMinutes(t *testing.T) {
 	isolate(t)
 	srv := newModelServer(t)
 	r := New(customCfg("lab", srv.URL, ""))
@@ -319,7 +319,15 @@ func TestListModelsCachesTenMinutes(t *testing.T) {
 		t.Fatalf("hits within TTL = %d, want 1", hits)
 	}
 
-	clock = clock.Add(11 * time.Minute)
+	clock = clock.Add(29 * time.Minute)
+	if _, err := r.ListModels(context.Background(), "lab"); err != nil {
+		t.Fatal(err)
+	}
+	if hits, _, _ := srv.snapshot(); hits != 1 {
+		t.Fatalf("hits at 29 min = %d, want 1", hits)
+	}
+
+	clock = clock.Add(2 * time.Minute)
 	if _, err := r.ListModels(context.Background(), "lab"); err != nil {
 		t.Fatal(err)
 	}
@@ -385,7 +393,7 @@ func TestModelInfoPricingAndContext(t *testing.T) {
 	}
 
 	claude := r.ModelInfo("anthropic/claude-sonnet-5-5")
-	if claude.InputPerMTok <= 0 || claude.ContextWindow != 200000 {
+	if claude.InputPerMTok <= 0 || claude.ContextWindow != 1000000 {
 		t.Fatalf("claude from KnownModels = %+v", claude)
 	}
 

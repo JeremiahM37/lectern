@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/icons"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
 )
@@ -52,11 +53,12 @@ const (
 	wzProvider
 	wzKey
 	wzModel
+	wzIcons
 	wzTheme
 	wzDone
 )
 
-var wizStepNames = []string{"Welcome", "Provider", "Key", "Model", "Theme", "Ready"}
+var wizStepNames = []string{"Welcome", "Provider", "Key", "Model", "Icons", "Theme", "Ready"}
 
 // wizardProviders are the providers offered in the wizard, in order. The
 // rest stay on the Providers tab of /settings.
@@ -106,12 +108,15 @@ type wizard struct {
 	themeCur  int
 	origTheme string
 
-	note string // last problem, shown on the current step
+	prereqs []prereqStatus // tools checked on the welcome step
+	note    string         // last problem, shown on the current step
+
+	nerd bool // the icons step: Nerd Font glyphs on or off
 }
 
 func newWizard(m *Model) *wizard {
 	be := m.cur().be
-	w := &wizard{m: m, be: be, detect: map[string]int{}, origTheme: m.themeName}
+	w := &wizard{m: m, be: be, detect: map[string]int{}, origTheme: m.themeName, prereqs: checkPrereqs()}
 	all := be.Providers()
 	for _, id := range wizardProviders {
 		for _, p := range all {
@@ -156,6 +161,9 @@ func (w *wizard) Size(cols, rows int) (int, int) { return min(78, cols-4), min(r
 func (w *wizard) Footer() string {
 	switch w.step {
 	case wzWelcome:
+		if len(missingRequired(w.prereqs)) > 0 {
+			return "r check again · Esc close"
+		}
 		return "→ next · Esc close"
 	case wzProvider:
 		return "↑↓ select · Enter choose · ← back"
@@ -163,6 +171,8 @@ func (w *wizard) Footer() string {
 		return "Enter save & check · Esc back"
 	case wzModel:
 		return "↑↓ select · Enter choose · Tab next · Esc back"
+	case wzIcons:
+		return "Space toggle · Enter next · ← back"
 	case wzTheme:
 		return "↑↓ preview · Enter keep · ← back"
 	}
@@ -213,7 +223,13 @@ func (w *wizard) onKey(km tea.KeyMsg) (Modal, tea.Cmd, bool) {
 		switch k {
 		case "esc":
 			return w, nil, true
+		case "r":
+			w.prereqs = checkPrereqs()
 		case "enter", "right", "l", "tab":
+			if miss := missingRequired(w.prereqs); len(miss) > 0 {
+				w.note = requiredMessage(miss, goos)
+				return w, nil, false
+			}
 			w.step = wzProvider
 		}
 	case wzProvider:
@@ -264,6 +280,15 @@ func (w *wizard) onKey(km tea.KeyMsg) (Modal, tea.Cmd, bool) {
 			_, cmd, _ := w.chooser.Update(km)
 			return w, cmd, false
 		}
+	case wzIcons:
+		switch k {
+		case "esc", "left", "h":
+			w.step = wzModel
+		case " ", "space":
+			w.setNerd(!w.nerd)
+		case "enter", "right", "l", "tab":
+			w.enterTheme()
+		}
 	case wzTheme:
 		switch k {
 		case "up", "k":
@@ -272,7 +297,7 @@ func (w *wizard) onKey(km tea.KeyMsg) (Modal, tea.Cmd, bool) {
 			w.moveTheme(1)
 		case "esc", "left", "h":
 			w.revertTheme()
-			w.step = wzModel
+			w.step = wzIcons
 		case "enter", "right", "l", "tab":
 			name := w.themes[w.themeCur]
 			w.be.SetTheme(name)
@@ -344,6 +369,13 @@ func (w *wizard) chooseModel(ref string) tea.Cmd {
 		return nil
 	}
 	w.m.syncModel()
+	w.nerd = icons.NerdEnabled()
+	w.step = wzIcons
+	return nil
+}
+
+// enterTheme moves to the theme step, with the current theme highlighted.
+func (w *wizard) enterTheme() {
 	w.themes = theme.Names()
 	w.themeCur = listIndex(w.themes, w.m.themeName)
 	if w.themeCur < 0 {
@@ -351,7 +383,16 @@ func (w *wizard) chooseModel(ref string) tea.Cmd {
 	}
 	w.origTheme = w.m.themeName
 	w.step = wzTheme
-	return nil
+}
+
+// setNerd saves the Nerd Font choice and applies it to the glyphs at once.
+func (w *wizard) setNerd(on bool) {
+	if err := w.be.SetConfig("nerd_font", on, false); err != nil {
+		w.note = err.Error()
+		return
+	}
+	w.nerd = on
+	icons.SetNerd(on)
 }
 
 // validate saves the typed key and checks it by listing the provider's models.
@@ -444,6 +485,8 @@ func (w *wizard) View(width, height int) string {
 		if w.chooser != nil {
 			out = append(out, strings.Split(w.chooser.View(width, max(3, height-6)), "\n")...)
 		}
+	case wzIcons:
+		out = append(out, w.iconsView(th, width)...)
 	case wzTheme:
 		out = append(out, w.themeList(th, height-4)...)
 	case wzDone:
@@ -482,7 +525,7 @@ func (w *wizard) welcome(width int) []string {
 	for _, l := range lines {
 		out = append(out, fg(th.TextPrimary).Render(render.Wrap(l, width)), "")
 	}
-	return out
+	return append(out, prereqLines(th, w.prereqs, goos, width)...)
 }
 
 func (w *wizard) providerList(th theme.Theme, width int) []string {
@@ -541,8 +584,8 @@ func (w *wizard) keyView(th theme.Theme, width int) []string {
 	if len(w.key) == 0 {
 		line += fg(th.TextDim).Render("paste or type your key") + fg(th.Brand).Render("▌")
 	} else {
-		// Length only: the key itself is never drawn.
-		line += fg(th.TextPrimary).Render(strings.Repeat("•", min(len(w.key), max(0, width-6)))) + fg(th.Brand).Render("▌")
+		// All but the last four characters are bullets (maskRunes).
+		line += fg(th.TextPrimary).Render(maskRunes(w.key, width-6)) + fg(th.Brand).Render("▌")
 	}
 	out = append(out, line, "")
 	switch {
@@ -554,6 +597,18 @@ func (w *wizard) keyView(th theme.Theme, width int) []string {
 		out = append(out, fg(th.TextFaint).Render("Stored in Scribe's key file with owner-only permissions."))
 	}
 	return out
+}
+
+// iconsView is the Nerd Font step: one switch and what it changes.
+func (w *wizard) iconsView(th theme.Theme, width int) []string {
+	return []string{
+		fgb(th.TextPrimary).Render("Show Nerd Font icons?"),
+		fg(th.TextMuted).Render(render.Wrap("File types, tools and status marks are drawn with Nerd Font glyphs. Without a Nerd Font in this terminal they show as boxes.", width)),
+		"",
+		Toggle(th, w.nerd, true) + "  " + fg(th.TextFaint).Render("Nerd Font icons"),
+		"",
+		fg(th.TextFaint).Render("You can change this later with /settings, General."),
+	}
 }
 
 // themeList draws the themes with the highlighted one applied live.

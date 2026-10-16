@@ -34,4 +34,38 @@ var (
 	Compact = Spinner{"◐", "◓", "◑", "◒"}
 	// Rune is the busy-line rune spinner (15 frames, 2.25 s cycle at 150 ms).
 	Rune = Spinner{"ᛁ", "ᚲ", "ᚠ", "ᛊ", "ᛏ", "ᛉ", "ᛞ", "ᛞ", "ᛉ", "ᛏ", "ᛊ", "ᚠ", "ᚲ", "ᛁ", "ᛁ"}
+	// EditorOpen is the editor pane's opening wipe (6 frames, 60 ms each).
+	EditorOpen = Spinner{"  ░", " ░▒", "░▒▓", "▒▓█", "▓██", "███"}
 )
+
+// MarqueeHold is how many ticks a marquee rests at each end before it moves.
+const MarqueeHold = 10
+
+// Marquee returns the width-cell window of a long plain-text label for tick.
+// It holds at the start, scrolls one cell per tick to the end, holds there and
+// starts again. Text that fits is returned unchanged. Cells are counted as
+// runes, which is right for labels (paths, names, phrases) and not for
+// wide-glyph text. Use it only for the active label; inactive ones truncate.
+func Marquee(s string, width, tick int) string {
+	if width <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	over := len(r) - width
+	if over <= 0 {
+		return s
+	}
+	period := over + 2*MarqueeHold
+	t := tick % period
+	if t < 0 {
+		t += period
+	}
+	off := over
+	switch {
+	case t < MarqueeHold:
+		off = 0
+	case t < MarqueeHold+over:
+		off = t - MarqueeHold + 1
+	}
+	return string(r[off : off+width])
+}

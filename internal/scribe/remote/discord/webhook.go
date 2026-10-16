@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/redact"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/remote"
 )
 
@@ -69,6 +70,8 @@ func New(webhookURL string, progressEvery time.Duration, logf func(string, ...an
 // Post sends text, split to Discord's limit. Mentions are suppressed, so a
 // model's output cannot ping @everyone.
 func (n *Notifier) Post(ctx context.Context, text string) error {
+	// Every outbound note is redacted first: this is the one place text leaves.
+	text = redact.Default().Redact(text)
 	for _, part := range remote.Chunk(text, maxContent) {
 		if err := n.postOne(ctx, part); err != nil {
 			return err

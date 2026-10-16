@@ -368,3 +368,124 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+// newSettingsRunner builds a runner whose only hooks come from a Claude
+// settings.json, the one place async, once and if are written.
+func newSettingsRunner(t *testing.T, hooks map[string][]map[string]any) *Runner {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{"hooks": hooks})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return New(Options{Root: t.TempDir(), SessionID: "s", UserSettings: path, Trusted: true})
+}
+
+func preToolHook(h map[string]any) map[string]any {
+	return map[string]any{"matcher": "", "hooks": []any{h}}
+}
+
+func TestIfConditionMatchesToolAndGlob(t *testing.T) {
+	skipWindows(t)
+	r := newSettingsRunner(t, map[string][]map[string]any{"PreToolUse": {preToolHook(map[string]any{
+		"type": "command", "command": `cat >/dev/null; echo no push >&2; exit 2`, "if": "Bash(git push*)",
+	})}})
+	if got := r.PreTool(context.Background(), "shell", bashArgs("git push --force")); got != "no push" {
+		t.Fatalf("matching command not blocked: %q", got)
+	}
+	if got := r.PreTool(context.Background(), "shell", bashArgs("git status")); got != "" {
+		t.Fatalf("non-matching command blocked: %q", got)
+	}
+	// The condition names Bash, so an Edit call never matches it.
+	if got := r.PreTool(context.Background(), "edit_file", json.RawMessage(`{"path":"git push"}`)); got != "" {
+		t.Fatalf("wrong tool matched: %q", got)
+	}
+}
+
+func TestMalformedIfAllowsTheHook(t *testing.T) {
+	skipWindows(t)
+	r := newSettingsRunner(t, map[string][]map[string]any{"PreToolUse": {preToolHook(map[string]any{
+		"type": "command", "command": `cat >/dev/null; echo ran >&2; exit 2`, "if": "Bash git push",
+	})}})
+	if got := r.PreTool(context.Background(), "shell", bashArgs("anything")); got != "ran" {
+		t.Fatalf("malformed if did not allow the hook: %q", got)
+	}
+}
+
+func TestFirstStringFieldInDocumentOrder(t *testing.T) {
+	cases := map[string]string{
+		`{"n":1,"path":"a/b","x":"c"}`: "a/b",
+		`{"n":null,"s":"v"}`:           "v",
+		`{"n":1,"o":{"k":"deep"}}`:     "",
+		`["first"]`:                    "",
+		`{}`:                           "",
+	}
+	for in, want := range cases {
+		if got := firstString(json.RawMessage(in)); got != want {
+			t.Errorf("firstString(%s) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestOnceHookRunsOnceAndConditionFailureUsesTheShot(t *testing.T) {
+	skipWindows(t)
+	log := filepath.Join(t.TempDir(), "log")
+	cmd := `cat >/dev/null; echo x >> ` + log + `; exit 0`
+	r := newSettingsRunner(t, map[string][]map[string]any{"PreToolUse": {preToolHook(map[string]any{
+		"type": "command", "command": cmd, "once": true, "if": "Bash(xy*)",
+	})}})
+	// The condition fails on this call, but the one shot is still spent.
+	r.PreTool(context.Background(), "shell", bashArgs("zz"))
+	r.PreTool(context.Background(), "shell", bashArgs("xyz"))
+	if b, _ := os.ReadFile(log); len(b) != 0 {
+		t.Fatalf("once hook ran after its shot was spent: %q", b)
+	}
+
+	log2 := filepath.Join(t.TempDir(), "log2")
+	r2 := newSettingsRunner(t, map[string][]map[string]any{"PostToolUse": {preToolHook(map[string]any{
+		"type": "command", "command": `cat >/dev/null; echo x >> ` + log2, "once": true,
+	})}})
+	for i := 0; i < 3; i++ {
+		r2.PostTool(context.Background(), "shell", bashArgs("ls"), tools.Result{Output: "ok"})
+	}
+	if b, _ := os.ReadFile(log2); strings.Count(string(b), "x") != 1 {
+		t.Fatalf("once hook ran %d times, want 1", strings.Count(string(b), "x"))
+	}
+}
+
+func TestAsyncHookDoesNotBlockOrWait(t *testing.T) {
+	skipWindows(t)
+	marker := filepath.Join(t.TempDir(), "done")
+	r := newSettingsRunner(t, map[string][]map[string]any{"PreToolUse": {preToolHook(map[string]any{
+		"type": "command", "command": `cat >/dev/null; sleep 0.2; touch ` + marker + `; exit 2`, "async": true,
+	})}})
+	start := time.Now()
+	if got := r.PreTool(context.Background(), "shell", bashArgs("rm -rf /")); got != "" {
+		t.Fatalf("async hook blocked: %q", got)
+	}
+	if el := time.Since(start); el > 150*time.Millisecond {
+		t.Fatalf("async hook made the call wait %s", el)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(marker); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("async hook never ran to completion")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestDefaultTimeoutIsTenSeconds(t *testing.T) {
+	if got := timeoutOf(0); got != 10*time.Second {
+		t.Fatalf("default timeout = %s, want 10s", got)
+	}
+	if got := timeoutOf(3); got != 3*time.Second {
+		t.Fatalf("explicit timeout = %s", got)
+	}
+}

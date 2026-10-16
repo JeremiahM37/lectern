@@ -6,6 +6,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"path"
 	"strings"
 	"time"
@@ -177,13 +178,17 @@ func (m *Model) openGitMenu() {
 	t := m.cur()
 	g := &gitMenu{m: m, be: t.be, th: m.th, st: t.be.Git()}
 	g.acts = []gitAction{
-		{"s", "Status", "changed files, staged and unstaged", "git", (*gitMenu).actStatus},
+		{"w", "Status", "changed files", "git", (*gitMenu).actStatus},
 		{"d", "Diff", "working tree changes", "diff_add", (*gitMenu).actDiff},
-		{"c", "Commit", "stage everything and commit", "check", (*gitMenu).actCommit},
-		{"t", "Stash", "stash tracked changes", "file", (*gitMenu).actStash},
-		{"o", "Stash pop", "restore the latest stash", "rewind", (*gitMenu).actPop},
+		{"c", "Commit", "stage all and commit", "check", (*gitMenu).actCommit},
+		{"p", "Push", "send commits to remote", "arrow_right", (*gitMenu).actPush},
+		{"u", "Pull", "fetch and merge the remote", "arrow", (*gitMenu).actPull},
+		{"s", "Stash", "stash tracked changes", "file", (*gitMenu).actStash},
+		{"o", "Stash pop", "restore latest stash", "rewind", (*gitMenu).actPop},
 		{"l", "Log", "last 30 commits", "clock", (*gitMenu).actLog},
-		{"p", "Push", "send commits to the remote", "arrow_right", (*gitMenu).actPush},
+		{"f", "Force push", "--force-with-lease", "warning", (*gitMenu).actForcePush},
+		{"r", "Reset hard", "discard uncommitted work", "error", (*gitMenu).actResetHard},
+		{"g", "Lazygit", "open lazygit here", "terminal", (*gitMenu).actLazygit},
 	}
 	m.pushModal(g)
 }
@@ -268,6 +273,58 @@ func (g *gitMenu) actLog() (tea.Cmd, bool) {
 	}), true
 }
 
+// actPull closes the menu and pulls. It needs no confirm: a pull only adds
+// commits, and a conflict stops it with git's own message.
+func (g *gitMenu) actPull() (tea.Cmd, bool) {
+	m, be := g.m, g.be
+	m.setFlash("info", "Pulling…")
+	return shellFlash(be, "git pull", "Pull complete.", "Pull failed"), true
+}
+
+// actForcePush asks first, then runs push --force-with-lease, which refuses
+// when the remote has commits this clone has not seen.
+func (g *gitMenu) actForcePush() (tea.Cmd, bool) {
+	m, be := g.m, g.be
+	m.pushModal(NewConfirm(g.th, "Force-push to remote?",
+		"git push --force-with-lease will overwrite the remote branch. Other contributors' commits may be discarded.", true,
+		func() tea.Cmd {
+			m.closeModal(g)
+			m.setFlash("info", "Force-pushing (with lease)…")
+			return shellFlash(be, "git push --force-with-lease", "Force push complete.", "Force push failed")
+		}).WithLabels("Force push", "Cancel"))
+	return nil, false
+}
+
+// actResetHard asks first. Untracked files are kept, as git reset --hard does.
+func (g *gitMenu) actResetHard() (tea.Cmd, bool) {
+	m, be := g.m, g.be
+	m.pushModal(NewConfirm(g.th, "Reset working tree?",
+		"git reset --hard HEAD will discard all uncommitted changes. Untracked files are kept.", true,
+		func() tea.Cmd {
+			m.closeModal(g)
+			m.setFlash("info", "Resetting working tree…")
+			return shellFlash(be, "git reset --hard HEAD", "Reset complete.", "Reset failed")
+		}).WithLabels("Reset", "Cancel"))
+	return nil, false
+}
+
+// lazygitMissing is the message when lazygit cannot be started.
+const lazygitMissing = "Failed to launch lazygit. Is it installed?"
+
+// actLazygit hands the terminal to lazygit and takes it back when it exits.
+func (g *gitMenu) actLazygit() (tea.Cmd, bool) {
+	if _, err := exec.LookPath("lazygit"); err != nil {
+		return flashCmd("err", lazygitMissing), true
+	}
+	cmd := tea.ExecProcess(exec.Command("lazygit"), func(err error) tea.Msg {
+		if err != nil {
+			return flashMsg{kind: "err", text: lazygitMissing}
+		}
+		return nil
+	})
+	return cmd, true
+}
+
 func (g *gitMenu) actPush() (tea.Cmd, bool) {
 	m, be, th := g.m, g.be, g.th
 	branch := g.branch()
@@ -347,12 +404,12 @@ func (g *gitMenu) Icon() string { return "git" }
 
 // Footer implements Footered.
 func (g *gitMenu) Footer() string {
-	return "↑↓ move · Enter run · s d c t o l p direct · Esc close"
+	return "↑↓ move · Enter · c p u s o l g f r · Esc"
 }
 
 // Size implements Sized.
 func (g *gitMenu) Size(cols, rows int) (int, int) {
-	return min(60, max(48, cols/2)), 16
+	return min(60, max(56, cols/2)), 16
 }
 
 // View implements Modal.
@@ -372,7 +429,7 @@ func (g *gitMenu) View(w, h int) string {
 		if i == g.cur {
 			mark, lab = fgb(th.BrandSecondary).Render("› "), fgb(th.TextPrimary)
 		}
-		line := mark + fgb(th.Brand).Render(a.key) + "  " + lab.Render(fmt.Sprintf("%-10s", a.label)) +
+		line := mark + fgb(th.Brand).Render(a.key) + "  " + lab.Render(fmt.Sprintf("%-12s", a.label)) +
 			fg(th.TextDim).Render(a.desc)
 		lines = append(lines, render.Truncate(line, w))
 	}
@@ -410,11 +467,46 @@ type commitModal struct {
 	suggesting bool
 	err        string
 	cols, rows int
+	// stageAll is the Ctrl+A toggle. On by default, which is what a commit
+	// has always done (git add -A). Off commits only what is already staged,
+	// unless nothing is staged, in which case everything is staged anyway.
+	stageAll bool
 }
+
+// stageCommitter is implemented by a Backend that can choose whether a commit
+// stages every change first. Without it the commit always stages everything.
+type stageCommitter interface {
+	GitCommitWith(message string, stageAll bool) error
+}
+
+// canToggleStage reports whether the stage-all choice matters: some change is
+// unstaged or untracked. When everything is already staged the toggle is hidden.
+func (c *commitModal) canToggleStage() bool {
+	for _, e := range c.files {
+		if e.untracked() || e.unstaged() {
+			return true
+		}
+	}
+	return false
+}
+
+// anyStaged reports whether something is already in the index.
+func (c *commitModal) anyStaged() bool {
+	for _, e := range c.files {
+		if !e.untracked() && e.staged() {
+			return true
+		}
+	}
+	return false
+}
+
+// stagesAll is the rule the commit follows: stage all when the toggle is on
+// or nothing is staged yet, otherwise commit the staged set alone.
+func (c *commitModal) stagesAll() bool { return c.stageAll || !c.anyStaged() }
 
 // openCommitModal opens the commit modal and reads the changed files.
 func (m *Model) openCommitModal() tea.Cmd {
-	c := &commitModal{m: m, be: m.cur().be, th: m.th, lines: []string{""}, loading: true}
+	c := &commitModal{m: m, be: m.cur().be, th: m.th, lines: []string{""}, loading: true, stageAll: true}
 	m.pushModal(c)
 	be := c.be
 	return asyncModal(c, func() func() (tea.Cmd, bool) {
@@ -526,8 +618,14 @@ func (c *commitModal) tryCommit() tea.Cmd {
 func (c *commitModal) commit(msg, subject string) tea.Cmd {
 	c.busy, c.err = "Committing…", ""
 	be, m := c.be, c.m
+	stagesAll := c.stagesAll()
 	return asyncModal(c, func() func() (tea.Cmd, bool) {
-		err := be.GitCommit(msg)
+		var err error
+		if sc, ok := be.(stageCommitter); ok {
+			err = sc.GitCommitWith(msg, stagesAll)
+		} else {
+			err = be.GitCommit(msg)
+		}
 		return func() (tea.Cmd, bool) {
 			if err != nil {
 				c.busy = ""
@@ -567,6 +665,10 @@ func (c *commitModal) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 			c.toBody()
 		} else {
 			c.newline()
+		}
+	case "ctrl+a":
+		if c.canToggleStage() {
+			c.stageAll = !c.stageAll
 		}
 	case "tab":
 		c.toBody()
@@ -664,6 +766,9 @@ func (c *commitModal) Icon() string { return "git" }
 
 // Footer implements Footered.
 func (c *commitModal) Footer() string {
+	if c.canToggleStage() {
+		return "Enter new line · Tab body · Ctrl+A stage all · Ctrl+S commit · Ctrl+G suggest · Esc cancel"
+	}
 	return "Enter new line · Tab body · Ctrl+S commit · Ctrl+G suggest · Esc cancel"
 }
 
@@ -682,25 +787,33 @@ func (c *commitModal) summary() (string, bool) {
 	case len(c.files) == 0:
 		return fg(th.TextMuted).Render("No changes to commit."), false
 	}
-	kinds := map[string]int{}
+	// Counts of non-zero kinds only. A file can be both staged and modified.
+	var staged, modified, untracked int
 	for _, e := range c.files {
 		switch {
-		case e.untracked() || e.X == 'A':
-			kinds["new"]++
-		case e.X == 'D' || e.Y == 'D':
-			kinds["deleted"]++
+		case e.untracked():
+			untracked++
 		default:
-			kinds["modified"]++
+			if e.staged() {
+				staged++
+			}
+			if e.unstaged() {
+				modified++
+			}
 		}
 	}
 	var parts []string
-	for _, k := range []string{"modified", "new", "deleted"} {
-		if kinds[k] > 0 {
-			parts = append(parts, fmt.Sprintf("%d %s", kinds[k], k))
-		}
+	if staged > 0 {
+		parts = append(parts, fg(th.Success).Render(fmt.Sprintf("● %d staged", staged)))
 	}
-	text := fmt.Sprintf("● %d changed (%s) · git add -A stages them all", len(c.files), strings.Join(parts, ", "))
-	return fg(th.Success).Render(text), true
+	if modified > 0 {
+		parts = append(parts, fg(th.Warning).Render(fmt.Sprintf("● %d modified", modified)))
+	}
+	if untracked > 0 {
+		parts = append(parts, fg(th.Error).Render(fmt.Sprintf("● %d untracked", untracked)))
+	}
+	parts = append(parts, fg(th.TextMuted).Render("git add -A stages them all"))
+	return strings.Join(parts, "  "), true
 }
 
 // View implements Modal.
@@ -734,6 +847,9 @@ func (c *commitModal) View(w, h int) string {
 	if secretRows == 1 {
 		out = append(out, render.Truncate(fg(th.Warning).Render("⚠ looks like a secret: "+strings.Join(c.secrets, ", ")+" · Ctrl+S asks first"), w))
 	}
+	if c.canToggleStage() {
+		out = append(out, render.Truncate(c.stageLine(), w))
+	}
 	out = append(out, "", fg(th.TextMuted).Render("Message:"))
 
 	start := 0
@@ -757,6 +873,23 @@ func (c *commitModal) View(w, h int) string {
 		out = append(out, "")
 	}
 	return strings.Join(fitLines(out, w, h), "\n")
+}
+
+// stageLine draws the stage-all toggle and what it means right now.
+func (c *commitModal) stageLine() string {
+	th := c.th
+	box := "[ ]"
+	if c.stageAll {
+		box = "[x]"
+	}
+	line := fg(th.TextSecondary).Render(box+" Stage all changes") + fg(th.TextFaint).Render("  Ctrl+A")
+	switch {
+	case c.stagesAll() && !c.stageAll:
+		line += fg(th.TextMuted).Render("  · nothing is staged yet, so everything is")
+	case !c.stageAll:
+		line += fg(th.TextMuted).Render("  · only the staged files are committed")
+	}
+	return line
 }
 
 // editorLine draws line i of the message with the cursor when it is focused.

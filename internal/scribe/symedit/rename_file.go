@@ -150,6 +150,7 @@ func planRenameTS(workdir, fromRel, toRel string) ([]fileWrite, renameReport, er
 	}
 	fromDir, toDir := path.Dir(fromRel), path.Dir(toRel)
 	key := tsModKey(fromRel)
+	al := loadTSAliases(workdir)
 
 	moved := rebaseSpecs(fromSrc, languages[extOf(fromRel)].lex, func(spec string) string {
 		if !isRelSpec(spec) {
@@ -170,16 +171,17 @@ func planRenameTS(workdir, fromRel, toRel string) ([]fileWrite, renameReport, er
 		}
 		var edits []textEdit
 		for _, r := range codeSpecs(src, mask(src, languages[extOf(rel)].lex)) {
-			if !isRelSpec(r.spec) {
-				if k := tsModKey(r.spec); k == key || strings.HasSuffix(k, "/"+key) {
+			k := al.resolve(rel, r.spec)
+			if k == "" {
+				if k := tsModKey(r.spec); !isRelSpec(r.spec) && (k == key || strings.HasSuffix(k, "/"+key)) {
 					rep.warnings = append(rep.warnings, fmt.Sprintf("%s imports %q by a non-relative path, which was not rewritten. Update it by hand if it means %s.", rel, r.spec, fromRel))
 				}
 				continue
 			}
-			if tsResolve(rel, r.spec) != key {
+			if k != key {
 				continue
 			}
-			edits = append(edits, textEdit{r.start, r.end, tsRespec(path.Dir(rel), r.spec, toRel)})
+			edits = append(edits, textEdit{r.start, r.end, al.respec(path.Dir(rel), r.spec, toRel)})
 		}
 		if len(edits) == 0 {
 			continue

@@ -17,6 +17,11 @@ import (
 type Result struct {
 	Output  string `json:"output"`
 	IsError bool   `json:"is_error,omitempty"`
+	// Tag is a short machine code for an error, so the UI and hooks can
+	// branch without parsing Output. Empty when there is nothing to branch
+	// on. Known values: "forbidden", "not found", "concurrent modification",
+	// "stale_undo", "contested".
+	Tag string `json:"tag,omitempty"`
 	// Summary is a one-line human summary for tool rows, e.g. "42 lines",
 	// "3 matches in 2 files", "+5 -2". Optional.
 	Summary string `json:"summary,omitempty"`

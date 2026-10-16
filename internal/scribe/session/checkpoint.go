@@ -49,7 +49,16 @@ type Checkpoint struct {
 	Files   []string // paths relative to the project root, sorted
 	Created time.Time
 	Undone  bool
+	// Added and Removed are the text lines the turn added and removed across
+	// its files, for the checkpoint rail. Binary files and files over
+	// lineDeltaMaxLines count as zero.
+	Added   int
+	Removed int
 }
+
+// lineDeltaMaxLines bounds the diff List runs per file; a larger file is
+// not worth an O(n*m) diff on every rail refresh.
+const lineDeltaMaxLines = 5000
 
 // ErrConflict means files changed on disk after the turn that wrote them.
 var ErrConflict = errors.New("files changed since the turn that wrote them")
@@ -402,9 +411,54 @@ func (c *Checkpoints) List() []Checkpoint {
 	}
 	out := make([]Checkpoint, 0, len(recs))
 	for _, r := range recs {
-		out = append(out, viewOf(r))
+		v := viewOf(r)
+		v.Added, v.Removed = c.lineDeltaLocked(r)
+		out = append(out, v)
 	}
 	return out
+}
+
+// lineDeltaLocked counts the lines a turn added and removed, comparing each
+// file's before-state with its after-state (or the disk, for an open turn).
+// Caller holds c.mu.
+func (c *Checkpoints) lineDeltaLocked(r *cpRecord) (added, removed int) {
+	for k, f := range r.Files {
+		before, err := c.readBlob(f.Before)
+		if err != nil || looksBinary(before) {
+			continue
+		}
+		var after []byte
+		if f.After != nil {
+			after, err = c.readBlob(*f.After)
+		} else {
+			_, after, err = c.readCurrent(c.abs(k))
+		}
+		if err != nil || looksBinary(after) {
+			continue
+		}
+		a, b := splitKeepEOL(string(before)), splitKeepEOL(string(after))
+		if len(a) > lineDeltaMaxLines || len(b) > lineDeltaMaxLines {
+			continue
+		}
+		for _, op := range diffOps(a, b) {
+			switch op.kind {
+			case '+':
+				added++
+			case '-':
+				removed++
+			}
+		}
+	}
+	return added, removed
+}
+
+// looksBinary reports whether data has a NUL byte in its first 8 KiB, the
+// same heuristic git uses.
+func looksBinary(data []byte) bool {
+	if len(data) > 8192 {
+		data = data[:8192]
+	}
+	return bytes.IndexByte(data, 0) >= 0
 }
 
 func viewOf(r *cpRecord) Checkpoint {

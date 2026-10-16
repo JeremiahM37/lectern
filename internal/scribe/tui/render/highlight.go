@@ -116,8 +116,34 @@ var langSpecs = map[string]*langSpec{
 		types:       wordSet("int integer text varchar bigint boolean date timestamp numeric"),
 		lineComment: []string{"--"}, blockOpen: "/*", blockClose: "*/", quotes: "'\"", foldCase: true,
 	},
-	"html":     {mode: "html", blockOpen: "<!--", blockClose: "-->", quotes: "\"'"},
-	"css":      {mode: "css", blockOpen: "/*", blockClose: "*/", quotes: "\"'"},
+	"html": {mode: "html", blockOpen: "<!--", blockClose: "-->", quotes: "\"'"},
+	"css":  {mode: "css", blockOpen: "/*", blockClose: "*/", quotes: "\"'"},
+	"swift": {
+		keywords:    wordSet("associatedtype break case catch class continue default defer deinit do else enum extension fallthrough false fileprivate for func guard if import in init inout internal is let nil operator private protocol public repeat rethrows return self Self static struct subscript super switch throw throws true try typealias var where while async await actor some any open override final lazy weak unowned"),
+		types:       wordSet("String Int Double Float Bool Array Dictionary Set Optional Void Error Character"),
+		lineComment: []string{"//"}, blockOpen: "/*", blockClose: "*/", quotes: "\"", typeCap: true,
+	},
+	"csharp": {
+		keywords:    wordSet("abstract as base bool break byte case catch char checked class const continue decimal default delegate do double else enum event explicit extern false finally fixed float for foreach goto if implicit in int interface internal is lock long namespace new null object operator out override params private protected public readonly ref return sbyte sealed short sizeof stackalloc static string struct switch this throw true try typeof uint ulong unchecked unsafe ushort using virtual void volatile while async await var record get set yield"),
+		lineComment: []string{"//"}, blockOpen: "/*", blockClose: "*/", quotes: "\"'", typeCap: true,
+	},
+	"php": {
+		keywords:    wordSet("abstract and array as break callable case catch class clone const continue declare default do echo else elseif empty enddeclare endfor endforeach endif endswitch endwhile extends final finally fn for foreach function global goto if implements include include_once instanceof insteadof interface isset list match namespace new or print private protected public readonly require require_once return static switch throw trait try unset use var while xor yield false null true self parent"),
+		lineComment: []string{"//", "#"}, blockOpen: "/*", blockClose: "*/", quotes: "\"'", typeCap: true,
+	},
+	"lua": {
+		keywords:    wordSet("and break do else elseif end false for function goto if in local nil not or repeat return then true until while"),
+		lineComment: []string{"--"}, quotes: "\"'",
+	},
+	"zig": {
+		keywords:    wordSet("align allowzero and anyframe anytype asm async await break catch comptime const continue defer else enum errdefer error export extern false fn for if inline noalias null or orelse packed pub resume return linksection struct suspend switch test threadlocal true try union unreachable usingnamespace var volatile while"),
+		types:       wordSet("bool void u8 u16 u32 u64 usize i8 i16 i32 i64 isize f32 f64 type anyerror"),
+		lineComment: []string{"//"}, quotes: "\"'", typeCap: true,
+	},
+	"graphql": {
+		keywords:    wordSet("query mutation subscription fragment on type input enum interface union schema extend implements scalar directive repeatable true false null"),
+		lineComment: []string{"#"}, quotes: "\"", typeCap: true,
+	},
 	"markdown": {mode: "markdown"},
 	"diff":     {mode: "diff"},
 }
@@ -140,6 +166,12 @@ var langAliases = map[string]string{
 	"css": "css", "scss": "css", "less": "css",
 	"md": "markdown", "markdown": "markdown",
 	"diff": "diff", "patch": "diff",
+	"swift": "swift",
+	"cs":    "csharp", "csharp": "csharp", "c#": "csharp",
+	"php":     "php",
+	"lua":     "lua",
+	"zig":     "zig",
+	"graphql": "graphql", "gql": "graphql",
 }
 
 // LangFromPath returns the highlighter language for a file name, or "" when the

@@ -22,6 +22,7 @@ const (
 	// OpenCode; verify before relying on it.
 	opencodeZenBase      = "https://opencode.ai/zen/v1"
 	proxyDefaultBase     = "http://127.0.0.1:8317/v1"
+	copilotBaseURL       = "https://api.githubcopilot.com"
 	bedrockRegionDefault = "us-east-1"
 )
 
@@ -56,6 +57,15 @@ func init() {
 			BaseURL:   opencodeZenBase,
 			EnvVars:   []string{"OPENCODE_ZEN_API_KEY"},
 			ASCIIIcon: "oz",
+		},
+		// GitHub Copilot: the editor's OAuth token is exchanged for a bearer
+		// inside the copilot package, so the key is a plain store/env value.
+		Definition{
+			ID:        "copilot",
+			Name:      "GitHub Copilot",
+			BaseURL:   copilotBaseURL,
+			EnvVars:   []string{"COPILOT_API_KEY"},
+			ASCIIIcon: "cp",
 		},
 		// The CLIProxyAPI sidecar. Its key is optional, and the base comes
 		// from SCRIBE_PROXY_URL (a bare host:port gets /v1 appended, as for

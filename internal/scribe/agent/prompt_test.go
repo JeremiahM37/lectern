@@ -12,7 +12,7 @@ func TestBuildSystemIncludesModeOverlayAndInstructions(t *testing.T) {
 		Workdir:      "/work/proj",
 		Date:         "2026-10-16",
 		ModelRef:     "fake/model-a",
-		Instructions: []Instruction{{Path: "/work/proj/AGENTS.md", Text: "\nUse tabs.\n"}},
+		Instructions: []Instruction{{Path: "/work/proj/AGENTS.md", Text: "\nUse tabs.\n", Name: "AGENTS.md"}},
 	}
 
 	plan := BuildSystem(in, "plan")
@@ -21,7 +21,7 @@ func TestBuildSystemIncludesModeOverlayAndInstructions(t *testing.T) {
 		"You are in plan mode: read-only.",
 		"- Working directory: /work/proj",
 		"- Date: 2026-10-16",
-		"# Instructions from /work/proj/AGENTS.md\nUse tabs.",
+		"# Project instructions\n\n[project:AGENTS.md]\nUse tabs.",
 	} {
 		if !strings.Contains(plan, want) {
 			t.Fatalf("plan prompt lacks %q", want)

@@ -63,6 +63,7 @@ func (p *postEditor) AfterTool(ctx context.Context, name string, _ json.RawMessa
 	if len(files) == 0 {
 		return
 	}
+	p.autoFix(ctx, name, files, res)
 	var formatted []string
 	for _, abs := range files {
 		if p.format(ctx, abs) {
@@ -73,6 +74,9 @@ func (p *postEditor) AfterTool(ctx context.Context, name string, _ json.RawMessa
 		res.Output = appendBlock(res.Output, "Formatted: "+strings.Join(formatted, ", ")+".")
 	}
 	if block := p.newDiagnostics(ctx, files, changedLines(res.Diff)); block != "" {
+		res.Output = appendBlock(res.Output, block)
+	}
+	if block := symbolDeltas(res.Diff); block != "" {
 		res.Output = appendBlock(res.Output, block)
 	}
 }
@@ -187,6 +191,7 @@ func (p *postEditor) newDiagnostics(ctx context.Context, files []string, changed
 		return ""
 	}
 	var added []lsp.FileDiagnostic
+	fixed := 0
 	for _, abs := range files {
 		if !p.diags.Active(abs) {
 			continue
@@ -207,22 +212,39 @@ func (p *postEditor) newDiagnostics(ctx context.Context, files []string, changed
 			if spans, ok := changedFor(changed, p.rel(abs)); ok {
 				fresh = nearSpans(fresh, spans)
 			}
+		} else {
+			fixed += fixedCount(prev, errs)
 		}
 		added = append(added, fresh...)
 	}
-	if len(added) == 0 {
+	if len(added) == 0 && fixed == 0 {
 		return ""
 	}
-	return p.formatNewDiagnostics(added)
+	var hints [][]string
+	if len(added) > 0 {
+		hints = p.quickFixHints(ctx, added)
+	}
+	return p.formatNewDiagnostics(added, hints, fixed)
 }
 
-// formatNewDiagnostics renders the block, capped at maxNewDiagLines lines.
-func (p *postEditor) formatNewDiagnostics(ds []lsp.FileDiagnostic) string {
-	const itemLines = maxNewDiagLines - 2 // header, and the "... N more" line
-	lines := []string{fmt.Sprintf("New diagnostics: %d new error(s).", len(ds))}
+// formatNewDiagnostics renders the block, capped at maxNewDiagLines lines. Each
+// new error may be followed by up to maxHintTitles quick-fix hints. fixed is
+// the number of errors that went away since the last check.
+func (p *postEditor) formatNewDiagnostics(ds []lsp.FileDiagnostic, hints [][]string, fixed int) string {
+	header := ""
+	if len(ds) > 0 {
+		header = fmt.Sprintf("New diagnostics: %d new error(s).", len(ds))
+	}
+	if fixed > 0 {
+		if header != "" {
+			header += " "
+		}
+		header += fmt.Sprintf("%d fixed since the last check.", fixed)
+	}
+	lines := []string{header}
 	for i, d := range ds {
-		if i == itemLines {
-			lines = append(lines, fmt.Sprintf("  ... and %d more", len(ds)-itemLines))
+		if len(lines) >= maxNewDiagLines-1 {
+			lines = append(lines, fmt.Sprintf("  ... and %d more", len(ds)-i))
 			break
 		}
 		msg := strings.Join(strings.Fields(d.Message), " ")
@@ -238,6 +260,14 @@ func (p *postEditor) formatNewDiagnostics(ds []lsp.FileDiagnostic) string {
 			line = line[:maxDiagLineLen-3] + "..."
 		}
 		lines = append(lines, line)
+		if i < len(hints) {
+			for _, h := range hints[i] {
+				if len(lines) >= maxNewDiagLines {
+					break
+				}
+				lines = append(lines, "    fix: "+h)
+			}
+		}
 	}
 	return strings.Join(lines, "\n")
 }

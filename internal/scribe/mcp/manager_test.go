@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -304,4 +305,48 @@ func waitFor(t *testing.T, cond func() bool) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("condition not met within 5s")
+}
+
+// A stdio server that exits on its own is restarted with backoff, and its
+// tools come back without a manual restart.
+func TestStdioServerRestartsAfterItExits(t *testing.T) {
+	old := restartBackoff
+	restartBackoff = func(int) time.Duration { return 10 * time.Millisecond }
+	t.Cleanup(func() { restartBackoff = old })
+
+	marker := filepath.Join(t.TempDir(), "crashed")
+	spec := selfServer(t, "flaky", map[string]string{"SCRIBE_MCP_TEST_MODE": "crash-once", "SCRIBE_MCP_TEST_MARK": marker})
+	m := New(Options{Global: []config.MCPServer{spec}, StartTimeout: 5 * time.Second})
+	defer m.Close()
+	m.Start(context.Background())
+	m.mu.Lock()
+	first := m.servers["flaky"].client
+	m.mu.Unlock()
+	if first == nil {
+		t.Fatal("server did not connect")
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		m.mu.Lock()
+		s := m.servers["flaky"]
+		back := s.client != nil && s.client != first && s.state == StateReady && len(s.tools) > 0
+		m.mu.Unlock()
+		if back {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("server was not restarted: %+v", statusOf(m, "flaky"))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestBackoffDoublesAndCaps(t *testing.T) {
+	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 8 * time.Second}
+	for i, w := range want {
+		if got := restartBackoff(i); got != w {
+			t.Errorf("restartBackoff(%d) = %s, want %s", i, got, w)
+		}
+	}
 }

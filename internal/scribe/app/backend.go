@@ -22,6 +22,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/registry"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/memory"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/repomap"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/session"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools/exec"
@@ -668,36 +669,6 @@ func (b *scribeBackend) History() []string {
 	return out
 }
 
-// Export writes the current session to <workdir>/.scribe/exports and returns the path.
-func (b *scribeBackend) Export(format string) (string, error) {
-	a := b.current()
-	if a.opts.Ephemeral {
-		return "", errors.New("this session is not saved, so there is nothing to export")
-	}
-	var ext string
-	switch format {
-	case "markdown", "md":
-		format, ext = "markdown", "md"
-	case "json":
-		ext = "json"
-	default:
-		return "", fmt.Errorf("unknown export format %q (use markdown or json)", format)
-	}
-	data, err := a.Store.Export(a.Meta.ID, format)
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Join(a.Workdir, ".scribe", "exports")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	path := filepath.Join(dir, a.Meta.ID+"."+ext)
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return "", err
-	}
-	return path, nil
-}
-
 // Checkpoints implements tui.Backend.
 func (b *scribeBackend) Checkpoints() []tui.CheckpointInfo {
 	a := b.current()
@@ -920,37 +891,7 @@ func (b *scribeBackend) GitDiff() string {
 
 // GitCommit stages every change (git add -A) and commits with message.
 func (b *scribeBackend) GitCommit(message string) error {
-	message = strings.TrimSpace(message)
-	if message == "" {
-		return errors.New("the commit message is empty")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	wd := b.current().Workdir
-	if out, err := gitRun(ctx, wd, "add", "-A"); err != nil {
-		return fmt.Errorf("git add: %s", out)
-	}
-	// Unstage secret-looking files so a blanket add never commits them.
-	var left []string
-	if out, err := gitRun(ctx, wd, "diff", "--cached", "--name-only", "-z"); err == nil {
-		for _, f := range strings.Split(out, "\x00") {
-			if _, bad := exec.Sensitive(f); bad && f != "" {
-				left = append(left, f)
-			}
-		}
-	}
-	if len(left) > 0 {
-		if out, err := gitRun(ctx, wd, append([]string{"reset", "-q", "HEAD", "--"}, left...)...); err != nil {
-			return fmt.Errorf("git reset %s: %s", strings.Join(left, ", "), out)
-		}
-	}
-	if out, err := gitRun(ctx, wd, "commit", "-m", message); err != nil {
-		return fmt.Errorf("git commit: %s", out)
-	}
-	if len(left) > 0 {
-		return fmt.Errorf("committed, but left out files that look like secrets: %s. Stage them by hand if they belong in the repo", strings.Join(left, ", "))
-	}
-	return nil
+	return b.GitCommitWith(message, true)
 }
 
 const commitSystem = `You write git commit messages. Given a diff, reply with a single conventional commit subject line (type(scope): summary, under 72 characters, imperative mood), then a blank line and a short body of at most five bullet points only if the change needs explaining. Plain text only: no code fences, no preamble, no quotes.`
@@ -1072,7 +1013,7 @@ func (b *scribeBackend) RebuildMap() {
 		}()
 		if a.ext.cmap.Build(context.Background(), nil) == nil {
 			a.mu.Lock()
-			a.codeMap = a.ext.cmap.Render(2500, nil)
+			a.codeMap = a.ext.cmap.Render(repomap.Budget(0), nil)
 			a.mu.Unlock()
 		}
 	}()

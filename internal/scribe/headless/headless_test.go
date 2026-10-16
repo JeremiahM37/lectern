@@ -235,12 +235,32 @@ func TestEventsRun(t *testing.T) {
 	if evs[0]["model"] != "fake/m" || evs[0]["session"] != nil {
 		t.Errorf("start = %v", evs[0])
 	}
+	// The code map is on unless --no-repomap says otherwise; workers is
+	// per dispatch call, so it stays null at start.
+	if evs[0]["repoMap"] != true || evs[0]["workers"] != nil {
+		t.Errorf("start repoMap/workers = %v / %v", evs[0]["repoMap"], evs[0]["workers"])
+	}
 	if evs[2]["tool"] != "list_dir" || evs[2]["input"] == nil {
 		t.Errorf("tool-call = %v", evs[2])
 	}
 	last := evs[len(evs)-1]
 	if last["output"] != "ok" || last["error"] != nil {
 		t.Errorf("done = %v", last)
+	}
+}
+
+func TestEventsStartReportsNoRepoMap(t *testing.T) {
+	srv := newFakeServer(t, func(n int, w http.ResponseWriter, r *http.Request, body string) {
+		sse(w, textReply("ok")...)
+	})
+	repo := setup(t, srv.srv.URL)
+	res := invoke(t, []string{"--events", "--no-repomap", "--cwd", repo, "go"}, "")
+	if res.code != 0 {
+		t.Fatalf("exit %d stderr %q", res.code, res.stderr)
+	}
+	evs := parseLines(t, res.stdout)
+	if evs[0]["repoMap"] != false {
+		t.Fatalf("start = %v, want repoMap false", evs[0])
 	}
 }
 
@@ -453,5 +473,25 @@ func TestParseTimeout(t *testing.T) {
 	}
 	if _, err := parseTimeout("soon"); err == nil {
 		t.Errorf("parseTimeout accepted nonsense")
+	}
+}
+
+func TestPresetFlagIsAccepted(t *testing.T) {
+	o, err := parseArgs([]string{"--preset", "fast", "-p", "hi"})
+	if err != nil || o.preset != "fast" {
+		t.Fatalf("--preset NAME: preset=%q err=%v", o.preset, err)
+	}
+	o, err = parseArgs([]string{"--preset=slow", "hi"})
+	if err != nil || o.preset != "slow" {
+		t.Fatalf("--preset=NAME: preset=%q err=%v", o.preset, err)
+	}
+}
+
+func TestUnknownPresetExitsOne(t *testing.T) {
+	srv := newFakeServer(t, func(n int, w http.ResponseWriter, r *http.Request, body string) {})
+	repo := setup(t, srv.srv.URL)
+	res := invoke(t, []string{"--preset", "nope", "--cwd", repo, "x"}, "")
+	if res.code != 1 || !strings.Contains(res.stderr, "no preset") {
+		t.Fatalf("unknown preset: exit %d stderr %q", res.code, res.stderr)
 	}
 }

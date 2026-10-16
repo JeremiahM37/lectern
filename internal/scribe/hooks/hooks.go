@@ -39,7 +39,7 @@ const (
 )
 
 const (
-	defaultTimeout = 30 * time.Second
+	defaultTimeout = 10 * time.Second
 	maxStdout      = 256 << 10
 )
 
@@ -77,7 +77,11 @@ type entry struct {
 	re      *regexp.Regexp // nil when the matcher is a name list or empty
 	command string
 	timeout time.Duration
-	source  string // where it came from, for warnings
+	source  string    // where it came from, for warnings
+	async   bool      // fire and forget: its result is ignored
+	once    bool      // runs at most once per process
+	cond    *toolCond // the `if` condition, nil when there is none
+	status  string    // statusMessage, shown while it runs
 }
 
 func newEntry(event, matcher, command string, secs int, source string) (entry, error) {
@@ -150,6 +154,7 @@ type Runner struct {
 
 	mu       sync.Mutex
 	warnings []string
+	fired    map[string]bool // once-hooks that have been taken
 }
 
 var _ agent.Hooks = (*Runner)(nil)
@@ -170,7 +175,7 @@ func NewFromDisk(root, sessionID string) (*Runner, error) {
 
 // New builds a Runner from explicit options.
 func New(o Options) *Runner {
-	r := &Runner{root: o.Root, sessionID: o.SessionID}
+	r := &Runner{root: o.Root, sessionID: o.SessionID, fired: map[string]bool{}}
 	add := func(es []entry, ws []string) {
 		r.entries = append(r.entries, es...)
 		r.warnings = append(r.warnings, ws...)
@@ -259,7 +264,7 @@ func (r *Runner) PreTool(ctx context.Context, tool string, args json.RawMessage)
 	in["tool_name"] = displayName(tool)
 	in["tool_input"] = rawObject(args)
 	for _, e := range r.entries {
-		if e.event != evPreTool || !e.matches(names) {
+		if e.event != evPreTool || !e.matches(names) || !r.take(e) || !e.cond.ok(displayName(tool), args) {
 			continue
 		}
 		o := r.exec(ctx, e, in)
@@ -280,7 +285,7 @@ func (r *Runner) PostTool(ctx context.Context, tool string, args json.RawMessage
 	in["tool_response"] = map[string]any{"output": res.Output, "is_error": res.IsError}
 	var extra []string
 	for _, e := range r.entries {
-		if e.event != evPostTool || !e.matches(names) {
+		if e.event != evPostTool || !e.matches(names) || !r.take(e) || !e.cond.ok(displayName(tool), args) {
 			continue
 		}
 		if o := r.exec(ctx, e, in); o.context != "" {
@@ -296,7 +301,7 @@ func (r *Runner) Prompt(ctx context.Context, prompt string) (extra, block string
 	in["prompt"] = prompt
 	var extras []string
 	for _, e := range r.entries {
-		if e.event != evPrompt {
+		if e.event != evPrompt || !r.take(e) {
 			continue
 		}
 		o := r.exec(ctx, e, in)
@@ -342,10 +347,27 @@ func (r *Runner) Notification(ctx context.Context, msg string) {
 // do not apply to these events.
 func (r *Runner) fireAll(ctx context.Context, event string, in map[string]any) {
 	for _, e := range r.entries {
-		if e.event == event {
+		if e.event == event && r.take(e) {
 			r.exec(ctx, e, in)
 		}
 	}
+}
+
+// take claims the one run of a once-hook. It is called before the hook's
+// `if` is tested, so a hook whose condition fails has still used its shot
+// (spec 7.5). Ordinary hooks are always taken.
+func (r *Runner) take(e entry) bool {
+	if !e.once {
+		return true
+	}
+	key := e.event + "\x00" + e.command
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.fired[key] {
+		return false
+	}
+	r.fired[key] = true
+	return true
 }
 
 func (r *Runner) input(event string) map[string]any {
@@ -380,6 +402,14 @@ func rawObject(args json.RawMessage) any {
 func (r *Runner) exec(ctx context.Context, e entry, in map[string]any) outcome {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if e.async {
+		// Fire and forget: the run outlives the event, with its own timeout,
+		// and whatever it returns is discarded.
+		bg := e
+		bg.async = false
+		go r.exec(context.WithoutCancel(ctx), bg, in)
+		return outcome{}
 	}
 	payload, err := json.Marshal(in)
 	if err != nil {

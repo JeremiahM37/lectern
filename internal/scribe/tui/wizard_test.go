@@ -88,6 +88,11 @@ func TestWizardEndToEnd(t *testing.T) {
 	if got := lastWrite(t, fb); got.Key != "model" || got.Value != "openai/gpt-6" || got.Project {
 		t.Fatalf("the model should be saved to the global config: %+v", got)
 	}
+	if !strings.Contains(screen(m), "Show Nerd Font icons?") {
+		t.Fatalf("expected the icons step after the model:\n%s", screen(m))
+	}
+
+	drain(m, send(m, "enter")) // icons: keep the default (off) and move on
 	if !strings.Contains(screen(m), "Pick your theme") {
 		t.Fatalf("expected the theme step:\n%s", screen(m))
 	}

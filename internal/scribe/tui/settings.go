@@ -6,7 +6,9 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -51,6 +53,14 @@ type setRow struct {
 	act    func() tea.Cmd
 	del    func() tea.Cmd
 	add    func() tea.Cmd
+
+	// key and raw are the config key this row sets and its current value, so
+	// a scope move (←/→) can carry it to the other file. Rows without a key
+	// have nothing to move. toggle draws the value as a switch; on is its state.
+	key    string
+	raw    any
+	toggle bool
+	on     bool
 }
 
 // settings is the modal. It reads and writes through the backend of the tab
@@ -103,7 +113,7 @@ func (s *settings) Icon() string { return "gear" }
 
 // Footer implements Footered.
 func (s *settings) Footer() string {
-	return "Tab tabs · ↑↓ move · Enter change · a add · d delete · g global · p project · Esc close"
+	return "Tab tabs · ↑↓ move · Enter change · ←→ scope · a add · d del · Esc"
 }
 
 // Size implements Sized.
@@ -149,6 +159,10 @@ func (s *settings) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 	case "p":
 		s.project = true
 		s.say("info", "Changes now save to this project's config")
+	case "left":
+		return s, s.moveScope(false), false
+	case "right":
+		return s, s.moveScope(true), false
 	}
 	return s, nil, false
 }
@@ -200,6 +214,89 @@ func (s *settings) scope() string {
 		return "project"
 	}
 	return "global"
+}
+
+// moveScope switches the save scope. The arrow keys also carry the open tab's
+// settings that are saved in the other file into the new one: each value is
+// written to the new scope and removed from the old, so a setting lives in one
+// place afterwards. A setting the other file does not hold is left alone, so a
+// move never writes a default into a scope.
+func (s *settings) moveScope(toProject bool) tea.Cmd {
+	if s.project == toProject {
+		return nil
+	}
+	s.project = toProject
+	to := s.scope()
+	mover, canMove := s.be.(ConfigMover)
+	root := s.be.Workdir()
+	var cmds []tea.Cmd
+	moved, failed := 0, 0
+	var firstErr error
+	for _, r := range s.rows() {
+		if r.key == "" || r.raw == nil || !savedIn(root, !toProject, r.key) {
+			continue
+		}
+		if !canMove {
+			failed++
+			continue
+		}
+		if err := mover.MoveConfig(r.key, r.raw, toProject, !toProject); err != nil {
+			failed++
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		moved++
+		cmds = append(cmds, s.afterSet(r.key, r.raw))
+	}
+	s.reloadReasoning()
+	switch {
+	case failed > 0 && firstErr != nil:
+		s.say("err", fmt.Sprintf("moved %d to %s; %d could not move: %v", moved, to, failed, firstErr))
+	case failed > 0:
+		s.say("err", fmt.Sprintf("this build cannot move settings; %d stayed where they were", failed))
+	case moved > 0:
+		s.say("ok", fmt.Sprintf("moved %d to %s config", moved, to))
+	default:
+		s.say("info", "Saving to "+to+" config. Nothing on this tab to move.")
+	}
+	return tea.Batch(cmds...)
+}
+
+// savedIn reports whether the global (project false) or project file holds key.
+// A dotted key walks nested objects, as reasoning_by_provider.<id>.<field> does.
+func savedIn(root string, project bool, key string) bool {
+	path := config.GlobalPath()
+	if project {
+		if root == "" {
+			return false
+		}
+		path = config.ProjectPath(root)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var doc map[string]any
+	if json.Unmarshal(data, &doc) != nil {
+		return false
+	}
+	parts := strings.Split(key, ".")
+	cur := doc
+	for i, part := range parts {
+		v, ok := cur[part]
+		if !ok {
+			return false
+		}
+		if i == len(parts)-1 {
+			return true
+		}
+		if cur, ok = v.(map[string]any); !ok {
+			return false
+		}
+	}
+	return false
 }
 
 // set writes one setting to the chosen scope and applies it to the open tab.
@@ -302,7 +399,8 @@ func (s *settings) boolRow(label, key string, c map[string]any, def bool, note s
 	if v {
 		val = "on"
 	}
-	return setRow{label: label, value: val, note: note, act: func() tea.Cmd { return s.set(key, !v) }}
+	return setRow{label: label, value: val, note: note, key: key, raw: v, toggle: true, on: v,
+		act: func() tea.Cmd { return s.set(key, !v) }}
 }
 
 // choiceRow cycles through opts on Enter. Reasoning stores "" for off.
@@ -311,7 +409,7 @@ func (s *settings) choiceRow(label, key, cur string, opts []string, note string)
 	if shown == "" && key == "reasoning" {
 		shown = "off"
 	}
-	return setRow{label: label, value: shown, note: note, act: func() tea.Cmd {
+	return setRow{label: label, value: shown, note: note, key: key, raw: cur, act: func() tea.Cmd {
 		next := opts[(listIndex(opts, shown)+1)%len(opts)]
 		if key == "reasoning" && next == "off" {
 			next = ""
@@ -325,7 +423,7 @@ func (s *settings) intRow(label, key string, cur int, note string) setRow {
 	if cur == 0 {
 		val = "default"
 	}
-	return setRow{label: label, value: val, note: note, act: func() tea.Cmd {
+	return setRow{label: label, value: val, note: note, key: key, raw: cur, act: func() tea.Cmd {
 		return s.prompt(label, "a whole number", val, func(v string) tea.Cmd {
 			n, err := strconv.Atoi(strings.TrimSpace(v))
 			if err != nil || n < 0 {
@@ -338,7 +436,7 @@ func (s *settings) intRow(label, key string, cur int, note string) setRow {
 }
 
 func (s *settings) floatRow(label, key string, cur float64) setRow {
-	return setRow{label: label, value: fmt.Sprintf("%.0f%%", cur*100), note: "fraction of the window", act: func() tea.Cmd {
+	return setRow{label: label, value: fmt.Sprintf("%.0f%%", cur*100), note: "fraction of the window", key: key, raw: cur, act: func() tea.Cmd {
 		return s.prompt(label, "0.5 to 0.95", strconv.FormatFloat(cur, 'f', -1, 64), func(v string) tea.Cmd {
 			f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
 			if err != nil || f < 0.3 || f > 0.95 {
@@ -464,7 +562,7 @@ func (s *settings) routerRows() []setRow {
 		if val == "" {
 			val = "inherit default"
 		}
-		return setRow{label: label, value: val, note: "picker, d clears", id: "",
+		return setRow{label: label, value: val, note: "picker, d clears", id: "", key: key, raw: cur,
 			act: func() tea.Cmd {
 				return s.pickModel(label, cur, true, func(ref string) tea.Cmd { return s.set(key, ref) })
 			},
@@ -481,13 +579,13 @@ func (s *settings) routerRows() []setRow {
 		slot("Web search", "router.web_search"),
 		slot("Compaction", "router.compact"),
 		slot("Session titles and commits", "router.title"),
-		{label: "Fallback chain", value: fb, note: "comma separated, tried in order",
+		{label: "Fallback chain", value: fb, note: "comma separated, tried in order", key: "router.fallback", raw: fallback,
 			act: func() tea.Cmd {
 				return s.prompt("Fallback chain", "provider/model, provider/model", strings.Join(fallback, ", "), func(v string) tea.Cmd {
 					return s.set("router.fallback", v)
 				})
 			}},
-		{label: "Concurrent agents", value: strconv.Itoa(maxAgents(c)), note: "2 to 8",
+		{label: "Concurrent agents", value: strconv.Itoa(maxAgents(c)), note: "2 to 8", key: "router.max_agents", raw: maxAgents(c),
 			act: func() tea.Cmd {
 				return s.prompt("Concurrent agents", "2 to 8", strconv.Itoa(maxAgents(c)), func(v string) tea.Cmd {
 					n, err := strconv.Atoi(strings.TrimSpace(v))
@@ -550,7 +648,7 @@ func (s *settings) listRows(title, key string, items []string, placeholder strin
 			return s.set(key, append(append([]string(nil), items...), v))
 		})
 	}
-	rows := []setRow{{label: title, value: strconv.Itoa(len(items)), header: true, act: add, add: add}}
+	rows := []setRow{{label: title, value: strconv.Itoa(len(items)), header: true, act: add, add: add, key: key, raw: items}}
 	for i := range items {
 		i := i
 		rows = append(rows, setRow{label: items[i], value: key, add: add,
@@ -597,7 +695,7 @@ func (s *settings) scopeLine(th theme.Theme) string {
 		global = lipgloss.NewStyle().Bold(true).Foreground(th.Brand)
 	}
 	return fg(th.TextMuted).Render("Saving to ") + global.Render("[ Global ]") + " " + project.Render("[ Project ]") +
-		fg(th.TextFaint).Render("   g / p to switch")
+		fg(th.TextFaint).Render("   ←→ move to scope")
 }
 
 // Column layout for the settings rows. Every row on a tab uses the same three
@@ -658,14 +756,21 @@ func (s *settings) rowLine(r setRow, sel bool, c rowCols) string {
 	b.WriteString(strings.Repeat(" ", c.label-ansi.StringWidth(label)+colGap))
 
 	if c.value > 0 {
-		value := ansi.Truncate(r.value, c.value, "…")
+		shown := r.value
 		color := th.TextPrimary
 		switch {
+		case r.toggle:
+			shown = toggleText(r.on)
+			color = th.TextDim
+			if r.on {
+				color = th.Success
+			}
 		case strings.HasPrefix(r.value, "✗"):
 			color = th.TextFaint
 		case strings.HasPrefix(r.value, "✓"):
 			color = th.Success
 		}
+		value := ansi.Truncate(shown, c.value, "…")
 		if value != "" {
 			b.WriteString(fg(color).Render(value))
 		}
@@ -817,7 +922,7 @@ func (s *settings) cycleRow(label, key, cur string, opts []string, note string) 
 	if shown == "" {
 		shown = "default"
 	}
-	return setRow{label: label, value: shown, note: note, act: func() tea.Cmd {
+	return setRow{label: label, value: shown, note: note, key: key, raw: cur, act: func() tea.Cmd {
 		next := opts[(listIndex(opts, cur)+1+len(opts))%len(opts)]
 		return s.set(key, next)
 	}}
@@ -829,7 +934,7 @@ func (s *settings) budgetRow(key string, cur int, note string) setRow {
 	if cur > 0 {
 		shown = strconv.Itoa(cur)
 	}
-	return setRow{label: "Budget", value: shown, note: note, act: func() tea.Cmd {
+	return setRow{label: "Budget", value: shown, note: note, key: key, raw: cur, act: func() tea.Cmd {
 		idx := 0
 		for i, v := range budgetOptions {
 			if v == cur {

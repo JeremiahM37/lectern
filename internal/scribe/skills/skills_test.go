@@ -370,3 +370,31 @@ func mustDiscover(t *testing.T, root string) *Set {
 	}
 	return set
 }
+
+func TestUnknownActionSuggestsNearMiss(t *testing.T) {
+	root, _ := env(t)
+	res := runSkills(t, root, `{"action":"lsit"}`)
+	if !res.IsError || !strings.Contains(res.Output, `Did you mean "list"`) {
+		t.Fatalf("typo action: %+v", res)
+	}
+	res = runSkills(t, root, `{"action":"install"}`)
+	if !res.IsError || strings.Contains(res.Output, "Did you mean") {
+		t.Fatalf("far-off action should not get a suggestion: %+v", res)
+	}
+}
+
+func TestNameSuggestionsRankByEditDistance(t *testing.T) {
+	set := &Set{Skills: []Skill{{Name: "deploy-prod"}, {Name: "review"}, {Name: "reviewer-notes"}}}
+	if got := namesOrNone(set, "reveiw"); !strings.HasPrefix(got, "review") {
+		t.Fatalf("closest name should lead: %q", got)
+	}
+	if got := closest("lsit", []string{"list", "load"}); got != "list" {
+		t.Fatalf("closest(lsit) = %q", got)
+	}
+	if got := closest("zzzz", []string{"list", "load"}); got != "" {
+		t.Fatalf("closest(zzzz) = %q, want none", got)
+	}
+	if d := editDistance("kitten", "sitting"); d != 3 {
+		t.Fatalf("editDistance = %d, want 3", d)
+	}
+}

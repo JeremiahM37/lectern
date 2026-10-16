@@ -17,6 +17,7 @@ var errHelp = errors.New("help requested")
 // options is the parsed command line.
 type options struct {
 	model, mode, cwd, system, session string
+	preset                            string
 	prompt                            []string
 	includes                          []string
 	json, events, quiet, noRepoMap    bool
@@ -77,7 +78,7 @@ func parseArgs(args []string) (options, error) {
 		switch name {
 		case "--headless", "-p", "--print":
 			// Accepted for callers that pass them straight through.
-		case "--model":
+		case "--model", "-m":
 			o.model, err = value()
 		case "--mode":
 			o.mode, err = value()
@@ -86,6 +87,8 @@ func parseArgs(args []string) (options, error) {
 			}
 		case "--cwd":
 			o.cwd, err = value()
+		case "--preset":
+			o.preset, err = value()
 		case "--system":
 			o.system, err = value()
 		case "--include":
@@ -211,6 +214,7 @@ Flags:
   --max-steps N            stop after N model steps (exit 1)
   --timeout DURATION       abort after this long: milliseconds or 90s, 10m (exit 2)
   --cwd DIR                project folder (default: current folder)
+  --preset NAME            apply a config preset over the config for this run
   --system TEXT            extra instructions for this run
   --include FILE           prepend a file to the prompt (repeatable)
   --no-repomap             skip the code map (also SCRIBE_NO_REPOMAP=1)

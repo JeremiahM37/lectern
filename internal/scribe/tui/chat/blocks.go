@@ -10,6 +10,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/icons"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
 )
 
 // reasoningTail is how much of a streaming reasoning block is shown.
@@ -34,8 +35,13 @@ func (v *View) renderReasoning(s *Segment, cw int, now time.Time) builder {
 	if !v.expandedFor(&Call{Toggled: s.Toggled}) {
 		var head string
 		if s.Open {
+			// While it streams, the count only appears once there is more than one line.
+			live := ""
+			if lines > 1 {
+				live = count
+			}
 			head = fg(th.BrandDim, render.Frame(render.Braille, frameAt(now))) + " " +
-				fg(th.TextFaint, "▶ "+brain+" reasoning"+count) + " " + fg(th.TextSubtle, "^O")
+				fg(th.TextFaint, "▶ "+brain+" reasoning"+live) + " " + fg(th.TextSubtle, "^O")
 		} else {
 			head = fg(th.Success, "▶") + " " + fgi(th.TextDim, brain+" "+reasoningPreview(s.Text)) +
 				fg(th.TextFaint, count) + " " + fg(th.TextSubtle, "^O")
@@ -66,13 +72,30 @@ func (v *View) renderReasoning(s *Segment, cw int, now time.Time) builder {
 
 // answerText is the turn's final answer: the text after the last tool call,
 // or all of the text when the turn used no tools. Whitespace is normalised.
-func answerText(rec *Record) string {
+// postAnswerTools are run by Scribe after the model has answered, not by the
+// model, so their rows do not make the answer before them intermediate.
+var postAnswerTools = map[string]bool{"auto_check": true}
+
+// lastModelTools is the index of the last tool segment holding a call the
+// model made, or -1. Text after it is the turn's answer.
+func lastModelTools(rec *Record) int {
 	last := -1
 	for i, s := range rec.Segments {
-		if s.Kind == "tools" {
-			last = i
+		if s.Kind != "tools" {
+			continue
+		}
+		for _, c := range s.Calls {
+			if !postAnswerTools[c.Tool] {
+				last = i
+				break
+			}
 		}
 	}
+	return last
+}
+
+func answerText(rec *Record) string {
+	last := lastModelTools(rec)
 	var parts []string
 	for i, s := range rec.Segments {
 		if s.Kind == "text" && i > last {
@@ -341,8 +364,10 @@ func (v *View) LivePhrase(now time.Time) string {
 	return "Thinking"
 }
 
-// renderPlan draws the live plan: a rail, a title with done/total, and the
-// steps (at most seven around the active one once the list is long).
+// renderPlan draws the plan as a box: the title with done/total, the steps (a
+// window of seven around the active one once the list is long) and, when every
+// step is finished, the files and the verification checklist. A finished plan
+// folds to one line until it is clicked.
 func (v *View) renderPlan(s *Segment, cw int, now time.Time) builder {
 	var b builder
 	th := v.th
@@ -350,25 +375,38 @@ func (v *View) renderPlan(s *Segment, cw int, now time.Time) builder {
 	if p == nil {
 		return b
 	}
-	total, done, active := len(p.Steps), 0, -1
+	total, done, finished, active := len(p.Steps), 0, 0, -1
 	for i, st := range p.Steps {
 		switch st.Status {
 		case "done":
 			done++
+			finished++
+		case "skipped":
+			finished++
 		case "active":
 			if active < 0 {
 				active = i
 			}
 		}
 	}
-	railCol := th.Info
-	if total > 0 && done == total {
-		railCol = th.Success
+	allDone := total > 0 && finished == total
+	files := planFiles(p)
+	if allDone && !s.Toggled && !v.expanded {
+		line := fg(th.Success, icons.Icon("success")) + " " + bold(th.TextPrimary, p.Title) +
+			fg(th.TextMuted, fmt.Sprintf(" (%d files, %d steps)", len(files), total))
+		if p.Path != "" {
+			line += fg(th.TextFaint, " ─ ") + fg(th.TextMuted, p.Path)
+		}
+		b.mark(nil, s)
+		b.add(line)
+		return b
 	}
-	rail := fg(railCol, "┃") + " "
-	b.add(rail + fg(th.BrandAlt, icons.Icon("plan")) + " " + bold(th.BrandAlt, clip(p.Title, cw-12)) + "  " + fg(th.TextMuted, fmt.Sprintf("%d/%d", done, total)))
+	border := th.BrandAlt
+	if allDone {
+		border = th.Success
+	}
 	start, end := 0, total
-	if total > 7 && done < total {
+	if total > 7 && !allDone {
 		c := active
 		if c < 0 {
 			c = done
@@ -382,8 +420,9 @@ func (v *View) renderPlan(s *Segment, cw int, now time.Time) builder {
 		}
 		end = start + 7
 	}
+	var body []string
 	if start > 0 {
-		b.add(rail + fg(th.TextDim, fmt.Sprintf("%d completed above", start)))
+		body = append(body, fg(th.TextDim, fmt.Sprintf("%d completed above", start)))
 	}
 	for i := start; i < end; i++ {
 		st := p.Steps[i]
@@ -398,19 +437,100 @@ func (v *View) renderPlan(s *Segment, cw int, now time.Time) builder {
 		default:
 			glyph, text = fg(th.TextMuted, "○"), fg(th.TextMuted, st.Text)
 		}
-		b.add(rail + glyph + " " + text)
+		body = append(body, glyph+" "+clip(text, cw-6))
+		if st.Status == "active" {
+			body = append(body, planSymbolRows("", st.Symbols, cw-4, th)...)
+		}
 	}
 	if end < total {
-		b.add(rail + fg(th.TextDim, fmt.Sprintf("%d more pending", total-end)))
+		body = append(body, fg(th.TextDim, fmt.Sprintf("%d more pending", total-end)))
 	}
+	if allDone {
+		body = append(body, planFilesSection(files, th)...)
+		body = append(body, planVerifySection(p.Verification, th)...)
+	}
+	title := fg(th.BrandAlt, icons.Icon("plan")) + " " + bold(th.BrandAlt, clip(p.Title, maxInt(cw-20, 8))) +
+		fg(th.TextMuted, fmt.Sprintf("  %d/%d", done, total))
+	if allDone {
+		b.mark(nil, s)
+	}
+	b.add(boxed(title, body, cw, 1, border, nil)...)
 	return b
 }
 
-// renderTasks draws the standalone task list: done count, then open tasks.
+// planFiles lists the files the plan's steps name, each once, in order.
+func planFiles(p *agent.Plan) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, st := range p.Steps {
+		for _, f := range st.Files {
+			if f != "" && !seen[f] {
+				seen[f] = true
+				out = append(out, f)
+			}
+		}
+	}
+	return out
+}
+
+// planFilesSection is the files part of a finished plan, at most five rows.
+func planFilesSection(files []string, th theme.Theme) []string {
+	if len(files) == 0 {
+		return nil
+	}
+	out := []string{"", bold(th.BrandAlt, fmt.Sprintf("Files (%d)", len(files)))}
+	for i, f := range files {
+		if i == 5 {
+			out = append(out, fg(th.TextMuted, fmt.Sprintf("+%d more", len(files)-5)))
+			break
+		}
+		out = append(out, "  "+fg(th.TextPrimary, f))
+	}
+	return out
+}
+
+// planVerifySection is the checklist that proves the change, at most five rows.
+func planVerifySection(items []string, th theme.Theme) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	out := []string{"", bold(th.BrandAlt, "Verification")}
+	for i, it := range items {
+		if i == 5 {
+			out = append(out, fg(th.TextMuted, fmt.Sprintf("+%d more", len(items)-5)))
+			break
+		}
+		out = append(out, fg(th.Success, "✓ ")+fg(th.TextSecondary, it))
+	}
+	return out
+}
+
+// tasksLinger is how long a task list stays up after every task is done.
+const tasksLinger = 3 * time.Second
+
+// tasksDone reports whether every task is finished (done or cancelled).
+func tasksDone(tasks []agent.Task) bool {
+	for _, t := range tasks {
+		if t.Status != "done" && t.Status != "cancelled" {
+			return false
+		}
+	}
+	return len(tasks) > 0
+}
+
+// tasksHidden reports whether a finished task list has lingered long enough
+// to fold away.
+func (s *Segment) tasksHidden(now time.Time) bool {
+	return !s.DoneAt.IsZero() && now.Sub(s.DoneAt) >= tasksLinger
+}
+
+// renderTasks draws the task list in a box: the done count, then up to six
+// open tasks. Once every task is done the box stays for tasksLinger and then
+// hides.
 func (v *View) renderTasks(s *Segment, cw int, now time.Time) builder {
 	var b builder
 	th := v.th
-	if len(s.Tasks) == 0 {
+	if len(s.Tasks) == 0 || s.tasksHidden(now) {
 		return b
 	}
 	done := 0
@@ -422,27 +542,29 @@ func (v *View) renderTasks(s *Segment, cw int, now time.Time) builder {
 			open = append(open, t)
 		}
 	}
-	b.add(bold(th.Brand, icons.Icon("plan")+" Tasks") + "  " + fg(th.TextSecondary, fmt.Sprintf("%d/%d", done, len(s.Tasks))))
+	var body []string
 	if done > 0 {
-		b.add("  " + fg(th.Success, fmt.Sprintf("+%d done", done)))
+		body = append(body, fg(th.Success, fmt.Sprintf("+%d done", done)))
 	}
 	for i, t := range open {
 		if i == 6 {
-			b.add("  " + fg(th.TextMuted, fmt.Sprintf("+%d more", len(open)-6)))
+			body = append(body, fg(th.TextMuted, fmt.Sprintf("+%d more", len(open)-6)))
 			break
 		}
 		var glyph, text string
 		switch t.Status {
 		case "in_progress":
-			glyph, text = fg(th.Brand, render.Frame(render.Braille, frameAt(now))), bold(th.TextPrimary, clip(t.Text, cw-4))
+			glyph, text = fg(th.Brand, render.Frame(render.Braille, frameAt(now))), bold(th.TextPrimary, clip(t.Text, cw-8))
 		case "blocked":
-			glyph, text = fg(th.Error, icons.Icon("fail")), fg(th.Error, clip(t.Text, cw-4))
+			glyph, text = fg(th.Error, icons.Icon("fail")), fg(th.Error, clip(t.Text, cw-8))
 		case "cancelled":
-			glyph, text = fg(th.TextDim, icons.Icon("skip")), fg(th.TextDim, clip(t.Text, cw-4))
+			glyph, text = fg(th.TextDim, icons.Icon("skip")), fg(th.TextDim, clip(t.Text, cw-8))
 		default:
-			glyph, text = fg(th.TextMuted, "○"), fg(th.TextMuted, clip(t.Text, cw-4))
+			glyph, text = fg(th.TextMuted, "○"), fg(th.TextMuted, clip(t.Text, cw-8))
 		}
-		b.add("  " + glyph + " " + text)
+		body = append(body, glyph+" "+text)
 	}
+	title := bold(th.Brand, icons.Icon("plan")+" Tasks") + "  " + fg(th.TextSecondary, fmt.Sprintf("%d/%d", done, len(s.Tasks)))
+	b.add(boxed(title, body, cw, 1, th.BrandDim, nil)...)
 	return b
 }

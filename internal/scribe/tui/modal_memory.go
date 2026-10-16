@@ -26,8 +26,26 @@ func init() {
 // memCategories are the categories the memory tool accepts.
 var memCategories = []string{"fact", "decision", "convention", "bug", "preference", "todo"}
 
-// memScopes are the two tabs, in order.
+// memScopes are the scope tabs, in order. The cleanup tab follows them.
 var memScopes = []string{"project", "global"}
+
+// memTabCleanup is the index of the cleanup tab.
+const memTabCleanup = 2
+
+// memTabCount is the number of tabs: project, global and cleanup.
+const memTabCount = 3
+
+// MemoryCleanup is optionally implemented by a Backend that can name memories
+// worth a second look. Nothing is removed by the tab; the person decides.
+type MemoryCleanup interface {
+	MemoryCleanupCandidates() []CleanupCandidate
+}
+
+// CleanupCandidate is one memory the cleanup tab lists, and why it is listed.
+type CleanupCandidate struct {
+	Item    MemoryItem
+	Reasons []string // e.g. "not used in 90 days", "file gone: internal/x.go"
+}
 
 // memCatWidth is the width of the category badge column.
 const memCatWidth = 13
@@ -40,10 +58,12 @@ type memoryBrowser struct {
 	tab       int
 	query     string
 	searching bool
+	purging   bool // ctrl+x asked to clear everything; y confirms
 	cursor    int
 	off       int
 	wide      bool
 	visible   []MemoryItem
+	cands     []CleanupCandidate // the cleanup tab's rows
 	note      string
 	noteKind  string
 }
@@ -62,7 +82,17 @@ func memScopeOf(it MemoryItem) string {
 	return it.Scope
 }
 
-func (b *memoryBrowser) scope() string { return memScopes[b.tab] }
+// scope is the scope new memories go to and the scope tab counts. The
+// cleanup tab reports on both scopes, so it uses project for new memories.
+func (b *memoryBrowser) scope() string {
+	if b.tab == 1 {
+		return memScopes[1]
+	}
+	return memScopes[0]
+}
+
+// inCleanup reports whether the cleanup tab is showing.
+func (b *memoryBrowser) inCleanup() bool { return b.tab == memTabCleanup }
 
 func (b *memoryBrowser) count(scope string) int {
 	n := 0
@@ -77,6 +107,10 @@ func (b *memoryBrowser) count(scope string) int {
 // reload fetches every memory from the backend and re-applies the filter.
 func (b *memoryBrowser) reload() {
 	b.all = b.be.Memories("")
+	b.cands = nil
+	if cl, ok := b.be.(MemoryCleanup); ok {
+		b.cands = cl.MemoryCleanupCandidates()
+	}
 	b.apply()
 }
 
@@ -120,8 +154,27 @@ func (b *memoryBrowser) selected() (MemoryItem, bool) {
 	return b.visible[b.cursor], true
 }
 
+// rowCount is the number of rows on the showing tab.
+func (b *memoryBrowser) rowCount() int {
+	if b.inCleanup() {
+		return len(b.cands)
+	}
+	return len(b.visible)
+}
+
 func (b *memoryBrowser) move(d int) {
-	b.cursor = clamp(b.cursor+d, 0, max(0, len(b.visible)-1))
+	b.cursor = clamp(b.cursor+d, 0, max(0, b.rowCount()-1))
+}
+
+// current is the highlighted memory on the showing tab.
+func (b *memoryBrowser) current() (MemoryItem, bool) {
+	if !b.inCleanup() {
+		return b.selected()
+	}
+	if b.cursor < 0 || b.cursor >= len(b.cands) {
+		return MemoryItem{}, false
+	}
+	return b.cands[b.cursor].Item, true
 }
 
 func (b *memoryBrowser) say(kind, text string) {
@@ -136,8 +189,14 @@ func (b *memoryBrowser) Icon() string { return "memory" }
 
 // Footer implements Footered.
 func (b *memoryBrowser) Footer() string {
+	if b.purging {
+		return "y confirm · any other key cancels"
+	}
 	if b.searching {
 		return "type to search · Enter keep · Esc clear"
+	}
+	if b.inCleanup() {
+		return "↑↓ move · Enter edit · d delete · p pin · r refresh · Tab switches · Esc"
 	}
 	return "↑↓ move · Enter edit · n new · d delete · p pin · / search · Esc"
 }
@@ -155,7 +214,19 @@ func (b *memoryBrowser) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 		return b, nil, false
 	}
 	key := km.String()
+	if b.purging {
+		// The purge is inline, not a dialog: y runs it, anything else cancels.
+		b.purging = false
+		if key == "y" {
+			b.purgeAll()
+		}
+		return b, nil, false
+	}
 	switch key {
+	case "ctrl+x":
+		if len(b.all) > 0 {
+			b.purging = true
+		}
 	case "up":
 		b.move(-1)
 		return b, nil, false
@@ -198,24 +269,35 @@ func (b *memoryBrowser) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 			return b, nil, false
 		}
 		return b, nil, true
-	case "/":
-		b.searching = true
 	case "tab", "shift+tab":
-		b.tab = 1 - b.tab
+		step := 1
+		if key == "shift+tab" {
+			step = memTabCount - 1
+		}
+		b.tab = (b.tab + step) % memTabCount
 		b.query, b.cursor, b.off = "", 0, 0
 		b.apply()
+	case "/":
+		if !b.inCleanup() {
+			b.searching = true
+		}
 	case "j":
 		b.move(1)
 	case "k":
 		b.move(-1)
+	case "r":
+		if b.inCleanup() {
+			b.reload()
+			b.say("ok", "Refreshed")
+		}
 	case "enter":
-		if it, ok := b.selected(); ok {
+		if it, ok := b.current(); ok {
 			b.m.pushModal(b.editor(&it))
 		}
 	case "n":
 		b.m.pushModal(b.editor(nil))
 	case "d":
-		if it, ok := b.selected(); ok {
+		if it, ok := b.current(); ok {
 			b.m.pushModal(b.confirmDelete(it))
 		}
 	case "p":
@@ -224,8 +306,24 @@ func (b *memoryBrowser) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 	return b, nil, false
 }
 
+// purgeAll deletes every memory in both scopes. It stops at the first error,
+// so a partial purge says how far it got.
+func (b *memoryBrowser) purgeAll() {
+	n := 0
+	for _, it := range b.all {
+		if err := b.be.DeleteMemory(it.ID); err != nil {
+			b.reload()
+			b.say("err", fmt.Sprintf("Cleared %d, then failed: %s", n, err.Error()))
+			return
+		}
+		n++
+	}
+	b.reload()
+	b.say("ok", fmt.Sprintf("Cleared %d memories", n))
+}
+
 func (b *memoryBrowser) togglePin() {
-	it, ok := b.selected()
+	it, ok := b.current()
 	if !ok {
 		return
 	}
@@ -292,6 +390,7 @@ func (b *memoryBrowser) View(w, h int) string {
 	counts := []string{
 		fmt.Sprintf("Project %d", b.count("project")),
 		fmt.Sprintf("Global %d", b.count("global")),
+		fmt.Sprintf("Cleanup %d", len(b.cands)),
 	}
 	caret := fg(th.Brand).Render("▌")
 	search := icons.Icon("search") + " "
@@ -304,10 +403,17 @@ func (b *memoryBrowser) View(w, h int) string {
 		search += fg(th.TextDim).Render("/ to search")
 	}
 	count := ""
-	if b.query != "" {
+	switch {
+	case b.inCleanup():
+		if n := len(b.cands); n > 0 {
+			count = fmt.Sprintf("%d to review", n)
+		}
+	case b.query != "":
 		count = fmt.Sprintf("%d / %d", len(b.visible), b.count(b.scope()))
-	} else if n := len(b.visible); n > 0 {
-		count = fmt.Sprintf("%d", n)
+	default:
+		if n := len(b.visible); n > 0 {
+			count = fmt.Sprintf("%d", n)
+		}
 	}
 	head := []string{
 		modalTabs(th, counts, b.tab) + "  " + fg(th.TextFaint).Render("Tab switches"),
@@ -317,6 +423,10 @@ func (b *memoryBrowser) View(w, h int) string {
 	noteRows := 0
 	if b.note != "" {
 		noteRows = 1
+	}
+	if b.purging {
+		head = append(head, fg(th.Error).Render(render.Truncate(fmt.Sprintf(
+			"Permanently clear all %d memories from project + global? Press [y] to confirm, any other key to cancel.", len(b.all)), w)))
 	}
 	avail := max(1, h-len(head)-noteRows)
 
@@ -355,6 +465,9 @@ func (b *memoryBrowser) View(w, h int) string {
 // listRows renders the visible memories into at most h rows, keeping the cursor on screen.
 func (b *memoryBrowser) listRows(w, h int) []string {
 	th := b.th
+	if b.inCleanup() {
+		return b.cleanupRows(w, h)
+	}
 	if len(b.visible) == 0 {
 		msg := "No memories yet. Press n to add one."
 		switch {
@@ -380,6 +493,39 @@ func (b *memoryBrowser) listRows(w, h int) []string {
 	rows := make([]string, 0, end-b.off)
 	for i := b.off; i < end; i++ {
 		rows = append(rows, b.row(b.visible[i], i == b.cursor, w, now))
+	}
+	return rows
+}
+
+// cleanupRows lists the cleanup candidates: the title, then why it is listed.
+func (b *memoryBrowser) cleanupRows(w, h int) []string {
+	th := b.th
+	if len(b.cands) == 0 {
+		var out []string
+		for _, l := range wrapLines("Nothing to clean up. No memory is stale or points at a file that is gone.", max(8, w-2)) {
+			out = append(out, fg(th.TextFaint).Render("  "+l))
+		}
+		return out
+	}
+	b.off = keepInView(b.cursor, b.off, h)
+	if b.off > max(0, len(b.cands)-h) {
+		b.off = max(0, len(b.cands)-h)
+	}
+	end := min(len(b.cands), b.off+h)
+	rows := make([]string, 0, end-b.off)
+	for i := b.off; i < end; i++ {
+		c := b.cands[i]
+		marker := "  "
+		title := fg(th.TextSecondary)
+		if i == b.cursor {
+			marker = fgb(th.BrandSecondary).Render("› ")
+			title = fgb(th.TextPrimary)
+		}
+		titleW := max(8, (w-ansi.StringWidth(marker)-memCatWidth)/2)
+		line := marker + padRight(memBadge(th, c.Item.Category), memCatWidth) +
+			title.Render(render.Truncate(oneLine(c.Item.Title), titleW)) + "  " +
+			fg(th.Warning).Render(strings.Join(c.Reasons, "; "))
+		rows = append(rows, render.Truncate(line, w))
 	}
 	return rows
 }
@@ -413,7 +559,7 @@ func (b *memoryBrowser) row(it MemoryItem, sel bool, w int, now time.Time) strin
 // preview is the body pane for the highlighted memory.
 func (b *memoryBrowser) preview(w int) []string {
 	th := b.th
-	it, ok := b.selected()
+	it, ok := b.current()
 	if !ok {
 		return []string{fg(th.TextFaint).Render("Nothing selected.")}
 	}
@@ -424,8 +570,11 @@ func (b *memoryBrowser) preview(w int) []string {
 	lines := []string{
 		fgb(th.TextPrimary).Render(render.Truncate(oneLine(it.Title), w)),
 		strings.Join(meta, fg(th.TextFaint).Render(" · ")),
-		"",
 	}
+	if b.inCleanup() && b.cursor < len(b.cands) {
+		lines = append(lines, fg(th.Warning).Render(render.Truncate("Listed because: "+strings.Join(b.cands[b.cursor].Reasons, "; "), w)))
+	}
+	lines = append(lines, "")
 	if strings.TrimSpace(it.Body) == "" {
 		return append(lines, fg(th.TextFaint).Render("(no body)"))
 	}

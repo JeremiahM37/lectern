@@ -50,7 +50,7 @@ func (t *projectTool) runCheck(ctx context.Context, env *tools.Env, a projectArg
 		}
 	}
 
-	timeout := clampTimeout(a.TimeoutMS, projectTimeout)
+	timeout := clampTimeout(a.TimeoutMS, t.jobs.defaultTimeout(projectTimeout))
 	outcomes := make([]stageOutcome, 0, len(checkStages))
 	for _, action := range checkStages {
 		outcomes = append(outcomes, t.runStage(ctx, env, a.Fix, p, action, timeout))

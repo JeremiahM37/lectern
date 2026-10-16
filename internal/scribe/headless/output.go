@@ -120,11 +120,15 @@ func nonNil(s []string) []string {
 }
 
 // start announces the run: an event in events mode, a line on stderr otherwise.
-func (o *output) start(model, mode string, chat bool, sessionID string) {
+//
+// repoMap reports whether the code map is built for this run. workers stays
+// null: dispatch sets its concurrency per call, so there is no single value
+// to report at start.
+func (o *output) start(model, mode string, chat bool, sessionID string, repoMap bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.format == fmtEvents {
-		ev := map[string]any{"type": "start", "model": model, "mode": mode, "session": sessionPrefix(sessionID), "repoMap": nil, "workers": nil}
+		ev := map[string]any{"type": "start", "model": model, "mode": mode, "session": sessionPrefix(sessionID), "repoMap": repoMap, "workers": nil}
 		if chat {
 			ev["chat"] = true
 		}

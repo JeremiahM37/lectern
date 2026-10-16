@@ -92,12 +92,18 @@ the model you choose. The terminal UI runs when you give no headless flag and
 stdin is a terminal. Piped stdin runs headless, reading the prompt from it.
 
 Terminal UI:
-  --model P/M           model for this session, e.g. anthropic/claude-sonnet-5-5
+  -m, --model P/M       model for this session, e.g. anthropic/claude-sonnet-5-5
   --mode MODE           default, architect, socratic, challenge, plan or auto
   --cwd DIR             project folder (default: the current folder)
-  --resume [ID]         reopen a session by id prefix; with no ID, pick one
+  --preset NAME         apply a config preset for this session
+  -s, --session, --resume [ID]
+                        reopen a session by id prefix; with no ID, pick one
   -c, --continue        reopen the newest session in this folder
   --demo                the TUI with a stand-in model, to try it without a key
+  --wizard              open the setup wizard (providers, keys, model, icons)
+  --telegram            turn on the Telegram surface: approvals and questions go to
+                        paired chats, and their messages go to this tab. Needs
+                        SCRIBE_TELEGRAM_TOKEN. Pair from the TUI with /remote pair
 
 Headless (any of these switches it on):
   -p, --print, --headless PROMPT

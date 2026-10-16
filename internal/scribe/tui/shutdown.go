@@ -9,8 +9,20 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
+)
+
+// Quit screen timing (spec 1, ShutdownSplash), measured from the moment the
+// backends finish closing: phase 3 shows the resume hint 350 ms later, and the
+// program exits 1000 ms after that.
+const (
+	shutdownHintAfter = 350 * time.Millisecond
+	shutdownQuitAfter = 1350 * time.Millisecond
+	shutdownAbortAt   = 250 * time.Millisecond // phase 1: running turns are stopped
+	shutdownFade      = 3200 * time.Millisecond
 )
 
 // Stopper is implemented by backends that end their session when the process
@@ -30,11 +42,12 @@ func SavedBanner(id string) string {
 }
 
 // WithTermSignals returns a context that is cancelled when the terminal is
-// asked to stop (SIGTERM) or goes away (SIGHUP). Cancelling it makes bubbletea
-// kill the program, which restores the terminal before Run returns; the caller
-// then ends the sessions and prints SavedBanner.
+// asked to stop (SIGINT, SIGTERM) or goes away (SIGHUP). In raw mode Ctrl+C is
+// a key, not a signal, so SIGINT here comes from outside (kill -INT). Cancelling
+// the context makes bubbletea kill the program, which restores the terminal
+// before Run returns; the caller then ends the sessions and prints SavedBanner.
 func WithTermSignals(ctx context.Context) (context.Context, context.CancelFunc) {
-	return signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGHUP)
+	return signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 }
 
 // shutdownState drives the quit screen: saving, closing servers, done, resume hint.
@@ -80,16 +93,45 @@ func (m *Model) finishShutdown() tea.Cmd {
 // tickShutdown advances the quit screen and quits when it is done.
 func (m *Model) tickShutdown(now time.Time) tea.Cmd {
 	sd := m.sd
-	if sd.step == 0 && now.Sub(sd.start) >= 250*time.Millisecond {
+	if sd.step == 0 && now.Sub(sd.start) >= shutdownAbortAt {
 		sd.step = 1
 	}
-	if sd.step == 2 && now.Sub(sd.doneAt) >= 400*time.Millisecond {
+	if sd.step == 2 && now.Sub(sd.doneAt) >= shutdownHintAfter {
 		sd.step = 3
 	}
-	if sd.step == 3 && now.Sub(sd.doneAt) >= 1400*time.Millisecond {
+	if sd.step == 3 && now.Sub(sd.doneAt) >= shutdownQuitAfter {
 		return tea.Quit
 	}
 	return nil
+}
+
+// shutdownFadeColor is the wordmark colour at time since the quit screen
+// opened. It walks amber, warning, brandAlt, brand and brandDim over 3.2 s,
+// so the screen cools as it closes.
+func shutdownFadeColor(th theme.Theme, since time.Duration) lipgloss.TerminalColor {
+	stops := []lipgloss.TerminalColor{th.Amber, th.Warning, th.BrandAlt, th.Brand, th.BrandDim}
+	p := clampF(float64(since)/float64(shutdownFade), 0, 1) * float64(len(stops)-1)
+	i := int(p)
+	if i >= len(stops)-1 {
+		return stops[len(stops)-1]
+	}
+	return theme.Lerp(stops[i], stops[i+1], p-float64(i))
+}
+
+// shutdownRow is one line of the quit screen's progress list.
+type shutdownRow struct {
+	text string
+	// done and active are the steps at which the row is ticked and spun.
+	done, active int
+}
+
+// shutdownRows is the four progress steps. The last two steps follow the
+// backend closing, so they are ticked together when the backends report done.
+var shutdownRows = []shutdownRow{
+	{"Stopping running turns", 1, 0},
+	{"Saving session", 2, 1},
+	{"Closing language servers", 2, 1},
+	{"Done", 3, 2},
 }
 
 // viewShutdown is the quit screen: wordmark, the steps and the resume hint.
@@ -97,35 +139,37 @@ func (m *Model) viewShutdown() string {
 	th := m.th
 	sd := m.sd
 	var lines []string
-	if m.width >= 36 {
+	mark := shutdownFadeColor(th, time.Since(sd.start))
+	if m.width >= landingWordmarkCols {
 		for _, l := range wordmarkRows() {
-			lines = append(lines, lipgloss.PlaceHorizontal(m.width, lipgloss.Center, fg(th.Brand).Render(l)))
+			lines = append(lines, lipgloss.PlaceHorizontal(m.width, lipgloss.Center, fgb(mark).Render(l)))
 		}
 	} else {
-		lines = append(lines, lipgloss.PlaceHorizontal(m.width, lipgloss.Center, fgb(th.Brand).Render("SCRIBE")))
+		lines = append(lines, lipgloss.PlaceHorizontal(m.width, lipgloss.Center, fgb(mark).Render("SCRIBE")))
 	}
 	lines = append(lines, "")
-	steps := []struct {
-		text string
-		at   int
-	}{
-		{"Saving session", 0},
-		{"Closing language servers", 1},
-		{"Done", 2},
-	}
-	for _, s := range steps {
-		mark := fg(th.TextDim).Render("·")
+	// the steps are one block: its widest row is centred and the rows stay
+	// left-aligned to each other, so the marks line up
+	var steps []string
+	block := 0
+	for _, s := range shutdownRows {
+		glyph := fg(th.TextDim).Render("·")
 		col := th.TextDim
 		switch {
-		case sd.step > s.at:
-			mark = fg(th.Success).Render("✓")
+		case sd.step >= s.done:
+			glyph = fg(th.Success).Render("✓")
 			col = th.TextMuted
-		case sd.step == s.at:
-			mark = fg(th.Brand).Render(render.Frame(render.Braille, m.frame/3))
+		case sd.step == s.active:
+			glyph = fg(th.Brand).Render(render.Frame(render.Braille, m.frame/3))
 			col = th.TextPrimary
 		}
-		row := mark + " " + fg(col).Render(s.text)
-		lines = append(lines, lipgloss.PlaceHorizontal(m.width, lipgloss.Center, row))
+		row := glyph + " " + fg(col).Render(s.text)
+		steps = append(steps, row)
+		block = max(block, ansi.StringWidth(row))
+	}
+	pad := strings.Repeat(" ", max(0, (m.width-block)/2))
+	for _, row := range steps {
+		lines = append(lines, pad+row)
 	}
 	if sd.step >= 3 && sd.resume != "" {
 		lines = append(lines, "", lipgloss.PlaceHorizontal(m.width, lipgloss.Center,

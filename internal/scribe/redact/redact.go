@@ -4,8 +4,10 @@
 // Two kinds of secret are matched, in one pass each:
 //
 //   - shapes: well-known key prefixes (sk-ant-, sk-, ghp_, AKIA, xoxb-, AIza,
-//     glpat-, ...), PEM private key blocks, bearer tokens in Authorization
-//     headers and password, token, api_key and secret assignments;
+//     glpat-, npm_, Stripe sk_/rk_/whsec_, ...), JWTs, PEM private key
+//     blocks, bearer tokens in Authorization headers, the password in
+//     scheme://user:password@host URLs (database and basic-auth), and
+//     password, token, api_key and secret assignments;
 //   - literal values: the values in the llm key store and any environment
 //     variable whose name ends in _KEY, _TOKEN, _SECRET or _PASSWORD. Values
 //     shorter than 8 characters are ignored.
@@ -47,6 +49,12 @@ func hasDigit(s string) bool {
 	return strings.ContainsAny(s, "0123456789")
 }
 
+// notPlaceholder rejects template text that stands in for a secret, such as
+// ${DB_PASSWORD}, {{password}}, <password> or $PASS.
+func notPlaceholder(s string) bool {
+	return s != "" && !strings.ContainsAny(s[:1], "${<")
+}
+
 // looksSecret rejects bare identifiers such as tokenFromEnv: an assignment
 // value must carry a digit or a symbol that real credentials use.
 func looksSecret(s string) bool {
@@ -67,11 +75,29 @@ var shapes = []shape{
 	prefixed(`\bxox[abp]-[A-Za-z0-9\-]{10,}`, nil),
 	prefixed(`\bAIza[0-9A-Za-z_\-]{35}`, nil),
 	prefixed(`\bglpat-[A-Za-z0-9_\-]{20,}`, nil),
+	prefixed(`\bnpm_[A-Za-z0-9]{30,}`, nil),
+	// Stripe secret, restricted and webhook keys. Publishable keys (pk_)
+	// are not secret and are left alone. hasDigit keeps prose such as
+	// "sk_test_placeholder" out.
+	prefixed(`\b(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{16,}`, hasDigit),
+	prefixed(`\bwhsec_[0-9A-Za-z]{16,}`, hasDigit),
+	// JWTs: three base64url segments, the first beginning with the encoded
+	// `{"` that every JOSE header starts with. Unsigned tokens with an
+	// empty signature segment do not match.
+	prefixed(`\beyJ[A-Za-z0-9_\-]{6,}\.[A-Za-z0-9_\-]{6,}\.[A-Za-z0-9_\-]{6,}`, nil),
 	// PEM private key blocks, header to footer. The body may contain
 	// escaped newlines when the text is JSON, which this matches as-is.
 	prefixed(`-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----`, nil),
 	{
 		re: `((?i:authorization:\s*bearer\s+))([A-Za-z0-9._~+/=\-]{8,})`,
+	},
+	{
+		// Basic-auth and database URLs: scheme://user:password@host. The
+		// password is the secret; the user name and host stay readable.
+		// The host-side @ is not part of either group. Placeholders such
+		// as ${DB_PASS} or <password> are not secrets.
+		re: `((?i:[a-z][a-z0-9+.\-]*)://[^\s/:@"'<>]*:)([^\s/@"'<>]+)@`,
+		ok: notPlaceholder,
 	},
 	{
 		// key, optional closing quote, separator, optional opening quote.

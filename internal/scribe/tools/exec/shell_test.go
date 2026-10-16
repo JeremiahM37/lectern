@@ -124,7 +124,7 @@ func TestShellTimeoutIsClamped(t *testing.T) {
 	if got := clampTimeout(0, defaultShellTimeout); got != defaultShellTimeout {
 		t.Errorf("zero should give the default, got %s", got)
 	}
-	if got := clampTimeout(9_999_999, defaultShellTimeout); got != maxShellTimeout {
+	if got := clampTimeout(99_999_999, defaultShellTimeout); got != 30*time.Minute {
 		t.Errorf("huge timeout should clamp to max, got %s", got)
 	}
 	if got := clampTimeout(1, defaultShellTimeout); got != time.Second {
@@ -134,6 +134,7 @@ func TestShellTimeoutIsClamped(t *testing.T) {
 
 func TestShellOutputTruncationKeepsHeadAndTail(t *testing.T) {
 	skipOnWindows(t)
+	useTeeDir(t)
 	dir := t.TempDir()
 	r, _ := newTestRegistry(t, Options{})
 
@@ -147,11 +148,20 @@ func TestShellOutputTruncationKeepsHeadAndTail(t *testing.T) {
 	if !strings.HasPrefix(res.Output, "1\n2\n") {
 		t.Fatalf("head not kept: %q", res.Output[:20])
 	}
-	if !strings.Contains(res.Output, "\n20000\n[exit 0]") {
-		t.Fatalf("tail and exit code not kept: %q", res.Output[len(res.Output)-40:])
+	if !strings.Contains(res.Output, "\n20000\n[full output: ") || !strings.HasSuffix(res.Output, "\n[exit 0]") {
+		t.Fatalf("tail, tee note and exit code not kept in order: %q", res.Output[len(res.Output)-80:])
 	}
 	if res.Meta["omitted"].(int) == 0 {
 		t.Fatalf("omitted meta should be non-zero")
+	}
+	// The model gets the excerpt; the tee file has everything.
+	path := teePathIn(t, res.Output)
+	full, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("tee file: %v", err)
+	}
+	if !strings.Contains(string(full), "\n10000\n") || len(full) <= outputLimit {
+		t.Fatalf("tee file should hold the full output, got %d bytes", len(full))
 	}
 }
 

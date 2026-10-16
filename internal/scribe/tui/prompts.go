@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
@@ -277,8 +278,8 @@ func (m *Model) questionLines(ui *promptUI, w int) []string {
 	th := m.th
 	q := ui.p.Question
 	body := []string{}
-	for _, l := range strings.Split(render.Wrap(q.Question, w-6), "\n") {
-		body = append(body, fg(th.TextPrimary).Render(l))
+	for _, l := range strings.Split(strings.TrimRight(render.Markdown(q.Question, w-6, th, false), "\n"), "\n") {
+		body = append(body, l)
 	}
 	body = append(body, "")
 	for i, o := range q.Options {
@@ -286,8 +287,7 @@ func (m *Model) questionLines(ui *promptUI, w int) []string {
 	}
 	free := len(q.Options)
 	if ui.typing {
-		row := fg(th.Brand).Render(" › ") + fg(th.TextPrimary).Render(string(ui.text)) + fg(th.Brand).Render("▌")
-		body = append(body, row)
+		body = append(body, m.entryRow(ui.text, "type your answer...", th.Brand))
 	} else {
 		body = append(body, m.optionRow("Type an answer…", ui.sel == free, th.Brand))
 	}
@@ -300,6 +300,20 @@ func (m *Model) questionLines(ui *promptUI, w int) []string {
 
 // planChoices are the plan review options in key order (keys 1-4).
 var planChoices = agent.PlanOptions()
+
+// planChoiceLabel is how an option reads in the review. The answers the agent
+// parses (agent.Answer*) are unchanged; only the words and glyph differ.
+func planChoiceLabel(choice string) string {
+	switch choice {
+	case answerExecute:
+		return "⏎ Implement"
+	case answerClear:
+		return "↻ Clear & Implement"
+	case answerRevise:
+		return icons.Icon("pencil") + " Revise"
+	}
+	return icons.Icon("fail") + " Cancel"
+}
 
 // planChoiceColor is the accent of one plan review option.
 func planChoiceColor(th theme.Theme, choice string) lipgloss.TerminalColor {
@@ -324,13 +338,27 @@ func planPath(body string) string {
 	return strings.TrimSuffix(p, "`")
 }
 
-// planLines draws the plan review: title, numbered steps with their files
-// dimmed underneath, then the options. v swaps the step list for the full
-// markdown plan.
+// symbolMark is the glyph and colour for a symbol action in the plan review.
+func symbolMark(th theme.Theme, action string) (string, lipgloss.TerminalColor) {
+	switch action {
+	case "add":
+		return "+", th.Success
+	case "modify":
+		return "~", th.Amber
+	case "remove":
+		return "-", th.Error
+	}
+	return "→", th.Info // rename
+}
+
+// planLines draws the plan review: a header (title, step count, saved path),
+// the steps as ○ rows (two columns above five), the symbols and verification
+// the plan records, then the options. v swaps the list for the full markdown.
 func (m *Model) planLines(ui *promptUI, w int) []string {
 	th := m.th
 	q := ui.p.Question
 	steps := agent.ParsePlanSteps(q.Body)
+	inner := max(10, w-6)
 	var body []string
 	if ui.full || len(steps) == 0 {
 		maxBody := max(4, m.height/3)
@@ -342,30 +370,32 @@ func (m *Model) planLines(ui *promptUI, w int) []string {
 			body = append(body, fg(th.TextFaint).Render("PgUp/PgDn scroll the plan"))
 		}
 	} else {
-		head := fmt.Sprintf("%d steps", len(steps))
-		if p := planPath(q.Body); p != "" {
-			head += "  ·  " + p
+		body = append(body, planHeader(th, q.Question, len(steps), planPath(q.Body), inner), "")
+		body = append(body, stepRows(th, steps, inner, max(5, m.height/2))...)
+		if syms := planSymbols(steps); len(syms) > 0 {
+			body = append(body, "", fg(th.BrandAlt).Render(fmt.Sprintf("Symbols (%d)", len(syms))))
+			body = append(body, listCapped(syms, 5, th.TextDim, func(s agent.PlanSymbol) string {
+				g, col := symbolMark(th, s.Action)
+				label := s.Name
+				if s.Kind != "" {
+					label += " (" + s.Kind + ")"
+				}
+				return fg(col).Render(g+" ") + fg(th.TextSecondary).Render(render.Truncate(label, inner-2))
+			})...)
 		}
-		body = append(body, fg(th.TextDim).Render(head), "")
-		maxRows := max(5, m.height/2)
-		for i, s := range steps {
-			if i == maxRows {
-				body = append(body, fg(th.TextDim).Render(fmt.Sprintf("  +%d more", len(steps)-i)))
-				break
-			}
-			num := fmt.Sprintf("%2d. ", i+1)
-			body = append(body, fg(th.BrandAlt).Render(num)+fg(th.TextSecondary).Render(fitWidth(s.Text, w-12)))
-			if len(s.Files) > 0 {
-				body = append(body, fg(th.TextDim).Render("    "+strings.Join(s.Files, ", ")))
-			}
+		if ver := agent.ParsePlanVerification(q.Body); len(ver) > 0 {
+			body = append(body, "", fg(th.BrandAlt).Render("Verification"))
+			body = append(body, listCapped(ver, 5, th.TextDim, func(v string) string {
+				return fg(th.Success).Render(icons.Icon("success")+" ") + fg(th.TextSecondary).Render(render.Truncate(v, inner-2))
+			})...)
 		}
 	}
 	body = append(body, "")
 	for i, c := range planChoices {
-		body = append(body, m.optionRow(fmt.Sprintf("%d  %s", i+1, c), i == ui.sel, planChoiceColor(th, c)))
+		body = append(body, m.optionRow(fmt.Sprintf("%d  %s", i+1, planChoiceLabel(c)), i == ui.sel, planChoiceColor(th, c)))
 	}
 	if ui.typing {
-		body = append(body, fg(th.BrandAlt).Render(" revise › ")+fg(th.TextPrimary).Render(string(ui.text))+fg(th.BrandAlt).Render("▌"))
+		body = append(body, m.entryRow(ui.text, "what should change...", th.BrandAlt))
 	}
 	footer := "1-4 choose · ↑↓ select · Enter confirm · v full plan · Esc cancel"
 	if ui.full {
@@ -374,16 +404,103 @@ func (m *Model) planLines(ui *promptUI, w int) []string {
 	if ui.typing {
 		footer = "Enter submit · Esc back"
 	}
-	return frame(q.Question, icons.Icon("plan"), indentRows(body), footer, w, th.Info, th)
+	return frame("", "", indentRows(body), footer, w, th.Info, th)
 }
 
-// optionRow renders one choice; the selected row gets a marker and bold text.
+// planHeader is the review's first row: plan icon and bold title, then the
+// step count and the saved path, split by faint rules. The path is cut to
+// whatever room the header has left.
+func planHeader(th theme.Theme, title string, steps int, path string, w int) string {
+	sep := fg(th.TextFaint).Render(" │ ")
+	head := fg(th.Info).Render(icons.Icon("plan")+" ") + fgb(th.Info).Render(render.Truncate(title, max(10, w/2)))
+	head += sep + fg(th.TextDim).Render(fmt.Sprintf("%d steps", steps))
+	if path != "" {
+		room := w - ansi.StringWidth(head) - ansi.StringWidth(" │ ")
+		if room > 4 {
+			head += sep + fg(th.TextDim).Render(render.Truncate(path, room))
+		}
+	}
+	return render.Truncate(head, w)
+}
+
+// stepRows draws the plan steps as ○ rows. Above five steps they fill two
+// columns split at ceil(n/2), joined by a faint rule. A list longer than
+// maxRows rows ends in "+N more".
+func stepRows(th theme.Theme, steps []agent.PlanStep, w, maxRows int) []string {
+	cell := func(s agent.PlanStep, cw int) string {
+		return fg(th.TextMuted).Render("○") + " " + fg(th.TextSecondary).Render(render.Truncate(s.Text, max(1, cw-2)))
+	}
+	if len(steps) <= 5 {
+		var rows []string
+		for i, s := range steps {
+			if i == maxRows {
+				rows = append(rows, fg(th.TextDim).Render(fmt.Sprintf("  +%d more", len(steps)-i)))
+				break
+			}
+			rows = append(rows, cell(s, w-1))
+		}
+		return rows
+	}
+	colW := (w - 3) / 2
+	half := (len(steps) + 1) / 2
+	var rows []string
+	for i := 0; i < half; i++ {
+		if i == maxRows {
+			rows = append(rows, fg(th.TextDim).Render(fmt.Sprintf("+%d more", len(steps)-2*i)))
+			break
+		}
+		left := padRight(cell(steps[i], colW), colW)
+		if j := half + i; j < len(steps) {
+			rows = append(rows, left+fg(th.TextSubtle).Render(" │ ")+cell(steps[j], colW))
+		} else {
+			rows = append(rows, left)
+		}
+	}
+	return rows
+}
+
+// planSymbols gathers every symbol the plan's steps touch, in step order.
+func planSymbols(steps []agent.PlanStep) []agent.PlanSymbol {
+	var out []agent.PlanSymbol
+	for _, s := range steps {
+		out = append(out, s.Symbols...)
+	}
+	return out
+}
+
+// listCapped renders up to limit items, then a dim "+N more" line.
+func listCapped[T any](items []T, limit int, dim lipgloss.TerminalColor, row func(T) string) []string {
+	var out []string
+	for i, it := range items {
+		if i == limit {
+			out = append(out, fg(dim).Render(fmt.Sprintf("+%d more", len(items)-i)))
+			break
+		}
+		out = append(out, row(it))
+	}
+	return out
+}
+
+// optionRow renders one choice. The selected row reads " › label" in the
+// option colour with bold text; the others are indented by the same three
+// cells, so labels line up whether or not they are selected.
 func (m *Model) optionRow(label string, sel bool, col lipgloss.TerminalColor) string {
 	th := m.th
 	if sel {
-		return fg(col).Render("› ") + fgb(th.TextPrimary).Render(label)
+		return fg(col).Render(" › ") + fgb(th.TextPrimary).Render(label)
 	}
-	return "  " + fg(th.TextSecondary).Render(label)
+	return "   " + fg(th.TextSecondary).Render(label)
+}
+
+// entryRow is the free-text line under the options: a brand prompt, the text
+// typed so far, and a dim placeholder while it is still empty.
+func (m *Model) entryRow(text []rune, placeholder string, col lipgloss.TerminalColor) string {
+	th := m.th
+	row := fg(col).Render(" › ")
+	if len(text) == 0 {
+		return row + fg(th.TextDim).Render(placeholder) + fg(col).Render("▌")
+	}
+	return row + fg(th.TextPrimary).Render(string(text)) + fg(col).Render("▌")
 }
 
 // indentRows adds the one-column gutter that sits inside the frame.

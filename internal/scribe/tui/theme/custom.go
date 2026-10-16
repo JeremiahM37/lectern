@@ -23,16 +23,39 @@ var hexColor = regexp.MustCompile(`^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
 // missing directory is not an error. Files that fail to parse are skipped and
 // reported in the returned error, which still lists every theme that did load.
 func LoadUserThemes(dir string) error {
-	entries, err := os.ReadDir(dir)
-	if errors.Is(err, os.ErrNotExist) {
-		setCustoms(map[string]palette{})
-		return nil
-	}
-	if err != nil {
-		return err
-	}
+	return LoadUserThemesFrom(dir, "")
+}
+
+// LoadUserThemesFrom is LoadUserThemes plus the legacy combined file
+// (config.Home()/themes.json, a JSON object of id to theme). An id present in
+// both is merged, and the per-id file wins key by key. legacy may be "".
+func LoadUserThemesFrom(dir, legacy string) error {
 	raw := map[string]map[string]any{}
 	var problems []string
+	if legacy != "" {
+		data, err := os.ReadFile(legacy)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+		case err != nil:
+			problems = append(problems, fmt.Sprintf("%s: %v", filepath.Base(legacy), err))
+		default:
+			var all map[string]any
+			if err := json.Unmarshal(data, &all); err != nil {
+				problems = append(problems, fmt.Sprintf("%s: %v", filepath.Base(legacy), err))
+			}
+			for id, v := range all {
+				if m, ok := v.(map[string]any); ok {
+					raw[id] = m
+				} else {
+					problems = append(problems, fmt.Sprintf("%s: %s is not an object", filepath.Base(legacy), id))
+				}
+			}
+		}
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || !strings.HasSuffix(name, ".json") {
@@ -47,6 +70,12 @@ func LoadUserThemes(dir string) error {
 		var m map[string]any
 		if err := json.Unmarshal(data, &m); err != nil {
 			problems = append(problems, fmt.Sprintf("%s: %v", name, err))
+			continue
+		}
+		if old, ok := raw[id]; ok {
+			for k, v := range m {
+				old[k] = v
+			}
 			continue
 		}
 		raw[id] = m
@@ -99,6 +128,10 @@ func buildUserPalette(id string, m map[string]any, raw map[string]map[string]any
 	}
 	if s, ok := m["_label"].(string); ok && s != "" {
 		out.Label = s
+	}
+	out.Description = ""
+	if s, ok := m["_description"].(string); ok {
+		out.Description = s
 	}
 	if s, ok := m["_variant"].(string); ok && (s == "dark" || s == "light") {
 		out.Variant = s

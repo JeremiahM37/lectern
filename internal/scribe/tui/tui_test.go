@@ -238,7 +238,7 @@ func TestCtrlCSemantics(t *testing.T) {
 func TestPasteCollapsesLongText(t *testing.T) {
 	m, _ := newTestModel(t, 100, 30)
 	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a\nb\nc\nd\ne\nf"), Paste: true})
-	if !strings.Contains(screen(m), "[Pasted text #1 +6 lines]") {
+	if !strings.Contains(screen(m), "<pasted (a +6 lines)>") {
 		t.Fatalf("a six-line paste should collapse to a placeholder:\n%s", screen(m))
 	}
 	// the full text is sent on submit

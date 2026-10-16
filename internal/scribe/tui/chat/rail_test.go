@@ -210,3 +210,68 @@ func TestRailRunningTurnShowsSpinner(t *testing.T) {
 		t.Errorf("no spinner on row %d", running)
 	}
 }
+
+func TestRailHitFindsMarkerRow(t *testing.T) {
+	useASCIIIcons(t)
+	v, _ := threeTurns(t, 100, 40, 3)
+	v.SetCheckpoints([]Checkpoint{{Turn: 1}, {Turn: 2}, {Turn: 3, Undone: true}}, -1)
+	checkShape(t, v)
+
+	out := plain(v)
+	row := rowOf(out, "question 2") - 2 // the marker sits on the blank row above "You"
+	idx, cp, ok := v.RailHit(1, row)
+	if !ok || idx != 1 || cp.Turn != 2 {
+		t.Fatalf("click on turn 2 marker: idx=%d turn=%d ok=%v\n%s", idx, cp.Turn, ok, out)
+	}
+	// The same row but outside the rail columns is not a marker.
+	if _, _, ok := v.RailHit(railW, row); ok {
+		t.Error("a click past the rail columns hit a marker")
+	}
+	// A row with no marker.
+	if _, _, ok := v.RailHit(1, row+1); ok {
+		t.Error("a click on a connector row hit a marker")
+	}
+	// The undone checkpoint is still reported; the caller decides what to do.
+	undone := rowOf(out, "question 3") - 2
+	if i, cp, ok := v.RailHit(1, undone); !ok || i != 2 || !cp.Undone {
+		t.Errorf("undone marker: idx=%d ok=%v undone=%v", i, ok, cp.Undone)
+	}
+}
+
+func TestRailHitNeedsRailOnScreen(t *testing.T) {
+	useASCIIIcons(t)
+	v, _ := threeTurns(t, 79, 40, 3)
+	v.SetCheckpoints([]Checkpoint{{Turn: 1}, {Turn: 2}, {Turn: 3}}, -1)
+	row := rowOf(plain(v), "question 1") - 2
+	if _, _, ok := v.RailHit(1, row); ok {
+		t.Error("rail hit reported at 79 columns, where the rail is hidden")
+	}
+}
+
+func TestSelectRailMovesCursorWithoutFocus(t *testing.T) {
+	v, _ := threeTurns(t, 100, 40, 3)
+	v.SetCheckpoints([]Checkpoint{{Turn: 1}, {Turn: 2}, {Turn: 3}}, -1)
+	v.SelectRail(0)
+	if v.RailFocused() {
+		t.Error("SelectRail should not take the keyboard")
+	}
+	// A click browses to a checkpoint (viewed=0), so Alt+C then starts there.
+	v.SetCheckpoints([]Checkpoint{{Turn: 1}, {Turn: 2}, {Turn: 3}}, 0)
+	v.FocusRail()
+	if i, _, _ := v.RailSelected(); i != 0 {
+		t.Errorf("focus after browsing to 0 starts on %d", i)
+	}
+}
+
+func TestRailHitMatchesTheMarkerDrawn(t *testing.T) {
+	useASCIIIcons(t)
+	// Two checkpoints for turn 1 (a re-run) share a row: the one drawn last wins.
+	v, _ := threeTurns(t, 100, 40, 2)
+	v.SetCheckpoints([]Checkpoint{{Turn: 1}, {Turn: 2}, {Turn: 1}}, -1)
+	checkShape(t, v)
+	row := rowOf(plain(v), "question 1") - 2
+	idx, _, ok := v.RailHit(1, row)
+	if !ok || idx != 2 {
+		t.Errorf("shared row hit checkpoint %d (ok=%v), want the one drawn last, 2", idx, ok)
+	}
+}

@@ -22,7 +22,7 @@ func TestHelpCodeListsEveryFlag(t *testing.T) {
 			"--model", "--mode", "--cwd", "--resume", "--continue", "--demo",
 			"-p, --print", "--json", "--events", "--chat", "--quiet", "--max-steps",
 			"--timeout", "--system", "--include", "--no-repomap", "--diff",
-			"--save-session", "--session", "--render", "--no-render",
+			"--save-session", "--session", "--render", "--no-render", "--preset", "--telegram",
 			"--list-providers", "--list-models", "--set-key",
 		} {
 			if !strings.Contains(out.String(), flag) {

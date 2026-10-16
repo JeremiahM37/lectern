@@ -10,8 +10,9 @@ type importRule struct {
 	re    *regexp.Regexp
 	kind  string
 	group int
-	names int  // capture with imported names (Python "from x import a, b")
-	multi bool // the capture is a comma-separated list
+	names int    // capture with imported names (Python "from x import a, b")
+	multi bool   // the capture is a comma-separated list
+	must  string // a literal the source must contain for the rule to match
 }
 
 func tsExported(sig, name, kind string) bool {
@@ -39,10 +40,10 @@ var tsRules = []defRule{
 }
 
 var jsImports = []importRule{
-	{re: rx(`(?m)(?:^|[^\w$.])(?:import|export)\b[^;'"]*?\bfrom\s*['"]([^'"\n]+)['"]`), kind: "js", group: 1},
-	{re: rx(`(?m)(?:^|[^\w$.])import\s*['"]([^'"\n]+)['"]`), kind: "js", group: 1},
-	{re: rx(`\brequire\s*\(\s*['"]([^'"\n]+)['"]\s*\)`), kind: "js", group: 1},
-	{re: rx(`\bimport\s*\(\s*['"]([^'"\n]+)['"]\s*\)`), kind: "js", group: 1},
+	{re: rx(`(?m)(?:^|[^\w$.])(?:import|export)\b[^;'"]*?\bfrom\s*['"]([^'"\n]+)['"]`), kind: "js", group: 1, must: "from"},
+	{re: rx(`(?m)(?:^|[^\w$.])import\s*['"]([^'"\n]+)['"]`), kind: "js", group: 1, must: "import"},
+	{re: rx(`\brequire\s*\(\s*['"]([^'"\n]+)['"]\s*\)`), kind: "js", group: 1, must: "require"},
+	{re: rx(`\bimport\s*\(\s*['"]([^'"\n]+)['"]\s*\)`), kind: "js", group: 1, must: "import"},
 }
 
 var pyRules = []defRule{
@@ -51,8 +52,8 @@ var pyRules = []defRule{
 }
 
 var pyImports = []importRule{
-	{re: rx(`(?m)^[ \t]*from[ \t]+(\.*[\w.]*)[ \t]+import[ \t]+([^\n]+)`), kind: "py", group: 1, names: 2},
-	{re: rx(`(?m)^[ \t]*import[ \t]+([\w.]+(?:[ \t]+as[ \t]+\w+)?(?:[ \t]*,[ \t]*[\w.]+(?:[ \t]+as[ \t]+\w+)?)*)`), kind: "py", group: 1, multi: true},
+	{re: rx(`(?m)^[ \t]*from[ \t]+(\.*[\w.]*)[ \t]+import[ \t]+([^\n]+)`), kind: "py", group: 1, names: 2, must: "from"},
+	{re: rx(`(?m)^[ \t]*import[ \t]+([\w.]+(?:[ \t]+as[ \t]+\w+)?(?:[ \t]*,[ \t]*[\w.]+(?:[ \t]+as[ \t]+\w+)?)*)`), kind: "py", group: 1, multi: true, must: "import"},
 }
 
 var rustRules = []defRule{
@@ -66,8 +67,8 @@ var rustRules = []defRule{
 }
 
 var rustImports = []importRule{
-	{re: rx(`(?m)^[ \t]*(?:pub(?:\([^)\n]*\))?[ \t]+)?mod[ \t]+(\w+)[ \t]*;`), kind: "rs-mod", group: 1},
-	{re: rx(`(?m)^[ \t]*(?:pub(?:\([^)\n]*\))?[ \t]+)?use[ \t]+(crate::[\w:]+)`), kind: "rs-use", group: 1},
+	{re: rx(`(?m)^[ \t]*(?:pub(?:\([^)\n]*\))?[ \t]+)?mod[ \t]+(\w+)[ \t]*;`), kind: "rs-mod", group: 1, must: "mod"},
+	{re: rx(`(?m)^[ \t]*(?:pub(?:\([^)\n]*\))?[ \t]+)?use[ \t]+(crate::[\w:]+)`), kind: "rs-use", group: 1, must: "use"},
 }
 
 var javaRules = []defRule{
@@ -86,7 +87,7 @@ var javaRules = []defRule{
 }
 
 var jvmImports = []importRule{
-	{re: rx(`(?m)^[ \t]*import[ \t]+(?:static[ \t]+)?([\w.]+)`), kind: "jvm", group: 1},
+	{re: rx(`(?m)^[ \t]*import[ \t]+(?:static[ \t]+)?([\w.]+)`), kind: "jvm", group: 1, must: "import"},
 }
 
 var kotlinRules = []defRule{
@@ -130,7 +131,7 @@ func cExported(sig, name, kind string) bool {
 }
 
 var cImports = []importRule{
-	{re: rx(`(?m)^[ \t]*#[ \t]*include[ \t]*"([^"\n]+)"`), kind: "c", group: 1},
+	{re: rx(`(?m)^[ \t]*#[ \t]*include[ \t]*"([^"\n]+)"`), kind: "c", group: 1, must: "include"},
 }
 
 var rubyRules = []defRule{
@@ -139,8 +140,8 @@ var rubyRules = []defRule{
 }
 
 var rubyImports = []importRule{
-	{re: rx(`(?m)^[ \t]*require_relative[ \t]+['"]([^'"\n]+)['"]`), kind: "rb-rel", group: 1},
-	{re: rx(`(?m)^[ \t]*require[ \t]+['"]([^'"\n]+)['"]`), kind: "rb", group: 1},
+	{re: rx(`(?m)^[ \t]*require_relative[ \t]+['"]([^'"\n]+)['"]`), kind: "rb-rel", group: 1, must: "require"},
+	{re: rx(`(?m)^[ \t]*require[ \t]+['"]([^'"\n]+)['"]`), kind: "rb", group: 1, must: "require"},
 }
 
 var phpRules = []defRule{
@@ -149,7 +150,7 @@ var phpRules = []defRule{
 }
 
 var phpImports = []importRule{
-	{re: rx(`(?m)^[ \t]*use[ \t]+([\w\\]+)[ \t]*;`), kind: "php", group: 1},
+	{re: rx(`(?m)^[ \t]*use[ \t]+([\w\\]+)[ \t]*;`), kind: "php", group: 1, must: "use"},
 }
 
 var luaRules = []defRule{
@@ -158,7 +159,7 @@ var luaRules = []defRule{
 }
 
 var luaImports = []importRule{
-	{re: rx(`\brequire[ \t]*\(?[ \t]*['"]([\w.]+)['"]`), kind: "lua", group: 1},
+	{re: rx(`\brequire[ \t]*\(?[ \t]*['"]([\w.]+)['"]`), kind: "lua", group: 1, must: "require"},
 }
 
 var shellRules = []defRule{
@@ -176,7 +177,7 @@ var zigRules = []defRule{
 }
 
 var zigImports = []importRule{
-	{re: rx(`@import\([ \t]*"([^"\n]+)"[ \t]*\)`), kind: "zig", group: 1},
+	{re: rx(`@import\([ \t]*"([^"\n]+)"[ \t]*\)`), kind: "zig", group: 1, must: "@import"},
 }
 
 var elixirRules = []defRule{

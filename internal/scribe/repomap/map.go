@@ -51,10 +51,23 @@ type Map struct {
 	eCoef      []float64
 	edgeCount  int
 	in         map[string][]string // files that import each file
+	imports    map[string][]string // files each file imports (resolved)
+	renderMu   sync.Mutex          // guards rendered
+	rendered   []string            // paths in the last Render, for memory injection
 	rank       []float64
 	cochange   map[string][]Pair
 	recent     []string
 	lastParsed int
+	warning    string               // set by Build: a truncated walk, and similar notes
+	callers    map[string][]callRef // callee name -> functions whose body calls it
+	summarizer Summarizer
+	summaries  map[string]summaryEntry // model summaries, keyed by path
+}
+
+// summaryEntry is a model-written summary and the content hash it describes.
+// It is shown only while the file still has that hash.
+type summaryEntry struct {
+	hash, text string
 }
 
 // Open prepares a map for the repository at root. It does not scan anything;
@@ -88,7 +101,40 @@ func Open(root string, opts Options) (*Map, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Map{root: abs, opts: opts, db: db, files: map[string]*fileInfo{}, cochange: map[string][]Pair{}}, nil
+	summaries, err := loadSummaries(db)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("repomap cache: %w", err)
+	}
+	return &Map{root: abs, opts: opts, db: db, files: map[string]*fileInfo{}, cochange: map[string][]Pair{}, summaries: summaries}, nil
+}
+
+// Warning returns a note from the last Build about partial coverage, or "".
+func (m *Map) Warning() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.warning
+}
+
+// Recheck compares each indexed file's modification time with the disk and
+// re-indexes the ones that moved. It is for changes the edit tools did not
+// report, such as a shell command that rewrote files. It returns how many
+// files it re-indexed.
+func (m *Map) Recheck() (int, error) {
+	m.mu.RLock()
+	var stale []string
+	for _, p := range m.paths {
+		fi := m.files[p]
+		st, err := os.Stat(filepath.Join(m.root, filepath.FromSlash(p)))
+		if err != nil || fi == nil || st.ModTime().UnixNano() != fi.Mtime {
+			stale = append(stale, p)
+		}
+	}
+	m.mu.RUnlock()
+	if len(stale) == 0 {
+		return 0, nil
+	}
+	return len(stale), m.Update(stale)
 }
 
 // Close releases the cache database.
@@ -114,14 +160,21 @@ type fileResult struct {
 }
 
 // Build scans the repository and brings the map up to date. progress, if
-// non-nil, is called after each file with (done, total).
+// non-nil, is called after each file with (done, total). A home directory or
+// filesystem root is refused with ErrUnsafeRoot before anything is read.
 func (m *Map) Build(ctx context.Context, progress func(done, total int)) error {
+	if unsafeRoot(m.root) {
+		return ErrUnsafeRoot
+	}
 	m.buildMu.Lock()
 	defer m.buildMu.Unlock()
-	entries, err := collectFiles(ctx, m.root, m.opts)
+	entries, note, err := collectFiles(ctx, m.root, m.opts)
 	if err != nil {
 		return err
 	}
+	m.mu.Lock()
+	m.warning = note
+	m.mu.Unlock()
 	rows, err := loadRows(m.db)
 	if err != nil {
 		return err
@@ -191,6 +244,7 @@ func (m *Map) Build(ctx context.Context, progress func(done, total int)) error {
 	if err := writeRows(m.db, ups, dels); err != nil {
 		return err
 	}
+	m.dropSummaries(dels)
 	co := gitCoChanges(ctx, m.root)
 
 	m.mu.Lock()
@@ -205,6 +259,8 @@ func (m *Map) Build(ctx context.Context, progress func(done, total int)) error {
 func (m *Map) process(e fileEntry, row cacheRow, have bool) fileResult {
 	if have && row.mtime == e.mtime && row.size == e.size {
 		if fi, err := decodeInfo(row.data); err == nil {
+			fi.Mtime = e.mtime
+			fi.Hash = row.hash
 			return fileResult{rel: e.rel, fi: fi, row: row}
 		}
 	}
@@ -215,6 +271,8 @@ func (m *Map) process(e fileEntry, row cacheRow, have bool) fileResult {
 	hash := hashBytes(src)
 	if have && row.hash == hash {
 		if fi, err := decodeInfo(row.data); err == nil {
+			fi.Mtime = e.mtime
+			fi.Hash = hash
 			return fileResult{rel: e.rel, fi: fi, row: cacheRow{mtime: e.mtime, size: e.size, hash: hash, data: row.data}, write: true}
 		}
 	}
@@ -222,6 +280,8 @@ func (m *Map) process(e fileEntry, row cacheRow, have bool) fileResult {
 	if fi == nil {
 		return fileResult{}
 	}
+	fi.Mtime = e.mtime
+	fi.Hash = hash
 	data, err := encodeInfo(fi)
 	if err != nil {
 		return fileResult{}
@@ -268,7 +328,9 @@ func (m *Map) Update(paths []string) error {
 		if fi == nil {
 			continue
 		}
+		fi.Mtime = st.ModTime().UnixNano()
 		hash := hashBytes(src)
+		fi.Hash = hash
 		data, err := encodeInfo(fi)
 		if err != nil {
 			continue
@@ -280,6 +342,7 @@ func (m *Map) Update(paths []string) error {
 	if err := writeRows(m.db, ups, dels); err != nil {
 		return err
 	}
+	m.dropSummaries(dels)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.lastParsed = parsed

@@ -3,8 +3,11 @@ package tui
 import (
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/chat"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
 )
 
 // transcript is the chat view of one tab. Only this file knows the chat
@@ -49,3 +52,60 @@ func replayEvents(t transcript, evs []agent.Event) {
 
 // liveTime is the time to stamp a locally created row with.
 func liveTime() time.Time { return time.Now() }
+
+// chatFrameMin is the narrowest transcript that gets its border. Narrower
+// than this the border would take the text's room for no gain.
+const chatFrameMin = 40
+
+// chatFramed reports whether the transcript is drawn inside a rounded border.
+// The landing page has no transcript, so it has no border either.
+func (m *Model) chatFramed() bool {
+	return m.phase != phaseLanding && m.width >= chatFrameMin
+}
+
+// chatInset is how many cells and rows the border takes from the transcript:
+// one on each side when framed, none otherwise.
+func (m *Model) chatInset() (cols, rows int) {
+	if m.chatFramed() {
+		return 2, 2
+	}
+	return 0, 0
+}
+
+// chatBorderColor is the border colour for the transcript. Idle it is
+// textSubtle; while a turn runs (or the context is being compacted) it
+// pings out to brandSecondary and back, one cycle per 600 ms.
+func (m *Model) chatBorderColor(t *tab) lipgloss.TerminalColor {
+	if t.busy || t.compacting {
+		return theme.Ping(m.th.TextSubtle, m.th.BrandSecondary, m.frame, 12)
+	}
+	return m.th.TextSubtle
+}
+
+// frameChat wraps the transcript lines in the rounded border. lines must be
+// exactly w-2 cells wide and h-2 rows tall; the result is w by h.
+func (m *Model) frameChat(t *tab, lines []string, w int) []string {
+	body := make([]string, len(lines))
+	copy(body, lines)
+	return frame("", "", body, "", w, m.chatBorderColor(t), m.th)
+}
+
+// wheelLines is how many lines one wheel notch scrolls. A notch that follows
+// another within 80 ms counts as a flick, and a longer run of them scrolls
+// further, so a fast fling covers a page while a single notch stays at three
+// lines.
+func (m *Model) wheelLines(now time.Time) int {
+	if now.Sub(m.wheelAt) < 80*time.Millisecond {
+		m.wheelRun++
+	} else {
+		m.wheelRun = 0
+	}
+	m.wheelAt = now
+	switch {
+	case m.wheelRun >= 6:
+		return 9
+	case m.wheelRun >= 2:
+		return 6
+	}
+	return 3
+}

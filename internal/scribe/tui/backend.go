@@ -195,3 +195,38 @@ type PromptReply struct {
 	Decision tools.Decision // for approvals
 	Answer   string         // for questions
 }
+
+// Optional capabilities. A Backend that has one of these implements it; the
+// command or picker that needs it checks by type assertion and says so when
+// it is missing, so the Backend interface itself stays as it was.
+
+// MarkdownExporter copies the session as Markdown without writing a file.
+type MarkdownExporter interface {
+	ExportMarkdown() (string, error)
+}
+
+// GitRepoOps runs the repository commands behind /git init, /git branch and
+// /git pull. Output is git's own text.
+type GitRepoOps interface {
+	GitInit() (string, error)
+	GitBranch(name string) error
+	GitPull() (string, error)
+}
+
+// StagingCommitter commits with an explicit choice about staging: stageAll
+// adds every change first, otherwise only what is already staged is committed.
+type StagingCommitter interface {
+	GitCommitWith(message string, stageAll bool) error
+}
+
+// ContextClearer unloads what is injected into context. target is "skills",
+// "memory", or "" for everything.
+type ContextClearer interface {
+	ClearContext(target string) error
+}
+
+// ConfigMover saves a setting into one scope and removes it from the other,
+// so it lives in exactly one place after the move.
+type ConfigMover interface {
+	MoveConfig(key string, value any, toProject, fromProject bool) error
+}

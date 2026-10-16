@@ -2,6 +2,7 @@ package chat
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -37,7 +38,7 @@ func (v *View) build() {
 		base := len(lines)
 		lines = append(lines, rb.lines...)
 		for _, h := range rb.hits {
-			hits[base+h.line] = hitTarget{rec: rec, call: h.call, seg: h.seg, summary: h.summary}
+			hits[base+h.line] = hitTarget{rec: rec, call: h.call, seg: h.seg, summary: h.summary, rail: h.rail}
 		}
 	}
 	if len(v.msgs) == 0 {
@@ -55,7 +56,20 @@ func (v *View) dynamic(i int, rec *Record) bool {
 	case roleSystem:
 		return i == len(v.msgs)-1 || (rec.Kind == "compact" && !rec.Done)
 	}
-	return !rec.Done || rec == v.live || rec.hasOpen()
+	return !rec.Done || rec == v.live || rec.hasOpen() || v.tasksLingering(rec)
+}
+
+// tasksLingering reports whether a finished record holds a task list that is
+// still on screen for its linger time. Its lines change with the clock, so the
+// record is drawn fresh until the list hides.
+func (v *View) tasksLingering(rec *Record) bool {
+	now := v.clock()
+	for _, s := range rec.Segments {
+		if s.Kind == "tasks" && !s.DoneAt.IsZero() && now.Sub(s.DoneAt) < tasksLinger {
+			return true
+		}
+	}
+	return false
 }
 
 func (v *View) advanceAll(now time.Time) {
@@ -182,16 +196,50 @@ func (v *View) AtBottom() bool {
 	return v.top >= v.lastTotal-v.h
 }
 
+// Wheel acceleration follows the spec's chat profile (MacOSScrollAccel: gain
+// 0.35, time constant 110 ms, at most 6 lines a tick). A tick costs 3 lines
+// when the wheel is turned slowly. Ticks that arrive close together build up
+// a score, and each extra unit of score adds 35% of a tick, up to the cap.
+const (
+	wheelBase = 3
+	wheelMax  = 6
+	wheelGain = 0.35
+	wheelTau  = 110 * time.Millisecond
+)
+
+// wheelStep returns the lines to scroll for this wheel tick and updates the
+// burst score. It is called once per wheel event.
+func (v *View) wheelStep() int {
+	now := v.clock()
+	if !v.wheelAt.IsZero() {
+		dt := now.Sub(v.wheelAt)
+		if dt < 0 {
+			dt = 0
+		}
+		v.wheelScore *= math.Exp(-float64(dt) / float64(wheelTau))
+	}
+	v.wheelAt = now
+	v.wheelScore++
+	step := int(math.Round(wheelBase * (1 + wheelGain*(v.wheelScore-1))))
+	if step < wheelBase {
+		step = wheelBase
+	}
+	if step > wheelMax {
+		step = wheelMax
+	}
+	return step
+}
+
 // HandleMouse handles the wheel (scroll) and a left click (toggle the tool
 // row or reasoning block under the pointer). Y is relative to the top of the
 // view. It reports whether the event was used.
 func (v *View) HandleMouse(m tea.MouseMsg) bool {
 	switch {
 	case m.Button == tea.MouseButtonWheelUp:
-		v.ScrollUp(3)
+		v.ScrollUp(v.wheelStep())
 		return true
 	case m.Button == tea.MouseButtonWheelDown:
-		v.ScrollDown(3)
+		v.ScrollDown(v.wheelStep())
 		return true
 	case m.Action == tea.MouseActionPress && m.Button == tea.MouseButtonLeft:
 		if v.railOn() && m.X < railW {
@@ -205,6 +253,9 @@ func (v *View) HandleMouse(m tea.MouseMsg) bool {
 		}
 		if t.summary {
 			t.rec.ReasonOpen = !t.rec.ReasonOpen
+		}
+		if t.rail {
+			t.rec.RailOpen = !t.rec.RailOpen
 		}
 		if t.call != nil {
 			t.call.Toggled = !t.call.Toggled

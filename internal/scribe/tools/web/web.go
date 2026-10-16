@@ -20,6 +20,10 @@ type Options struct {
 	// Empty selects the DuckDuckGo HTML backend. SearXNG is usually a local
 	// service the user configured on purpose, so its address is not guarded.
 	SearchURL string
+	// BraveAPIKey, when set, makes web_search try the Brave Search API first
+	// and fall back to the other backends when Brave fails or returns
+	// nothing. Empty skips Brave.
+	BraveAPIKey string
 	// HTTPClient is optional. Search always uses it when set. fetch_page
 	// uses a copy of it when set (with its redirect policy replaced by the
 	// guard), so pass a client with a custom Transport only if you accept
@@ -35,6 +39,7 @@ type Options struct {
 const (
 	defaultUserAgent     = "Mozilla/5.0 (compatible; Scribe/1.0; +https://github.com/JeremiahM37/lectern)"
 	defaultDDGURL        = "https://html.duckduckgo.com/html/"
+	defaultBraveURL      = "https://api.search.brave.com/res/v1/web/search"
 	requestTimeout       = 20 * time.Second
 	maxFetchBytes        = 5 << 20
 	maxSearchBytes       = 2 << 20
@@ -50,9 +55,14 @@ const (
 type webTools struct {
 	opts      Options
 	ddgURL    string
+	braveURL  string
 	searchCli *http.Client
 	fetchCli  *http.Client
 	approval  approvalCache
+	// searches and pages hold results for resultTTL, so a repeated query or
+	// URL in one session does not hit the network again.
+	searches *ttlCache[[]searchResult]
+	pages    *ttlCache[*page]
 }
 
 // Register adds web_search and fetch_page to r.
@@ -66,7 +76,13 @@ func newWebTools(opts Options) *webTools {
 	if opts.UserAgent == "" {
 		opts.UserAgent = defaultUserAgent
 	}
-	w := &webTools{opts: opts, ddgURL: defaultDDGURL}
+	w := &webTools{
+		opts:     opts,
+		ddgURL:   defaultDDGURL,
+		braveURL: defaultBraveURL,
+		searches: newTTLCache[[]searchResult](resultTTL, resultCacheSize),
+		pages:    newTTLCache[*page](resultTTL, resultCacheSize),
+	}
 	if opts.HTTPClient != nil {
 		s := *opts.HTTPClient
 		w.searchCli = &s

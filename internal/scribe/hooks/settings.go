@@ -22,9 +22,13 @@ type claudeRule struct {
 }
 
 type claudeHook struct {
-	Type    string `json:"type"`
-	Command string `json:"command"`
-	Timeout int    `json:"timeout"`
+	Type          string `json:"type"`
+	Command       string `json:"command"`
+	Timeout       int    `json:"timeout"`
+	Async         bool   `json:"async"`
+	Once          bool   `json:"once"`
+	If            string `json:"if"`
+	StatusMessage string `json:"statusMessage"`
 }
 
 // readClaudeSettings parses one settings file into hook entries. A missing
@@ -60,6 +64,7 @@ func readClaudeSettings(path, source string) ([]entry, []string, error) {
 					warns = append(warns, err.Error())
 					continue
 				}
+				e.async, e.once, e.cond, e.status = h.Async, h.Once, parseCond(h.If), h.StatusMessage
 				out = append(out, e)
 			}
 		}
@@ -123,7 +128,7 @@ func userSettingsPath() string {
 	return filepath.Join(home, ".claude", "settings.json")
 }
 
-// timeoutOf returns the configured timeout in seconds, defaulting to 30.
+// timeoutOf returns the configured timeout in seconds, defaulting to 10.
 func timeoutOf(secs int) time.Duration {
 	if secs <= 0 {
 		return defaultTimeout

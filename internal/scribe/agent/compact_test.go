@@ -121,10 +121,10 @@ func TestSummaryCompactorKeepsTailAndWritesLedger(t *testing.T) {
 	}
 
 	f := newFake(t)
-	f.setPick(scripted(t, turn(sseTurn{text: []string{"Goal: build the parser."}})))
+	f.setPick(scripted(t, turn(sseTurn{text: []string{"Goal: build the parser. Parser is read; the test file write was refused; next run the tests."}})))
 	// A 12-token budget keeps the last user exchange (msgs[7:]) and cuts before
 	// the read/write calls, so those appear in the summarised transcript.
-	c := SummaryCompactor{Model: fakeModel(f.srv.URL, "fake/summarizer", priced), KeepTokens: 12}
+	c := SummaryCompactor{Model: fakeModel(f.srv.URL, "fake/summarizer", priced), KeepTokens: 12, Strategy: "v1"}
 	kept, summary, err := c.Compact(context.Background(), msgs)
 	must(t, err)
 
@@ -208,7 +208,7 @@ func TestCompactionTriggersWhenContextCrossesThreshold(t *testing.T) {
 			final := turn(sseTurn{text: []string{"all done"}})
 			replies := []reply{first, final}
 			if tc.wantCompact {
-				replies = []reply{first, turn(sseTurn{text: []string{"SUMMARY-TEXT"}}), final}
+				replies = []reply{first, turn(sseTurn{text: []string{"SUMMARY-TEXT: parser.go was read and the work is in progress."}}), final}
 			}
 			f := newFake(t)
 			f.setPick(scripted(t, replies...))
@@ -217,7 +217,7 @@ func TestCompactionTriggersWhenContextCrossesThreshold(t *testing.T) {
 			opts := baseOptions(f, reg, log, dir)
 			opts.Model.Info.ContextWindow = 1000
 			opts.CompactAt = 0.5
-			opts.Compactor = SummaryCompactor{Model: fakeModel(f.srv.URL, "fake/summarizer", priced), KeepTokens: 60}
+			opts.Compactor = SummaryCompactor{Model: fakeModel(f.srv.URL, "fake/summarizer", priced), KeepTokens: 60, Strategy: "v1"}
 			a := New(opts)
 			a.SetMessages([]llm.Message{
 				userMsg(strings.Repeat("old ", 1000)),

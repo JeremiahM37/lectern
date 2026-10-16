@@ -39,7 +39,8 @@ func (t *moveSymbolTool) Spec() llm.ToolSpec {
 		Name: moveName,
 		Description: "Move a top-level function, type, class or constant from one file to another in the same language, " +
 			"and rewrite the imports that name it. Go moves within one package. TypeScript and JavaScript move between any " +
-			"two files, and relative imports in the moved code are rebased. Nothing is type-checked: run project typecheck " +
+			"two files, and relative imports in the moved code are rebased. Python moves a top-level def, class or assignment " +
+			"and rewrites the from-imports that name it. Nothing is type-checked: run project typecheck " +
 			"or project build afterwards.",
 		Schema: tools.Schema(map[string]any{
 			"symbol": tools.Str("Name of the top-level definition to move, e.g. parseConfig or class Store."),
@@ -107,8 +108,10 @@ func (t *moveSymbolTool) Run(ctx context.Context, env *tools.Env, raw json.RawMe
 		writes, rep, err = planMoveTS(env.Workdir, a.Symbol, fromRel, toRel)
 	case fromLang.name == "go" && toLang.name == "go":
 		writes, rep, err = planMoveGo(env.Workdir, a.Symbol, fromRel, toRel)
+	case fromLang.name == "python" && toLang.name == "python":
+		writes, rep, err = planMovePy(env.Workdir, a.Symbol, fromRel, toRel)
 	default:
-		return tools.Errorf("%s supports Go and TypeScript/JavaScript. %s and %s are not both of those.", moveName, fromRel, toRel)
+		return tools.Errorf("%s supports Go, TypeScript/JavaScript and Python. %s and %s are not all of those.", moveName, fromRel, toRel)
 	}
 	if err != nil {
 		return tools.Errorf("%s", err.Error())
@@ -264,10 +267,10 @@ func semiFor(src string) bool {
 // retargetImports rewrites the statements in src (the text of file rel) that
 // import sym from fromRel. The name leaves its old statement. In every file
 // except the destination toRel it is imported from toRel instead.
-func retargetImports(rel, src, fromRel, toRel, sym string, lx lexer, warns *[]string) string {
+func retargetImports(rel, src, fromRel, toRel, sym string, lx lexer, al *tsAliases, warns *[]string) string {
 	key := tsModKey(fromRel)
 	return editStatements(src, lx, func(kw string, typ bool, c clause, quote, spec string, semi bool) (string, bool) {
-		if !isRelSpec(spec) || tsResolve(rel, spec) != key {
+		if al.resolve(rel, spec) != key {
 			return "", false
 		}
 		if kw == "export" && c.star {
@@ -295,7 +298,7 @@ func retargetImports(rel, src, fromRel, toRel, sym string, lx lexer, warns *[]st
 			out = append(out, stmtText(kw, typ, rest, quote, spec, semi))
 		}
 		if rel != toRel {
-			out = append(out, stmtText(kw, typ, clause{named: moved}, quote, tsRespec(path.Dir(rel), spec, toRel), semi))
+			out = append(out, stmtText(kw, typ, clause{named: moved}, quote, al.respec(path.Dir(rel), spec, toRel), semi))
 		}
 		return strings.Join(out, "\n"), true
 	})
@@ -303,6 +306,7 @@ func retargetImports(rel, src, fromRel, toRel, sym string, lx lexer, warns *[]st
 
 func planMoveTS(workdir, sym, fromRel, toRel string) ([]fileWrite, moveReport, error) {
 	rep := moveReport{from: fromRel, to: toRel}
+	al := loadTSAliases(workdir)
 	fromSrc, ok := readProjectText(workdir, fromRel)
 	if !ok {
 		return nil, rep, fmt.Errorf("cannot read %s as text", fromRel)
@@ -417,7 +421,7 @@ func planMoveTS(workdir, sym, fromRel, toRel string) ([]fileWrite, moveReport, e
 				return nil, rep, fmt.Errorf("%s already defines %s. Rename one of them, or move %s to a new file.", toRel, s.name, s.name)
 			}
 		}
-		toText = retargetImports(toRel, toSrc, fromRel, toRel, s.name, languages[extOf(toRel)].lex, &rep.warnings)
+		toText = retargetImports(toRel, toSrc, fromRel, toRel, s.name, languages[extOf(toRel)].lex, al, &rep.warnings)
 	}
 	if strings.TrimSpace(toText) != "" {
 		toText = strings.TrimRight(toText, "\n") + "\n\n" + decl + "\n"
@@ -462,9 +466,9 @@ func planMoveTS(workdir, sym, fromRel, toRel string) ([]fileWrite, moveReport, e
 			continue
 		}
 		lxr := languages[extOf(rel)].lex
-		out := retargetImports(rel, src, fromRel, toRel, s.name, lxr, &rep.warnings)
+		out := retargetImports(rel, src, fromRel, toRel, s.name, lxr, al, &rep.warnings)
 		for _, r := range codeSpecs(src, mask(src, lxr)) {
-			if !isRelSpec(r.spec) && (tsModKey(r.spec) == key || strings.HasSuffix(tsModKey(r.spec), "/"+key)) {
+			if !isRelSpec(r.spec) && al.match(r.spec) == "" && (tsModKey(r.spec) == key || strings.HasSuffix(tsModKey(r.spec), "/"+key)) {
 				rep.warnings = append(rep.warnings, fmt.Sprintf("%s imports %q by a non-relative path, which was not checked. Update it by hand if it means %s.", rel, r.spec, fromRel))
 			}
 		}

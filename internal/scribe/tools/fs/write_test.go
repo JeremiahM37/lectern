@@ -236,7 +236,7 @@ func TestUndoRefusesWhenFileChanged(t *testing.T) {
 	mustOK(t, call(t, NewEditFile(undo), env, map[string]any{"path": "u.txt", "old_string": "a", "new_string": "b"}))
 	os.WriteFile(abs, []byte("someone else\n"), 0o644)
 	bump(t, abs)
-	mustErr(t, call(t, NewUndoEdit(undo), env, map[string]any{"path": "u.txt"}), "undo was refused")
+	mustErr(t, call(t, NewUndoEdit(undo), env, map[string]any{"path": "u.txt"}), "File was modified by another agent or externally since this edit")
 	if readFile(t, abs) != "someone else\n" {
 		t.Fatal("undo overwrote external change")
 	}

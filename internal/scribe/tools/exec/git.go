@@ -25,6 +25,10 @@ const (
 	gitCommitTimeout = 2 * time.Minute
 )
 
+// gitOutputLimit caps what the model reads from one git call. The full text
+// goes to a tee file when it is cut.
+const gitOutputLimit = 32000
+
 // gitActions are the actions the git tool accepts.
 var gitActions = []string{"status", "diff", "log", "commit", "branch", "stash", "show", "blame", "add",
 	"push", "pull", "reset", "restore", "unstage", "tag", "cherry_pick", "rebase"}
@@ -49,6 +53,7 @@ type gitArgs struct {
 	Files     []string `json:"files"`
 	All       bool     `json:"all"`
 	NoVerify  bool     `json:"no_verify"`
+	Amend     bool     `json:"amend"`
 	Ref       string   `json:"ref"`
 	Name      string   `json:"name"`
 	Staged    bool     `json:"staged"`
@@ -63,7 +68,7 @@ func (t *gitTool) Spec() llm.ToolSpec {
 	return llm.ToolSpec{
 		Name: "git",
 		Description: "Work with the project's git repository. Read actions: status, diff, log, show, blame, branch (list), tag (list). " +
-			"Changing actions: add (stages files), commit (the message is written exactly as given; pre-commit hooks run unless no_verify is true; no trailer is added), " +
+			"Changing actions: add (stages files), commit (the message is written exactly as given; files are staged first; amend rewrites the last commit; pre-commit hooks run unless no_verify is true; no trailer is added), " +
 			"branch (create, switch, delete), stash (push, pop, list, show, drop), unstage (takes paths out of the index), " +
 			"tag (create, delete), push and pull (remote and name), cherry_pick and rebase (non-interactive; sub_action abort, continue or skip resumes one in progress), " +
 			"reset (soft, mixed or hard, or paths), restore (files, from the index or ref). " +
@@ -74,9 +79,10 @@ func (t *gitTool) Spec() llm.ToolSpec {
 			"sub_action": tools.Str("branch: list, create, switch, delete. stash: push (default), pop, list, show, drop. tag: list, create, delete. cherry_pick and rebase: start (default), abort, continue, skip."),
 			"args":       tools.Arr("Extra arguments passed to git after the action, e.g. paths or flags.", map[string]any{"type": "string"}),
 			"message":    tools.Str("Commit message (commit) or stash message (stash push). tag create: annotation message (makes an annotated tag). Written exactly as given."),
-			"files":      tools.Arr("Paths to stage (add), stash (stash push), unstage, restore, or reset (path form).", map[string]any{"type": "string"}),
+			"files":      tools.Arr("Paths to stage (add), stage first (commit), stash (stash push), unstage, restore, or reset (path form).", map[string]any{"type": "string"}),
 			"all":        tools.Bool("add: stage every change (git add -A). unstage: unstage everything. Use only when the user asked for everything."),
 			"no_verify":  tools.Bool("commit: skip pre-commit hooks (--no-verify). Only when the user explicitly asks."),
+			"amend":      tools.Bool("commit: replace the last commit. The message is optional with amend; without one the old message is kept."),
 			"ref":        tools.Str("diff, show, blame: the commit or ref to use. reset: target commit. restore: source ref (default the index). tag create: commit to tag. cherry_pick: commit to apply. rebase: branch or commit to rebase onto."),
 			"name":       tools.Str("branch and tag: the name for create, switch and delete. push and pull: the branch (needs remote)."),
 			"remote":     tools.Str("push and pull: the remote, e.g. origin."),
@@ -119,6 +125,9 @@ func (t *gitTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessage) 
 	}
 	action := strings.ToLower(strings.TrimSpace(a.Action))
 	sub := strings.ToLower(strings.TrimSpace(a.SubAction))
+	if !t.ReadOnlyCall(raw) && dispatchActive(env) {
+		return tools.Errorf("%s", dispatchBlockedMsg)
+	}
 
 	var argv []string
 	var timeout time.Duration
@@ -191,13 +200,26 @@ func (t *gitTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessage) 
 		}
 		timeout = gitWriteTimeout
 	case "commit":
-		if strings.TrimSpace(a.Message) == "" {
+		if strings.TrimSpace(a.Message) == "" && !a.Amend {
 			return tools.Errorf("commit needs message. Write a short subject line describing the change.")
 		}
 		if !a.NoVerify && hasArg(a.Args, "--no-verify", "-n") {
 			return tools.Errorf("refused: --no-verify skips the pre-commit hooks. Pass no_verify: true only if the user asked for it.")
 		}
-		argv = []string{"commit", "-m", a.Message}
+		if len(a.Files) > 0 {
+			if res, blocked := stageFirst(ctx, env, a.Files); blocked {
+				return res
+			}
+		}
+		argv = []string{"commit"}
+		if a.Amend {
+			argv = append(argv, "--amend")
+		}
+		if strings.TrimSpace(a.Message) != "" {
+			argv = append(argv, "-m", a.Message)
+		} else {
+			argv = append(argv, "--no-edit")
+		}
 		if a.NoVerify {
 			argv = append(argv, "--no-verify")
 		}
@@ -256,8 +278,12 @@ func (t *gitTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessage) 
 		env:          append(ScrubEnv(os.Environ()), gitEnvOverrides...),
 		collectBytes: collectLimit,
 	})
-	body, omitted := truncateOutput(res.output)
-	text := strings.TrimRight(body, "\n")
+	text := res.output
+	if res.truncated {
+		text += fmt.Sprintf("\n[output truncated — %d KB total, showing the first %d KB]", res.total/1024, collectLimit/1024)
+	}
+	body, omitted := spill(text, gitOutputLimit, "git-"+action)
+	text = strings.TrimRight(body, "\n")
 	if text == "" {
 		text = "(no output)"
 	}
@@ -282,6 +308,34 @@ func (t *gitTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessage) 
 		text = "Committed.\n" + text
 	}
 	return tools.Result{Output: text, Summary: summary, Meta: meta}
+}
+
+// stageFirst stages files before a commit, refusing secret-looking names. It
+// returns a blocking result when staging fails.
+func stageFirst(ctx context.Context, env *tools.Env, files []string) (tools.Result, bool) {
+	for _, f := range files {
+		if name, bad := sensitive(f); bad {
+			return tools.Errorf("refused: %s looks like a secret file (%s). Do not stage it. If it really belongs in the repo, ask the user to add it by hand.", f, name), true
+		}
+	}
+	if err := requireGit(); err != nil {
+		return tools.Errorf("%v", err), true
+	}
+	ctx, cancel := context.WithTimeout(ctx, gitWriteTimeout)
+	defer cancel()
+	res := runProcess(ctx, procSpec{
+		argv: append([]string{"git", "add", "--"}, files...),
+		dir:  env.Workdir,
+		env:  append(ScrubEnv(os.Environ()), gitEnvOverrides...),
+	})
+	if res.err != nil || res.exitCode != 0 {
+		msg := strings.TrimSpace(res.output)
+		if res.err != nil && msg == "" {
+			msg = res.err.Error()
+		}
+		return tools.Errorf("could not stage files before the commit: %s", msg), true
+	}
+	return tools.Result{}, false
 }
 
 // branchArgv returns the git argv for a branch sub-action, or nil when the

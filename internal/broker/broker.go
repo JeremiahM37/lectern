@@ -134,6 +134,10 @@ func summarize(toolName string, toolInput map[string]any) string {
 		summary, _ = toolInput["file_path"].(string)
 	}
 	if summary == "" {
+		// A Scribe question (AskUser) carries its text here, not a command.
+		summary, _ = toolInput["question"].(string)
+	}
+	if summary == "" {
 		if raw, err := json.Marshal(toolInput); err == nil && string(raw) != "{}" {
 			summary = string(raw)
 		}

@@ -16,12 +16,38 @@ import (
 )
 
 const (
+	// requestTimeout bounds slow operations (rename, references, workspace
+	// symbols, formatting, code actions). fastTimeout bounds the lookups an
+	// editor expects to answer at once; see timeoutFor.
 	requestTimeout = 30 * time.Second
+	fastTimeout    = 10 * time.Second
 	initTimeout    = 30 * time.Second
 	diagQuiet      = 300 * time.Millisecond
-	diagMax        = 3 * time.Second
+	diagMax        = 2 * time.Second
 	shutdownGrace  = 2 * time.Second
+	// failCooldown is how long a server that failed to start is left alone
+	// before another start is tried. Each try costs an init timeout.
+	failCooldown = 60 * time.Second
+	// maxOpenDocs caps the documents a server holds open. The least recently
+	// used one is closed first, so a long session does not grow the server.
+	maxOpenDocs = 50
 )
+
+// timeoutFor is the per-request timeout for an LSP method.
+func timeoutFor(method string) time.Duration {
+	switch method {
+	case "textDocument/definition", "textDocument/hover", "textDocument/documentSymbol",
+		"textDocument/typeDefinition", "textDocument/implementation":
+		return fastTimeout
+	}
+	return requestTimeout
+}
+
+// startFailure remembers a server that could not start, for failCooldown.
+type startFailure struct {
+	at  time.Time
+	err error
+}
 
 // Manager owns the language servers for one workspace. Servers start lazily
 // per (language, project root), stay alive until Shutdown, and a crashed
@@ -30,7 +56,9 @@ type Manager struct {
 	workdir  string
 	mu       sync.Mutex
 	sessions map[string]*session
+	failed   map[string]startFailure
 	closed   bool
+	status   sessionStatus // read by Sessions without waiting for starts
 }
 
 // NewManager returns a Manager for the workspace rooted at workdir.
@@ -38,7 +66,9 @@ func NewManager(workdir string) *Manager {
 	if abs, err := filepath.Abs(workdir); err == nil {
 		workdir = abs
 	}
-	return &Manager{workdir: workdir, sessions: map[string]*session{}}
+	m := &Manager{workdir: workdir, sessions: map[string]*session{}, failed: map[string]startFailure{}}
+	m.status.init()
+	return m
 }
 
 // session is one running server with the documents it has open.
@@ -49,14 +79,16 @@ type session struct {
 	cmd      *exec.Cmd
 	stderr   *tailBuffer
 	restarts int
+	command  string // "bin arg ..." as started, for status views
 
 	mu   sync.Mutex // guards docs and document notifications
 	docs map[string]*docState
 }
 
 type docState struct {
-	version int
-	text    string // what the server last saw
+	version  int
+	text     string    // what the server last saw
+	lastUsed time.Time // last syncDoc, for closing the least recently used
 }
 
 // syncResult is the state of a file on its server after syncDoc.
@@ -77,11 +109,12 @@ func (s *session) alive() bool {
 }
 
 func (s *session) call(ctx context.Context, method string, params, result any) error {
-	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	limit := timeoutFor(method)
+	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	err := s.client.Call(ctx, method, params, result)
 	if err != nil && errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Errorf("%s did not answer within %s", s.spec.Language, requestTimeout)
+		return fmt.Errorf("%s did not answer %s within %s", s.spec.Language, method, limit)
 	}
 	if err != nil && errors.Is(err, ErrServerExited) && s.stderr.String() != "" {
 		return fmt.Errorf("%w: %s", err, s.stderr.String())
@@ -104,14 +137,16 @@ func (s *session) syncDoc(abs string) (syncResult, error) {
 	res := syncResult{uri: uri, text: text, seq: seq}
 	st, ok := s.docs[abs]
 	if !ok {
+		s.closeIdle(abs)
 		info, _ := languageForPath(abs)
-		st = &docState{version: 1, text: text}
+		st = &docState{version: 1, text: text, lastUsed: time.Now()}
 		s.docs[abs] = st
 		res.changed = true
 		return res, s.client.Notify("textDocument/didOpen", map[string]any{
 			"textDocument": map[string]any{"uri": uri, "languageId": info.id, "version": st.version, "text": text},
 		})
 	}
+	st.lastUsed = time.Now()
 	if st.text == text {
 		return res, nil
 	}
@@ -122,6 +157,30 @@ func (s *session) syncDoc(abs string) (syncResult, error) {
 		"textDocument":   map[string]any{"uri": uri, "version": st.version},
 		"contentChanges": []map[string]any{{"text": text}},
 	})
+}
+
+// closeIdle makes room for one more open document by closing the least
+// recently used ones, so the server holds at most maxOpenDocs. Caller holds
+// s.mu. A closed file is reopened by syncDoc the next time it is needed.
+func (s *session) closeIdle(keep string) {
+	for len(s.docs) >= maxOpenDocs {
+		var victim string
+		for p, st := range s.docs {
+			if p == keep {
+				continue
+			}
+			if victim == "" || st.lastUsed.Before(s.docs[victim].lastUsed) {
+				victim = p
+			}
+		}
+		if victim == "" {
+			return
+		}
+		delete(s.docs, victim)
+		_ = s.client.Notify("textDocument/didClose", map[string]any{
+			"textDocument": map[string]any{"uri": pathToURI(victim)},
+		})
+	}
 }
 
 // FileChanged tells the servers that abs changed on disk. A file open on a
@@ -173,19 +232,33 @@ func (m *Manager) sessionFor(ctx context.Context, abs string) (*session, error) 
 	if prev != nil && prev.alive() {
 		return prev, nil
 	}
+	if f, ok := m.failed[key]; ok && time.Since(f.at) < failCooldown {
+		return nil, fmt.Errorf("the %s language server failed to start %s ago and is not retried for %s: %w",
+			spec.Language, time.Since(f.at).Round(time.Second), failCooldown, f.err)
+	}
 	restarts := 0
 	if prev != nil {
 		if prev.restarts >= 1 {
-			return nil, fmt.Errorf("%s language server crashed again after a restart; not restarting it again. Last output: %s",
+			err := fmt.Errorf("%s language server crashed again after a restart; not restarting it again. Last output: %s",
 				spec.Language, prev.stderr.String())
+			m.noteFailed(key, spec, root, err)
+			return nil, err
 		}
 		restarts = prev.restarts + 1
 	}
+	m.noteStarting(key, spec, root)
 	s, err := startSession(ctx, spec, root, restarts)
 	if err != nil {
+		var missing *NotInstalledError
+		if !errors.As(err, &missing) {
+			m.failed[key] = startFailure{at: time.Now(), err: err}
+		}
+		m.noteFailed(key, spec, root, err)
 		return nil, err
 	}
+	delete(m.failed, key)
 	m.sessions[key] = s
+	m.noteStarted(key, s)
 	return s, nil
 }
 
@@ -218,6 +291,7 @@ func startSession(ctx context.Context, spec *serverSpec, root string, restarts i
 	}
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = root
+	setProcGroup(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -233,7 +307,7 @@ func startSession(ctx context.Context, spec *serverSpec, root string, restarts i
 	}
 	client := NewClient(stdout, stdin)
 	s := &session{spec: spec, root: root, client: client, cmd: cmd, stderr: stderr,
-		restarts: restarts, docs: map[string]*docState{}}
+		restarts: restarts, command: strings.Join(append([]string{bin}, args...), " "), docs: map[string]*docState{}}
 	go func() {
 		<-client.Done()
 		_ = cmd.Wait()
@@ -292,13 +366,28 @@ func initializeParams(root string) map[string]any {
 	}
 }
 
-func (s *session) kill() {
-	if s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
+// pid is the server process id, or 0 if it never started.
+func (s *session) pid() int {
+	if s.cmd == nil || s.cmd.Process == nil {
+		return 0
 	}
+	return s.cmd.Process.Pid
 }
 
-// stop asks the server to shut down, then kills it after a grace period.
+// openDocs counts the documents the server has open.
+func (s *session) openDocs() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.docs)
+}
+
+func (s *session) kill() {
+	killTree(s.cmd)
+}
+
+// stop asks the server to shut down, then kills its process group after a
+// grace period. The group is killed even when the server exited on its own,
+// because the children it forked can outlive it.
 func (s *session) stop() {
 	if s.alive() {
 		ctx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
@@ -316,6 +405,7 @@ func (s *session) stop() {
 		case <-time.After(shutdownGrace):
 		}
 	}
+	killTree(s.cmd)
 }
 
 // Shutdown stops every server. The Manager cannot be used afterwards.
@@ -328,6 +418,7 @@ func (m *Manager) Shutdown() {
 	}
 	m.sessions = map[string]*session{}
 	m.mu.Unlock()
+	m.clearStatus()
 	for _, s := range list {
 		s.stop()
 	}

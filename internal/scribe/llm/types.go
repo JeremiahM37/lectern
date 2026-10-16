@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -129,6 +130,14 @@ type Request struct {
 	// CacheSystem asks adapters that support prompt caching (Anthropic) to
 	// mark the system prompt and the last message as cache breakpoints.
 	CacheSystem bool
+	// CacheTTL is the lifetime of those breakpoints: "" or "5m" for the
+	// provider default, "1h" for the one-hour cache (Anthropic). Ignored
+	// when CacheSystem is false.
+	CacheTTL string
+	// DisableParallelToolUse asks the provider to make at most one tool call
+	// per turn. Anthropic sends tool_choice.disable_parallel_tool_use; the
+	// OpenAI-compatible adapter sends parallel_tool_calls false.
+	DisableParallelToolUse bool
 	// Headers are extra HTTP headers (e.g. session affinity for gateways).
 	Headers map[string]string
 }
@@ -221,6 +230,10 @@ type ModelInfo struct {
 	Estimated bool `json:"estimated,omitempty"`
 	Vision    bool `json:"vision,omitempty"`
 	Tools     bool `json:"tools,omitempty"`
+	// CatalogPriced is true when InputPerMTok and OutputPerMTok came from a
+	// provider's own price catalog, so a zero price means free. The registry
+	// does not replace such prices with its static table.
+	CatalogPriced bool `json:"catalog_priced,omitempty"`
 }
 
 // Reasoning styles for ModelInfo.ReasoningStyle.
@@ -323,6 +336,12 @@ const (
 	CatOther       ErrorCategory = "Error"
 )
 
+// transientNetwork matches network failures that the list above misses:
+// DNS lookups that failed to resolve (ENOTFOUND, EAI_AGAIN), a stream closed
+// early, a socket hang-up, a connection that was reset, closed or aborted,
+// and a request that was terminated.
+var transientNetwork = regexp.MustCompile(`\benotfound\b|\beai_again\b|premature close|socket hang up|\bconnection (?:reset|closed|aborted|error|failed)\b|\bterminated\b`)
+
 // Classify returns the category of err and whether retrying may help.
 func Classify(err error) (ErrorCategory, bool) {
 	if err == nil {
@@ -338,6 +357,11 @@ func Classify(err error) (ErrorCategory, bool) {
 			return CatRateLimited, true
 		case ae.StatusCode == 529 || ae.Type == "overloaded_error":
 			return CatOverloaded, true
+		case ae.StatusCode == 403 && strings.Contains(strings.ToLower(ae.Message), "rate"):
+			// Some gateways answer a rate limit with 403 and say so in the body.
+			return CatRateLimited, true
+		case ae.StatusCode == 403 && strings.Contains(strings.ToLower(ae.Message), "overloaded"):
+			return CatOverloaded, true
 		case ae.StatusCode == 401 || ae.StatusCode == 403:
 			return CatAuth, false
 		case ae.StatusCode == 400 || ae.StatusCode == 404 || ae.StatusCode == 422:
@@ -352,6 +376,9 @@ func Classify(err error) (ErrorCategory, bool) {
 		if strings.Contains(s, k) {
 			return CatNetwork, true
 		}
+	}
+	if transientNetwork.MatchString(s) {
+		return CatNetwork, true
 	}
 	if strings.Contains(s, "stream") {
 		return CatStream, true

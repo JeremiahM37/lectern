@@ -164,11 +164,11 @@ func (t planTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage)
 	if in.Title == "" || len(in.Steps) == 0 {
 		return tools.Errorf("plan needs a title and at least one step")
 	}
-	pl := &Plan{Title: in.Title, Summary: in.Summary, Body: in.Body}
+	pl := &Plan{Title: in.Title, Summary: in.Summary, Body: in.Body, Verification: in.Verification}
 	ex := planExtras{symbols: map[string][]PlanSymbol{}, verification: in.Verification}
 	for i, s := range in.Steps {
 		id := fmt.Sprint(i + 1)
-		pl.Steps = append(pl.Steps, PlanStep{ID: id, Text: s.Text, Files: s.Files, Status: "pending"})
+		pl.Steps = append(pl.Steps, PlanStep{ID: id, Text: s.Text, Files: s.Files, Symbols: s.Symbols, Status: "pending"})
 		if len(s.Symbols) > 0 {
 			ex.symbols[id] = s.Symbols
 		}
@@ -294,9 +294,14 @@ var (
 	backtickRE  = regexp.MustCompile("`([^`]*)`")
 )
 
+var (
+	symbolLineRE = regexp.MustCompile("^   - (add|modify|remove|rename) `([^`]*)`(?: \\((.*)\\))?$")
+	verifyLineRE = regexp.MustCompile(`^- (.+)$`)
+)
+
 // ParsePlanSteps reads the steps back out of the markdown that renderPlan
-// produced, for the review panel. Symbol lines are skipped; the section ends
-// at the first line that is not a step.
+// produced, for the review panel, with each step's files and symbols. The
+// section ends at the first line that is not a step or a symbol.
 func ParsePlanSteps(md string) []PlanStep {
 	var out []PlanStep
 	in := false
@@ -308,6 +313,10 @@ func ParsePlanSteps(md string) []PlanStep {
 			continue
 		}
 		if strings.HasPrefix(line, "   - ") {
+			if m := symbolLineRE.FindStringSubmatch(line); m != nil {
+				last := &out[len(out)-1]
+				last.Symbols = append(last.Symbols, PlanSymbol{Name: m[2], Kind: m[3], Action: m[1]})
+			}
 			continue
 		}
 		if strings.TrimSpace(line) == "" {
@@ -325,6 +334,31 @@ func ParsePlanSteps(md string) []PlanStep {
 			}
 		}
 		out = append(out, step)
+	}
+	return out
+}
+
+// ParsePlanVerification reads the "## Verification" checklist back out of
+// plan markdown. It returns nil when the plan has none.
+func ParsePlanVerification(md string) []string {
+	var out []string
+	in := false
+	for _, line := range strings.Split(md, "\n") {
+		t := strings.TrimSpace(line)
+		if !in {
+			if t == "## Verification" {
+				in = true
+			}
+			continue
+		}
+		if t == "" {
+			continue
+		}
+		m := verifyLineRE.FindStringSubmatch(t)
+		if m == nil {
+			break // the checklist ends at the first line that is not an item
+		}
+		out = append(out, m[1])
 	}
 	return out
 }

@@ -5,6 +5,7 @@ import (
 	"math"
 	"os/exec"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,8 +31,22 @@ type Pair struct {
 	Count int    `json:"count"`
 }
 
+// structuralKinds describe the shape of code rather than behaviour. A file
+// made mostly of them is a type module, and edges into it carry less rank.
+var structuralKinds = words("interface type enum trait")
+
+const (
+	// typeRatio is the structural share above which a file counts as a type
+	// module. The display penalty uses the same threshold.
+	typeRatio = 0.66
+	// typeEdgeFactor scales rank flowing into type modules (spec: 0.3).
+	typeEdgeFactor = 0.3
+)
+
 // recompute rebuilds every derived structure from the file set. Callers hold
-// m.mu for writing.
+// m.mu for writing. Edges are built over node indices rather than path
+// strings: on a warm start this is most of the work, and string-keyed maps
+// dominated it.
 func (m *Map) recompute(files map[string]*fileInfo, cochange map[string][]Pair) {
 	m.files = files
 	m.cochange = cochange
@@ -41,63 +56,86 @@ func (m *Map) recompute(files map[string]*fileInfo, cochange map[string][]Pair) 
 	}
 	sort.Strings(paths)
 	m.paths = paths
-	m.nodeIdx = make(map[string]int, len(paths))
+	n := len(paths)
+	m.nodeIdx = make(map[string]int, n)
 	for i, p := range paths {
 		m.nodeIdx[p] = i
 	}
 
 	m.syms = m.syms[:0]
-	m.fileSyms = make(map[string][]Symbol, len(paths))
+	m.fileSyms = make(map[string][]Symbol, n)
 	m.symsByName = map[string][]Symbol{}
-	m.defs = map[string][]string{}
-	m.expDefs = map[string]map[string]bool{}
 	m.refCount = map[string]int{}
-	for _, p := range paths {
+	defs := map[string][]int32{}           // name -> defining nodes, ascending
+	expDefs := map[string]map[int32]bool{} // name -> exporting nodes
+	typeHeavy := make([]bool, n)
+	for i, p := range paths {
 		fi := files[p]
 		m.fileSyms[p] = fi.Symbols
+		structural := 0
 		for _, s := range fi.Symbols {
 			m.syms = append(m.syms, s)
 			m.symsByName[s.Name] = append(m.symsByName[s.Name], s)
-			if d := m.defs[s.Name]; len(d) == 0 || d[len(d)-1] != p {
-				m.defs[s.Name] = append(d, p)
+			if d := defs[s.Name]; len(d) == 0 || d[len(d)-1] != int32(i) {
+				defs[s.Name] = append(d, int32(i))
 			}
 			if s.Exported {
-				if m.expDefs[s.Name] == nil {
-					m.expDefs[s.Name] = map[string]bool{}
+				if expDefs[s.Name] == nil {
+					expDefs[s.Name] = map[int32]bool{}
 				}
-				m.expDefs[s.Name][p] = true
+				expDefs[s.Name][int32(i)] = true
+			}
+			if structuralKinds[s.Kind] {
+				structural++
 			}
 		}
+		typeHeavy[i] = len(fi.Symbols) > 0 && float64(structural) > typeRatio*float64(len(fi.Symbols))
 		for name := range fi.Idents {
 			m.refCount[name]++
 		}
 	}
 
+	m.callers = buildCallers(paths, files)
 	ix := newFileIndex(m.root, files)
-	edges := map[string]map[string]float64{}
-	add := func(a, b string, w float64) {
-		if a == b || b == "" {
+	out := make([]map[int32]float64, n)
+	add := func(a, b int32, w float64) {
+		if a == b {
 			return
 		}
-		e := edges[a]
+		e := out[a]
 		if e == nil {
-			e = map[string]float64{}
-			edges[a] = e
+			e = map[int32]float64{}
+			out[a] = e
 		}
 		e[b] += w
 	}
 	// Import edges: proven by a statement, weight 1. They also define the
 	// blast radius (who imports this file).
-	importedBy := map[string][]string{}
-	for _, p := range paths {
+	importedBy := make([][]int32, n)
+	m.imports = make(map[string][]string, n)
+	var seen []int32
+	for i, p := range paths {
 		for _, imp := range files[p].Imports {
-			seen := map[string]bool{}
+			seen = seen[:0]
 			for _, t := range ix.resolve(p, imp) {
-				if files[t] != nil && !seen[t] {
-					seen[t] = true
-					add(p, t, 1)
-					importedBy[t] = append(importedBy[t], p)
+				ti, ok := m.nodeIdx[t]
+				if !ok {
+					continue
 				}
+				dup := false
+				for _, s := range seen {
+					if s == int32(ti) {
+						dup = true
+						break
+					}
+				}
+				if dup {
+					continue
+				}
+				seen = append(seen, int32(ti))
+				add(int32(i), int32(ti), 1)
+				importedBy[ti] = append(importedBy[ti], int32(i))
+				m.imports[p] = append(m.imports[p], t)
 			}
 		}
 	}
@@ -106,60 +144,78 @@ func (m *Map) recompute(files map[string]*fileInfo, cochange map[string][]Pair) 
 	// definition in the same language family, and a package-private symbol
 	// (lower-case Go, or any non-exported name) only in the same directory.
 	// Without those rules every local variable named "record" links to a file.
-	for _, p := range paths {
-		for name := range files[p].Idents {
-			ds := m.defs[name]
+	fam := make([]string, n)
+	dir := make([]string, n)
+	for i, p := range paths {
+		fam[i] = langFamily(files[p].Lang)
+		dir[i] = path.Dir(p)
+	}
+	for i := range paths {
+		for name := range files[paths[i]].Idents {
+			ds := defs[name]
 			if len(ds) == 0 || len(ds) > maxDefFiles {
 				continue
 			}
 			w := 1 / math.Sqrt(float64(len(ds)))
 			for _, d := range ds {
-				if d == p || langFamily(files[d].Lang) != langFamily(files[p].Lang) {
+				if int(d) == i || fam[d] != fam[i] {
 					continue
 				}
-				if !m.expDefs[name][d] && path.Dir(d) != path.Dir(p) {
+				if !expDefs[name][d] && dir[d] != dir[i] {
 					continue
 				}
-				add(p, d, w)
+				add(int32(i), d, w)
 			}
 		}
 	}
 	// Co-change edges, only where no import relation exists.
 	for a, ps := range cochange {
-		if files[a] == nil {
+		ai, ok := m.nodeIdx[a]
+		if !ok {
 			continue
 		}
 		for _, pr := range ps {
-			if files[pr.File] == nil || edges[a][pr.File] > 0 || edges[pr.File][a] > 0 {
+			bi, ok := m.nodeIdx[pr.File]
+			if !ok || out[ai][int32(bi)] > 0 || out[bi][int32(ai)] > 0 {
 				continue
 			}
-			add(a, pr.File, 0.5)
-			add(pr.File, a, 0.5)
+			add(int32(ai), int32(bi), 0.5)
+			add(int32(bi), int32(ai), 0.5)
 		}
 	}
 
-	n := len(paths)
 	m.outW = make([]float64, n)
 	m.eFrom, m.eTo, m.eCoef = m.eFrom[:0], m.eTo[:0], m.eCoef[:0]
 	var weights []float64
-	for i, p := range paths {
-		dsts := make([]string, 0, len(edges[p]))
-		for d := range edges[p] {
+	var dsts []int32
+	for i := 0; i < n; i++ {
+		dsts = dsts[:0]
+		for d := range out[i] {
 			dsts = append(dsts, d)
 		}
-		sort.Strings(dsts)
+		slices.Sort(dsts)
 		for _, d := range dsts {
-			w := edges[p][d]
+			w := out[i][d]
+			if typeHeavy[d] {
+				w *= typeEdgeFactor
+			}
 			m.outW[i] += w
 			m.eFrom = append(m.eFrom, int32(i))
-			m.eTo = append(m.eTo, int32(m.nodeIdx[d]))
+			m.eTo = append(m.eTo, d)
 			weights = append(weights, w)
 		}
 	}
-	m.in = map[string][]string{}
+	m.in = make(map[string][]string, n)
 	for t, ps := range importedBy {
-		sort.Strings(ps)
-		m.in[t] = dedupeSorted(ps)
+		if len(ps) == 0 {
+			continue
+		}
+		names := make([]string, 0, len(ps))
+		for _, p := range ps {
+			names = append(names, paths[p])
+		}
+		sort.Strings(names)
+		m.in[paths[t]] = dedupeSorted(names)
 	}
 	for k := range m.eFrom {
 		m.eCoef = append(m.eCoef, weights[k]/m.outW[m.eFrom[k]])

@@ -82,6 +82,10 @@ func (s *Server) hookSessionEvent(w http.ResponseWriter, r *http.Request) {
 		s.holdSessionPermissionRequest(w, r, sess, body)
 		return
 	}
+	if event == eventAskUser {
+		s.holdSessionAskUser(w, r, sess, body)
+		return
+	}
 	// A session's own rules map is never freed otherwise (a session id is
 	// never reused, but nothing else drops the entry).
 	if event == agentevents.EventSessionEnd {
@@ -306,6 +310,75 @@ func (s *Server) holdSessionPermissionRequest(w http.ResponseWriter, r *http.Req
 	}
 	row := s.Broker.WaitOnce(r.Context(), id, hold)
 	writeJSON(w, 200, permissionRequestResponse(row))
+}
+
+// eventAskUser is the hook event the Scribe bridge (internal/scribe/
+// lecternbridge) posts when its agent asks the person a question or submits
+// a plan for review. It is not a Claude or Codex event.
+const eventAskUser = "AskUser"
+
+// askUserIn is the AskUser body the Scribe bridge sends.
+type askUserIn struct {
+	Kind          string   `json:"kind"`
+	Question      string   `json:"question"`
+	Options       []string `json:"options"`
+	Body          string   `json:"body"`
+	AllowFreeText bool     `json:"allow_free_text"`
+}
+
+// holdSessionAskUser shows a Scribe question as a pending session item and
+// holds the hook until someone answers or the hold passes. The answer is the
+// approval's note: the person types it (or picks an option) and posts it to
+// the decision endpoint as approved with a note. A deny, an expiry or an
+// empty answer returns {}, and the Scribe bridge then lets its local terminal
+// decide, as it does when Lectern is unreachable.
+func (s *Server) holdSessionAskUser(w http.ResponseWriter, r *http.Request, sess *store.Session, body []byte) {
+	var in askUserIn
+	_ = json.Unmarshal(body, &in)
+	if sessionApprovalStopped(sess) || strings.TrimSpace(in.Question) == "" {
+		writeJSON(w, 200, map[string]any{})
+		return
+	}
+	if in.Options == nil {
+		in.Options = []string{}
+	}
+	input := map[string]any{
+		"kind":            in.Kind,
+		"question":        in.Question,
+		"options":         in.Options,
+		"body":            in.Body,
+		"allow_free_text": in.AllowFreeText,
+	}
+	id, err := s.Broker.CreateForSession(sess.ID, eventAskUser, input)
+	if err != nil {
+		writeJSON(w, 200, map[string]any{})
+		return
+	}
+	if current, err := s.DB.Session(sess.ID); err != nil || sessionApprovalStopped(current) {
+		s.Broker.ExpireForSession(sess.ID)
+	}
+	hold := s.Cfg.SessionApprovalHold
+	if hold <= 0 {
+		hold = 120 * time.Second
+	}
+	row := s.Broker.WaitOnce(r.Context(), id, hold)
+	writeJSON(w, 200, askUserResponse(row))
+}
+
+// askUserResponse renders the AskUser reply the Scribe bridge reads:
+// hookSpecificOutput.answer. Anything but an approval with a non-empty note
+// gives no answer, which the bridge treats as "no opinion".
+func askUserResponse(row *store.Approval) map[string]any {
+	if row == nil || row.Status != "approved" {
+		return map[string]any{}
+	}
+	answer := strings.TrimSpace(row.Note)
+	if answer == "" {
+		return map[string]any{}
+	}
+	return map[string]any{"hookSpecificOutput": map[string]any{
+		"hookEventName": eventAskUser, "answer": answer,
+	}}
 }
 
 func sessionApprovalStopped(sess *store.Session) bool {

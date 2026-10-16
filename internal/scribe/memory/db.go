@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
@@ -36,6 +37,16 @@ const (
 const (
 	ScopeProject = "project"
 	ScopeGlobal  = "global"
+)
+
+// Size limits on one record. They apply at the tool boundary and in Add, so
+// a memory stays a short note and not a dumped transcript.
+const (
+	MaxTitle  = 200
+	MaxBody   = 2000
+	MaxTags   = 8
+	MaxTagLen = 32
+	MaxFiles  = 16
 )
 
 // Categories lists every valid category.
@@ -58,6 +69,12 @@ type Record struct {
 	Uses     int       `json:"uses"`
 	LastUsed time.Time `json:"last_used"`
 	Pinned   bool      `json:"pinned"`
+	// Source is who wrote the record: "user" (the person, through the TUI
+	// or an import) or "agent" (the memory tool).
+	Source string `json:"source,omitempty"`
+	// SupersededBy is the id of the record that replaced this one. A
+	// superseded record is kept but never recalled, searched or listed.
+	SupersededBy string `json:"superseded_by,omitempty"`
 }
 
 // Scored is a recalled record with its relevance score and the signals
@@ -104,6 +121,26 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
 );
 `
 
+// migrations are applied in order after schema, which is the version-1
+// layout and is idempotent, so a database that predates versioning takes the
+// same path as a new one. Entry i moves user_version from i+1 to i+2; the
+// list only ever grows. Entries 0-1 add provenance and supersession; entries
+// 2-3 add the trigram index and back-fill it from the existing rows.
+var migrations = []string{
+	"ALTER TABLE memories ADD COLUMN source TEXT NOT NULL DEFAULT 'user'",
+	"ALTER TABLE memories ADD COLUMN superseded_by TEXT NOT NULL DEFAULT ''",
+	// Trigram matches inside words and identifiers (getUserName, "migrat"),
+	// which the unicode61 word index cannot see.
+	"CREATE VIRTUAL TABLE IF NOT EXISTS memories_tri USING fts5(id UNINDEXED, title, body, tags, tokenize = 'trigram')",
+	"INSERT INTO memories_tri (id, title, body, tags) SELECT id, title, body, tags FROM memories_fts",
+}
+
+// Sources a record may carry.
+const (
+	SourceUser  = "user"
+	SourceAgent = "agent"
+)
+
 // OpenDB opens (creating if needed) the database file at path for scope.
 func OpenDB(path, scope string) (*DB, error) {
 	if scope != ScopeProject && scope != ScopeGlobal {
@@ -135,6 +172,42 @@ func (d *DB) init() error {
 	}
 	for _, stmt := range splitStatements(schema) {
 		if _, err := d.db.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return d.migrate()
+}
+
+// schemaVersion is the user_version after every migration has run.
+func schemaVersion() int { return 1 + len(migrations) }
+
+// migrate applies each pending migration in its own transaction and records
+// the new version in PRAGMA user_version, so an interrupted upgrade reruns
+// from the last committed step.
+func (d *DB) migrate() error {
+	var cur int
+	if err := d.db.QueryRow("PRAGMA user_version").Scan(&cur); err != nil {
+		return err
+	}
+	if cur > schemaVersion() {
+		return fmt.Errorf("database schema v%d is newer than this Scribe (v%d); upgrade Scribe", cur, schemaVersion())
+	}
+	for v := cur; v < schemaVersion(); v++ {
+		tx, err := d.db.Begin()
+		if err != nil {
+			return err
+		}
+		if v >= 1 {
+			if _, err := tx.Exec(migrations[v-1]); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("migration to v%d: %w", v+1, err)
+			}
+		}
+		if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", v+1)); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
 			return err
 		}
 	}
@@ -175,7 +248,7 @@ type execer interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
-const cols = "id, category, title, body, tags, created, updated, uses, last_used, pinned"
+const cols = "id, category, title, body, tags, created, updated, uses, last_used, pinned, source, superseded_by"
 
 type scanner interface {
 	Scan(dest ...any) error
@@ -185,7 +258,7 @@ func scanRecord(sc scanner) (Record, error) {
 	var r Record
 	var tags, created, updated, lastUsed string
 	var pinned int
-	if err := sc.Scan(&r.ID, &r.Category, &r.Title, &r.Body, &tags, &created, &updated, &r.Uses, &lastUsed, &pinned); err != nil {
+	if err := sc.Scan(&r.ID, &r.Category, &r.Title, &r.Body, &tags, &created, &updated, &r.Uses, &lastUsed, &pinned, &r.Source, &r.SupersededBy); err != nil {
 		return Record{}, err
 	}
 	_ = json.Unmarshal([]byte(tags), &r.Tags)
@@ -279,16 +352,21 @@ func writeRecord(q execer, r Record) error {
 		tags = []byte("[]")
 	}
 	emb := encodeVec(embed(embedText(r.Title, r.Body, r.Tags)))
+	source := r.Source
+	if source == "" {
+		source = SourceUser
+	}
 	if _, err := q.Exec(`INSERT INTO memories
-		(id, category, title, body, norm_title, tags, created, updated, uses, last_used, pinned, embedding)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(id, category, title, body, norm_title, tags, created, updated, uses, last_used, pinned, embedding, source, superseded_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		category = excluded.category, title = excluded.title, body = excluded.body,
 		norm_title = excluded.norm_title, tags = excluded.tags, updated = excluded.updated,
 		uses = excluded.uses, last_used = excluded.last_used, pinned = excluded.pinned,
-		embedding = excluded.embedding`,
+		embedding = excluded.embedding, superseded_by = excluded.superseded_by`,
 		r.ID, r.Category, r.Title, r.Body, normTitle(r.Title), string(tags),
-		fmtTime(r.Created), fmtTime(r.Updated), r.Uses, fmtTime(r.LastUsed), boolInt(r.Pinned), emb); err != nil {
+		fmtTime(r.Created), fmtTime(r.Updated), r.Uses, fmtTime(r.LastUsed), boolInt(r.Pinned), emb,
+		source, r.SupersededBy); err != nil {
 		return err
 	}
 	if _, err := q.Exec("DELETE FROM memory_files WHERE memory_id = ?", r.ID); err != nil {
@@ -299,17 +377,22 @@ func writeRecord(q execer, r Record) error {
 			return err
 		}
 	}
-	if _, err := q.Exec("DELETE FROM memories_fts WHERE id = ?", r.ID); err != nil {
-		return err
+	for _, table := range []string{"memories_fts", "memories_tri"} {
+		if _, err := q.Exec("DELETE FROM "+table+" WHERE id = ?", r.ID); err != nil {
+			return err
+		}
+		if _, err := q.Exec("INSERT INTO "+table+" (id, title, body, tags) VALUES (?, ?, ?, ?)",
+			r.ID, r.Title, r.Body, strings.Join(r.Tags, " ")); err != nil {
+			return err
+		}
 	}
-	_, err := q.Exec("INSERT INTO memories_fts (id, title, body, tags) VALUES (?, ?, ?, ?)",
-		r.ID, r.Title, r.Body, strings.Join(r.Tags, " "))
-	return err
+	return nil
 }
 
 func removeRecord(q execer, id string) error {
 	for _, stmt := range []string{
 		"DELETE FROM memories_fts WHERE id = ?",
+		"DELETE FROM memories_tri WHERE id = ?",
 		"DELETE FROM memory_files WHERE memory_id = ?",
 		"DELETE FROM memories WHERE id = ?",
 	} {
@@ -338,8 +421,11 @@ func validate(r *Record) error {
 	if r.Body == "" {
 		return errors.New("body is required")
 	}
-	if len(r.Title) > 200 {
-		return errors.New("title is longer than 200 characters; shorten it and put detail in body")
+	if utf8.RuneCountInString(r.Title) > MaxTitle {
+		return fmt.Errorf("title is longer than %d characters; shorten it and put detail in body", MaxTitle)
+	}
+	if utf8.RuneCountInString(r.Body) > MaxBody {
+		return fmt.Errorf("body is longer than %d characters; keep the essentials or save two memories", MaxBody)
 	}
 	if r.Category == "" {
 		r.Category = CatFact
@@ -347,8 +433,25 @@ func validate(r *Record) error {
 	if !validCategory(r.Category) {
 		return fmt.Errorf("unknown category %q; use one of %s", r.Category, strings.Join(Categories, ", "))
 	}
+	if r.Source == "" {
+		r.Source = SourceUser
+	}
+	if r.Source != SourceUser && r.Source != SourceAgent {
+		return fmt.Errorf("unknown source %q; use user or agent", r.Source)
+	}
 	r.Tags = cleanTags(r.Tags)
+	if len(r.Tags) > MaxTags {
+		return fmt.Errorf("at most %d tags per memory; you gave %d", MaxTags, len(r.Tags))
+	}
+	for _, t := range r.Tags {
+		if utf8.RuneCountInString(t) > MaxTagLen {
+			return fmt.Errorf("tag %q is longer than %d characters", t, MaxTagLen)
+		}
+	}
 	r.Files = normalizeFiles(r.Files)
+	if len(r.Files) > MaxFiles {
+		return fmt.Errorf("at most %d file paths per memory; you gave %d", MaxFiles, len(r.Files))
+	}
 	return nil
 }
 
@@ -444,6 +547,7 @@ func (d *DB) Add(r Record) (rec Record, deduped bool, err error) {
 		cur.Tags = union(cur.Tags, r.Tags)
 		cur.Files = union(cur.Files, r.Files)
 		cur.Pinned = cur.Pinned || r.Pinned
+		cur.Uses++
 		cur.Updated = now
 		cur.LastUsed = now
 		if err := writeRecord(tx, cur); err != nil {
@@ -474,7 +578,7 @@ func (d *DB) Add(r Record) (rec Record, deduped bool, err error) {
 func findDuplicate(q execer, title, body string) (string, error) {
 	nt := normTitle(title)
 	bt := tokenSet(body)
-	rows, err := q.Query("SELECT id, norm_title, body FROM memories")
+	rows, err := q.Query("SELECT id, norm_title, body FROM memories WHERE superseded_by = ''")
 	if err != nil {
 		return "", err
 	}
@@ -592,20 +696,26 @@ func (d *DB) Pin(idOrPrefix string, pinned bool) error {
 // ListOptions filters List.
 type ListOptions struct {
 	Category   string
+	Topic      string // matched case-insensitively against tags
 	PinnedOnly bool
 	Limit      int // default 100
 }
 
-// List returns records, pinned first, then most recently used.
+// List returns live records (not superseded), pinned first, then most
+// recently used.
 func (d *DB) List(o ListOptions) ([]Record, error) {
 	if o.Limit <= 0 {
 		o.Limit = 100
 	}
-	q := "SELECT " + cols + " FROM memories WHERE 1=1"
+	q := "SELECT " + cols + " FROM memories WHERE superseded_by = ''"
 	var args []any
 	if o.Category != "" {
 		q += " AND category = ?"
 		args = append(args, o.Category)
+	}
+	if t := strings.ToLower(strings.TrimSpace(o.Topic)); t != "" {
+		q += " AND EXISTS (SELECT 1 FROM json_each(memories.tags) WHERE json_each.value = ?)"
+		args = append(args, t)
 	}
 	if o.PinnedOnly {
 		q += " AND pinned = 1"
@@ -644,49 +754,177 @@ func (d *DB) queryRecords(q string, args ...any) ([]Record, error) {
 	return recs, nil
 }
 
-// Search runs an FTS5 full-text query over title, body and tags, best
-// BM25 match first. Score is BM25 normalised to (0,1).
+// Search runs a full-text query over title, body and tags, best match first.
+// Word matches come from the unicode61 index; substring matches from the
+// trigram index (see textHits). Score is BM25 normalised to (0,1).
 func (d *DB) Search(query string, limit int) ([]Scored, error) {
 	if limit <= 0 {
 		limit = 10
 	}
-	match := ftsQuery(query)
-	if match == "" {
-		return nil, nil
-	}
-	rows, err := d.db.Query(
-		"SELECT id, bm25(memories_fts) FROM memories_fts WHERE memories_fts MATCH ? ORDER BY bm25(memories_fts) LIMIT ?",
-		match, limit)
+	hits, err := d.textHits(query, ftsCandidates)
 	if err != nil {
 		return nil, err
 	}
-	type hit struct {
-		id string
-		x  float64
+	ids := sortedByScore(hits)
+	var out []Scored
+	for _, id := range ids {
+		r, err := loadOne(d.db, id)
+		if err != nil {
+			return nil, err
+		}
+		if r.SupersededBy != "" {
+			continue
+		}
+		r.Scope = d.scope
+		out = append(out, Scored{Record: r, Score: bm25Norm(hits[id]), Why: []string{"text"}})
+		if len(out) == limit {
+			break
+		}
 	}
-	var hits []hit
+	return out, nil
+}
+
+// Similar returns live records whose hashed embedding has cosine >= min to
+// the record idOrPrefix, most similar first. The record itself is excluded.
+// It is how a save reports near-duplicates for the agent to supersede.
+func (d *DB) Similar(idOrPrefix string, min float64, limit int) ([]Scored, error) {
+	if limit <= 0 {
+		limit = 3
+	}
+	id, err := resolveID(d.db, idOrPrefix)
+	if err != nil {
+		return nil, err
+	}
+	var emb []byte
+	if err := d.db.QueryRow("SELECT embedding FROM memories WHERE id = ?", id).Scan(&emb); err != nil {
+		return nil, err
+	}
+	base := decodeVec(emb)
+	if base == nil {
+		return nil, nil
+	}
+	rows, err := d.db.Query("SELECT id, embedding FROM memories WHERE id <> ? AND superseded_by = ''", id)
+	if err != nil {
+		return nil, err
+	}
+	type cand struct {
+		id  string
+		sim float64
+	}
+	var cands []cand
 	for rows.Next() {
-		var h hit
-		if err := rows.Scan(&h.id, &h.x); err != nil {
+		var other string
+		var e []byte
+		if err := rows.Scan(&other, &e); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		hits = append(hits, hit{h.id, -h.x}) // bm25 is negative; lower is better
+		if v := decodeVec(e); v != nil {
+			if sim := dot(base, v); sim >= min {
+				cands = append(cands, cand{other, sim})
+			}
+		}
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	sort.SliceStable(cands, func(i, j int) bool {
+		if cands[i].sim != cands[j].sim {
+			return cands[i].sim > cands[j].sim
+		}
+		return cands[i].id < cands[j].id
+	})
 	var out []Scored
-	for _, h := range hits {
-		r, err := loadOne(d.db, h.id)
+	for _, c := range cands {
+		if len(out) == limit {
+			break
+		}
+		r, err := loadOne(d.db, c.id)
 		if err != nil {
 			return nil, err
 		}
 		r.Scope = d.scope
-		out = append(out, Scored{Record: r, Score: bm25Norm(h.x), Why: []string{"text"}})
+		out = append(out, Scored{Record: r, Score: c.sim, Why: []string{"similar"}})
 	}
 	return out, nil
+}
+
+// Supersede marks the record oldIDOrPrefix as replaced by newID. Both must
+// be in this database. A superseded record stays on disk for inspection but
+// is no longer recalled, searched, listed or deduplicated against.
+func (d *DB) Supersede(oldIDOrPrefix, newID string) error {
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	oldID, err := resolveID(tx, oldIDOrPrefix)
+	if err != nil {
+		return err
+	}
+	newFull, err := resolveID(tx, newID)
+	if err != nil {
+		return err
+	}
+	if oldID == newFull {
+		return errors.New("a memory cannot supersede itself")
+	}
+	if _, err := tx.Exec("UPDATE memories SET superseded_by = ?, updated = ? WHERE id = ?", newFull, fmtTime(d.now()), oldID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// StaleCandidates lists unpinned live records not used within maxAge and
+// used fewer than minUses times, least recently used first. It only reports:
+// nothing is deleted, so the agent or the person decides what to remove.
+func (d *DB) StaleCandidates(maxAge time.Duration, minUses, limit int) ([]Record, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	cutoff := fmtTime(d.now().Add(-maxAge))
+	return d.queryRecords("SELECT "+cols+" FROM memories WHERE pinned = 0 AND superseded_by = '' AND last_used < ? AND uses < ? ORDER BY last_used ASC, id LIMIT ?",
+		cutoff, minUses, limit)
+}
+
+// Clear hard-deletes every record in category (every record when category is
+// ""), and returns how many were removed. It is for user-initiated bulk
+// removal only; the agent has no path to it.
+func (d *DB) Clear(category string) (int, error) {
+	tx, err := d.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	q, args := "SELECT id FROM memories", []any(nil)
+	if category != "" {
+		q += " WHERE category = ?"
+		args = append(args, category)
+	}
+	rows, err := tx.Query(q, args...)
+	if err != nil {
+		return 0, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	for _, id := range ids {
+		if err := removeRecord(tx, id); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(ids), nil
 }
 
 // Prune deletes unpinned records not used within maxAge that have fewer

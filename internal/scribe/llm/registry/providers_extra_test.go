@@ -184,7 +184,7 @@ func TestExtraProvidersRoundTrip(t *testing.T) {
 		{"github-models", "GITHUB_TOKEN", "openai/gpt-4.1"},
 		{"vercel_gateway", "AI_GATEWAY_API_KEY", "openai/gpt-5"},
 		{"opencode-zen", "OPENCODE_ZEN_API_KEY", "big-pickle"},
-		{"proxy", "", "claude-sonnet-5-5"},
+		{"proxy", "", "qwen3-coder"},
 	}
 	for _, c := range cases {
 		t.Run(c.id, func(t *testing.T) {

@@ -15,8 +15,13 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/redact"
 )
 
-// HistoryCap is the most prompts kept in history.jsonl.
-const HistoryCap = 1000
+// HistoryCap is the most prompts kept in history.jsonl. The file is pruned
+// back to HistoryCap once it holds HistoryPruneSlack more, so the rewrite
+// happens about once every fifty prompts rather than on every one.
+const (
+	HistoryCap        = 5000
+	HistoryPruneSlack = 50
+)
 
 // HistoryEntry is one submitted prompt.
 type HistoryEntry struct {
@@ -42,8 +47,10 @@ func readHistory() ([]HistoryEntry, error) {
 }
 
 // AppendHistory records a submitted prompt made in cwd. Blank prompts are
-// ignored, and a prompt identical to the most recent one is not added again.
-// When the file grows past HistoryCap, the oldest entries are dropped.
+// ignored. A prompt identical to the most recent one is not added again. A
+// prompt that was submitted before is moved to the top: its older copies are
+// removed and it is appended again, so each text appears once. When the file
+// grows past HistoryCap+HistoryPruneSlack, the oldest entries are dropped.
 func AppendHistory(text, cwd string) error {
 	if strings.TrimSpace(text) == "" {
 		return nil
@@ -60,10 +67,19 @@ func AppendHistory(text, cwd string) error {
 		return nil
 	}
 	e := HistoryEntry{Text: text, CWD: cwd, At: time.Now().UTC()}
-	entries = append(entries, e)
-	if len(entries) > HistoryCap {
-		// Rewrite the file with only the newest entries.
-		entries = entries[len(entries)-HistoryCap:]
+	kept := make([]HistoryEntry, 0, len(entries)+1)
+	for _, old := range entries {
+		if old.Text != text {
+			kept = append(kept, old)
+		}
+	}
+	repeated := len(kept) != len(entries)
+	entries = append(kept, e)
+	if repeated || len(entries) > HistoryCap+HistoryPruneSlack {
+		// Rewrite the file: a repeat was removed, or the cap was reached.
+		if len(entries) > HistoryCap {
+			entries = entries[len(entries)-HistoryCap:]
+		}
 		var buf bytes.Buffer
 		for _, x := range entries {
 			b, err := json.Marshal(x)

@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/nvim"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/term"
 )
 
@@ -32,12 +33,17 @@ var errNoEditor = errors.New("no editor found on PATH")
 type editorPane struct {
 	name     string
 	pane     *term.Pane
-	noEditor bool   // error state: nothing to run
-	errMsg   string // error state: why it did not start
+	sess     *nvim.Session // the editor's session; its RPC link when it is Neovim
+	noEditor bool          // error state: nothing to run
+	errMsg   string        // error state: why it did not start
 }
 
 // editorCommand picks the editor and returns its argv with file appended.
-func editorCommand(file string) ([]string, error) {
+func editorCommand(file string) ([]string, error) { return editorCommandAt(file, 0) }
+
+// editorCommandAt is editorCommand with the cursor put on line (1-based, 0
+// for the start). "+N file" opens at a line in Neovim, Vim, nano and vi.
+func editorCommandAt(file string, line int) ([]string, error) {
 	var argv []string
 	for _, name := range []string{"SCRIBE_EDITOR", "VISUAL", "EDITOR"} {
 		v := strings.TrimSpace(os.Getenv(name))
@@ -62,10 +68,52 @@ func editorCommand(file string) ([]string, error) {
 			return nil, errNoEditor
 		}
 	}
+	if line > 0 {
+		argv = append(argv, "+"+itoa(line))
+	}
 	if file != "" {
 		argv = append(argv, file)
 	}
 	return argv, nil
+}
+
+// splitFileLine reads "path", "path:12" and "path:12:3" (the form compilers
+// print). The line is 0 when there is none.
+func splitFileLine(arg string) (string, int) {
+	arg = strings.TrimSpace(arg)
+	i := strings.LastIndex(arg, ":")
+	if i <= 0 {
+		return arg, 0
+	}
+	n, ok := parseLine(arg[i+1:])
+	if !ok {
+		return arg, 0
+	}
+	rest := arg[:i]
+	if j := strings.LastIndex(rest, ":"); j > 0 {
+		if l, ok := parseLine(rest[j+1:]); ok {
+			return rest[:j], l // path:line:col, the column is dropped
+		}
+	}
+	return rest, n
+}
+
+// parseLine reads a positive line number.
+func parseLine(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	n := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + int(c-'0')
+		if n > 1<<30 {
+			return 0, false
+		}
+	}
+	return n, n > 0
 }
 
 // installHints are the install commands for this platform.
@@ -78,6 +126,25 @@ func installHints() []string {
 	default:
 		return []string{"sudo apt install neovim", "sudo dnf install neovim", "sudo pacman -S neovim"}
 	}
+}
+
+// fitEditorName shortens a file name to at most max cells by dropping its
+// start and marking that with "…". The end is what names the file, so
+// "…/sample.txt" is kept over "/tmp/claude-…".
+func fitEditorName(name string, max int) string {
+	if ansi.StringWidth(name) <= max {
+		return name
+	}
+	if max <= 1 {
+		return "…"
+	}
+	r := []rune(name)
+	for i := range r {
+		if tail := string(r[i:]); ansi.StringWidth(tail)+1 <= max {
+			return "…" + tail
+		}
+	}
+	return "…"
 }
 
 // editorWidth is the editor column's width for the current split.
@@ -124,7 +191,10 @@ func (m *Model) recentFile() string {
 
 // openEditor starts the editor on file (workdir-relative, or "" for none).
 // An editor that is already open is closed first when a file is given.
-func (m *Model) openEditor(file string) tea.Cmd {
+func (m *Model) openEditor(file string) tea.Cmd { return m.openEditorAt(file, 0) }
+
+// openEditorAt is openEditor with the cursor on line (0 for the start).
+func (m *Model) openEditorAt(file string, line int) tea.Cmd {
 	ps := m.ps()
 	if ps.editor != nil {
 		if file == "" {
@@ -139,17 +209,18 @@ func (m *Model) openEditor(file string) tea.Cmd {
 	}
 	t := m.cur()
 	ed := &editorPane{name: displayName(file, t.be.Workdir())}
-	argv, err := editorCommand(file)
+	argv, err := editorCommandAt(file, line)
 	if err != nil {
 		ed.noEditor = errors.Is(err, errNoEditor)
 		ed.errMsg = err.Error()
 	} else {
 		w, h := m.editorInner()
-		p, err := term.New(argv, paneDir(t.be.Workdir()), w, h)
+		sess, err := nvim.Start(argv, paneDir(t.be.Workdir()), w, h)
 		if err != nil {
 			ed.errMsg = err.Error()
 		} else {
-			ed.pane = p
+			ed.sess = sess
+			ed.pane = sess.Pane
 		}
 	}
 	ps.editor = ed
@@ -169,8 +240,10 @@ func (m *Model) closeEditor() {
 	if ps.editor == nil {
 		return
 	}
-	if ps.editor.pane != nil {
-		_ = ps.editor.pane.Close()
+	if ed := ps.editor; ed.sess != nil {
+		ed.sess.Close()
+	} else if ed.pane != nil {
+		_ = ed.pane.Close()
 	}
 	ps.editor = nil
 	if ps.focus == focusEditor {
@@ -251,8 +324,12 @@ func (m *Model) viewEditor(w, h int) []string {
 	}
 	inner = fitLines(inner, w-2, h-2)
 
-	seg := lipgloss.NewStyle().Background(th.Brand).Foreground(lipgloss.Color("#ffffff")).Bold(true).Render(" ✎ ") +
-		fg(th.TextPrimary).Render(" "+ed.name+" ")
+	// The title is " ✎ " then " name ". A long path keeps its end, where the
+	// file name is, rather than being cut after the directory.
+	const icon = " ✎ "
+	name := fitEditorName(ed.name, max(1, w-4-ansi.StringWidth(icon)-2))
+	seg := lipgloss.NewStyle().Background(th.Brand).Foreground(lipgloss.Color("#ffffff")).Bold(true).Render(icon) +
+		fg(th.TextPrimary).Render(" "+name+" ")
 	if ansi.StringWidth(seg) > w-4 {
 		seg = ansi.Truncate(seg, max(1, w-4), "…")
 	}

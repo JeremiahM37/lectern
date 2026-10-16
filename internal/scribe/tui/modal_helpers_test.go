@@ -15,6 +15,9 @@ type recBackend struct {
 	*FakeBackend
 	mu        sync.Mutex
 	mems      []MemoryItem
+	cands     []CleanupCandidate  // what the cleanup tab lists
+	toolsOf   map[string][]string // ServerTools answers, by server name
+	lsp       []LSPSession        // LSPSessions answers
 	saved     []MemoryItem
 	deleted   []string
 	restarted []string
@@ -170,3 +173,22 @@ func mustNotContain(t *testing.T, s string, parts ...string) {
 
 // stamp is a fixed reference time for memory ages in tests.
 var stamp = time.Now().Add(-3 * time.Hour)
+
+// MemoryCleanupCandidates implements MemoryCleanup.
+func (r *recBackend) MemoryCleanupCandidates() []CleanupCandidate {
+	return append([]CleanupCandidate(nil), r.cands...)
+}
+
+// ServerTools implements ServerToolLister.
+func (r *recBackend) ServerTools(name string) ([]string, error) {
+	names, ok := r.toolsOf[name]
+	if !ok {
+		return nil, fmt.Errorf("no MCP server named %q", name)
+	}
+	return names, nil
+}
+
+// LSPSessions implements LSPSessioner.
+func (r *recBackend) LSPSessions() []LSPSession {
+	return append([]LSPSession(nil), r.lsp...)
+}

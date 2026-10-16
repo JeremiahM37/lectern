@@ -2,9 +2,7 @@ package tui
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -117,8 +115,10 @@ func findCommand(line string) (*command, string) {
 	return best, bestArgs
 }
 
-// runCommand executes a "/..." line.
-func (m *Model) runCommand(line string) tea.Cmd {
+// runCommand executes a "/..." line. A handler that panics is reported in
+// the chat as "Command error: ..." instead of taking the whole TUI down.
+// Errors a handler returns still arrive as flash messages (errFlash).
+func (m *Model) runCommand(line string) (cmd tea.Cmd) {
 	c, args := findCommand(line)
 	if c == nil {
 		name := strings.Fields(line)
@@ -127,9 +127,16 @@ func (m *Model) runCommand(line string) tea.Cmd {
 			first = name[0]
 		}
 		m.enterChat()
-		m.cur().chat.AddSystem("info", "Unknown command: "+first+". Type /help for the command list.")
+		m.cur().chat.AddSystem("info", "Unknown command: "+first+". Type /help for available commands.")
 		return nil
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			m.enterChat()
+			m.cur().chat.AddSystem("error", fmt.Sprintf("Command error: /%s: %v", c.Name, r))
+			cmd = nil
+		}
+	}()
 	return c.Run(m, args)
 }
 
@@ -189,11 +196,18 @@ func init() {
 				}
 				return m.renameCurrent(args)
 			}},
-		&command{Name: "export", Args: "[md|json]", Desc: "Export the session as markdown or JSON", Group: "Session",
+		&command{Name: "export", Args: "[md|json|all|clipboard]", Desc: "Export the session as markdown or JSON; all writes a diagnostic dump", Group: "Session",
 			Run: func(m *Model, args string) tea.Cmd {
+				args = strings.ToLower(strings.TrimSpace(args))
+				if args == "clipboard" || args == "clip" {
+					return m.copyExport()
+				}
 				format := "markdown"
-				if strings.HasPrefix(args, "json") {
+				switch {
+				case strings.HasPrefix(args, "json"):
 					format = "json"
+				case args == "all" || args == "diagnostic":
+					format = "all"
 				}
 				path, err := m.cur().be.Export(format)
 				if err != nil {
@@ -224,8 +238,8 @@ func init() {
 			}},
 		&command{Name: "checkpoints", Desc: "List turns that changed files", Group: "Session",
 			Run: func(m *Model, _ string) tea.Cmd { m.openCheckpoints(); return nil }},
-		&command{Name: "plan", Desc: "Switch to plan mode (research and plan only)", Group: "Session",
-			Run: func(m *Model, _ string) tea.Cmd { return m.setMode("plan") }},
+		&command{Name: "plan", Args: "[task]", Desc: "Plan mode: research and plan only. A task starts planning it; no argument toggles", Group: "Session",
+			Run: func(m *Model, args string) tea.Cmd { return m.planCommand(args) }},
 		&command{Name: "auto", Desc: "Switch to auto mode (tool calls are approved)", Group: "Session",
 			Run: func(m *Model, _ string) tea.Cmd { return m.setMode("auto") }},
 		&command{Name: "default", Desc: "Switch to the default mode", Group: "Session",
@@ -236,13 +250,8 @@ func init() {
 		// ---- Git
 		&command{Name: "git", Desc: "Git menu: status, diff, commit", Group: "Git",
 			Run: func(m *Model, _ string) tea.Cmd { m.openGitMenu(); return nil }},
-		&command{Name: "commit", Args: "[message]", Desc: "Commit staged changes (suggests a message)", Group: "Git",
-			Run: func(m *Model, args string) tea.Cmd {
-				if args != "" {
-					return m.gitCommit(args)
-				}
-				return m.commitPrompt()
-			}},
+		&command{Name: "commit", Args: "[--staged] [message]", Desc: "Commit changes (suggests a message); --staged commits only what is staged", Group: "Git",
+			Run: func(m *Model, args string) tea.Cmd { return m.commitCommand(args) }},
 		&command{Name: "diff", Args: "[turn]", Desc: "Show the diff of a turn, or of the working tree", Group: "Git",
 			Run: func(m *Model, args string) tea.Cmd {
 				t := m.cur()
@@ -277,12 +286,15 @@ func init() {
 				}
 				return flashCmd("err", "Use /reasoning off, low, medium or high")
 			}},
-		&command{Name: "keys", Desc: "Add or change a provider API key", Group: "Models",
+		&command{Name: "keys", Aliases: []string{"api-keys"}, Desc: "Add or change a provider API key", Group: "Models",
 			Run: func(m *Model, _ string) tea.Cmd { m.openKeyPicker(); return nil }},
 
 		// ---- Intelligence
-		&command{Name: "context", Desc: "Context window and token use", Group: "Intelligence",
-			Run: func(m *Model, _ string) tea.Cmd {
+		&command{Name: "context", Desc: "Context window and token use. /context clear unloads skills", Group: "Intelligence",
+			Run: func(m *Model, args string) tea.Cmd {
+				if strings.TrimSpace(args) != "" {
+					return m.contextCommand(args)
+				}
 				t := m.cur()
 				used, win := t.be.Context()
 				u, cost := t.be.Usage()
@@ -576,8 +588,7 @@ func (m *Model) copyLastAnswer() tea.Cmd {
 	if last == "" {
 		return flashCmd("info", "No answer to copy yet")
 	}
-	enc := base64.StdEncoding.EncodeToString([]byte(last))
-	fmt.Fprintf(os.Stdout, "\x1b]52;c;%s\a", enc)
+	copyToTerminal(last)
 	return flashCmd("ok", "Copied the last answer")
 }
 
