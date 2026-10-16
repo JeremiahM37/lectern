@@ -99,7 +99,13 @@ def test_explorer_edit_save_conflict_and_file_operations(page, real_terminal):
 
     # Someone else writes the file while it has unsaved edits: nothing is
     # overwritten until the person chooses.
+    # Same as the first edit: focus the editor, and see the edit register
+    # before anything else happens. Typing straight after the save could
+    # land before the editor had focus back, leaving nothing of "mine" to keep.
+    page.locator('#preview-body .view-lines').click()
+    page.keyboard.press('Control+End')
     page.keyboard.type('\n# mine')
+    expect(page.locator('.wb-doc-state')).to_have_text('Unsaved')
     (root / 'src' / 'app.py').write_text('agent rewrote this\n')
     page.locator('#file-save').click()
     banner = page.locator('.wb-banner')
