@@ -63,8 +63,8 @@ type stdioTransport struct {
 	stderr *tailBuf
 	// exitErr is why the server exited; set before exited is closed.
 	exitErr error
-	exited chan struct{}
-	once   sync.Once
+	exited  chan struct{}
+	once    sync.Once
 }
 
 func newStdioTransport(c *Client, spec config.MCPServer) (*stdioTransport, error) {
