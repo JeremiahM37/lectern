@@ -186,6 +186,11 @@ export interface SessionView extends Session {
   // web). It survives the session ending. Absent from an older server.
   favorite?: boolean;
   favorite_at?: number | null;
+  // Claude Remote Control (docs/remote-control.md): also reachable from
+  // claude.ai/code and the Claude app. The url is set once Lectern saw it.
+  remote_control?: boolean;
+  remote_control_url?: string;
+  remote_control_available?: { available: boolean; reason?: string };
   // One status word for every surface (internal/vocab): working, needs_you,
   // idle or ended, with the English words and an optional reason. Absent from
   // an older server; sessions/status.ts computes it then.

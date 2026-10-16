@@ -306,6 +306,16 @@ export function SessionCard({
             ★
           </span>
         )}
+        {/* A mark, not a button: the link to claude.ai is in the More menu. */}
+        {s.remote_control && (
+          <span
+            className="session-rc"
+            aria-label={t("sessions.card.remoteControlOn")}
+            title={t("sessions.card.remoteControlOn")}
+          >
+            ⌁
+          </span>
+        )}
         {renaming ? (
           <input
             className="f nm-edit"
@@ -560,6 +570,23 @@ export function SessionCard({
             {favorite ? "☆ " : "★ "}
             {t(favoriteLabelKey(favorite))}
           </button>
+          {live && s.remote_control && s.remote_control_url && (
+            <a className="b remote-control-open" href={s.remote_control_url} target="_blank" rel="noreferrer">
+              {t("sessions.card.remoteControlOpen")}
+            </a>
+          )}
+          {live && !s.remote_control && s.agent === "claude" && s.remote_control_available && (
+            <button
+              className="b remote-control-enable"
+              disabled={!s.remote_control_available.available}
+              title={s.remote_control_available.reason || t("sessions.card.remoteControlHint")}
+              onClick={() =>
+                void action("remote-control", "POST", {}, t("sessions.card.remoteControlEnabled"))
+              }
+            >
+              {t("sessions.card.remoteControlEnable")}
+            </button>
+          )}
           {live && (
             <>
               {onSwitch && s.agent !== "shell" && (

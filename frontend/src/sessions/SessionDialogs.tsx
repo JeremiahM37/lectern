@@ -96,6 +96,9 @@ export function NewSession({
     // Asks until the install's default says otherwise: the safe side while
     // the setting loads (a new install asks; an unset one runs freely).
     [yolo, setYolo] = useState(false),
+    // Claude Remote Control (docs/remote-control.md): also open the session
+    // in claude.ai/code and the Claude app. Off unless asked for.
+    [remoteControl, setRemoteControl] = useState(false),
     [prime, setPrime] = useState(""),
     [isolated, setIsolated] = useState(false),
     // Sandbox isolation (internal/isolation, docs/isolation.md) — distinct
@@ -169,6 +172,9 @@ export function NewSession({
   const spec = agents.find((row) => row.name === agent);
   const profile = profiles.find((row) => row.id === profileId);
   const yoloSupported = !spec || !!spec.yolo_args?.length;
+  // The built-in claude agent only, and not inside a process sandbox.
+  const remoteControlSupported =
+    agent === "claude" && (!spec || spec.builtin === true) && sandboxMode !== "bwrap" && sandboxMode !== "docker";
   useEffect(() => {
     if (!project) {
       setIsolated(false);
@@ -314,6 +320,7 @@ export function NewSession({
           resume: mode === "resume",
           brief: mode === "brief",
           yolo,
+          remote_control: remoteControlSupported && remoteControl,
           prime: prime.trim(),
           // null means "use the project's (or built-in) default"; "none" is
           // an explicit opt-out even when that default is sandboxed.
@@ -547,6 +554,24 @@ export function NewSession({
                   t("sessions.dialogs.newSession.askHintPhone")
                 : t("sessions.dialogs.newSession.askHint")}
         </div>
+        {remoteControlSupported && (
+          <>
+            <label className="f check ns-remote-control">
+              <input
+                id="ns-remote-control"
+                type="checkbox"
+                checked={remoteControl}
+                onChange={(e) => setRemoteControl(e.target.checked)}
+              />{" "}
+              {t("sessions.dialogs.newSession.remoteControl")}
+            </label>
+            {remoteControl && (
+              <div className="subhint" id="ns-remote-control-hint">
+                {t("sessions.dialogs.newSession.remoteControlHint")}
+              </div>
+            )}
+          </>
+        )}
         <details id="ns-advanced" className="session-advanced">
           <summary>{t("sessions.dialogs.newSession.advanced")}</summary>
           <div className="session-field">

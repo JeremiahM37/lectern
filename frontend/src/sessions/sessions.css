@@ -447,3 +447,10 @@
   color: var(--amber);
   line-height: 1;
 }
+/* Remote Control is on (docs/remote-control.md): a mark like the star, never
+   a button, so the title row keeps its height and actions. */
+.session-rc {
+  flex: none;
+  color: var(--accent, var(--fg));
+  line-height: 1;
+}
