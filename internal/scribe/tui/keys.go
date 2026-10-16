@@ -21,7 +21,12 @@ func (m *Model) handleGlobalKey(km tea.KeyMsg) (tea.Cmd, bool) {
 		// Copy the message the transcript is focused on (the bottom one in view).
 		if text, ok := t.chat.FocusedText(); ok && text != "" {
 			copyToTerminal(text)
-			m.setFlash("ok", "Copied the message ("+itoa(strings.Count(text, "\n")+1)+" lines)")
+			n := strings.Count(strings.TrimRight(text, "\n"), "\n") + 1
+			unit := " lines)"
+			if n == 1 {
+				unit = " line)"
+			}
+			m.setFlash("ok", "Copied the message ("+itoa(n)+unit)
 		} else {
 			m.setFlash("info", "Nothing to copy")
 		}

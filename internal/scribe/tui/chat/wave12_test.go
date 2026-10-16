@@ -118,3 +118,16 @@ func TestSessionHeaderForForeignAndCompactedSessions(t *testing.T) {
 		t.Fatalf("empty header should hide the line")
 	}
 }
+
+// Ctrl+Y copies the answer as written: line breaks and markdown kept.
+func TestFocusedTextKeepsLinesAndMarkdown(t *testing.T) {
+	v, c := newView(t, Options{})
+	v.AddUser("summaries", 0, at(c), false)
+	v.Apply(agent.Event{Kind: agent.EvTurnStart, Prompt: "summaries", At: at(c)})
+	text(v, "- **calc.go**: arithmetic\n- **greet.go**: greeting", c)
+	v.Apply(agent.Event{Kind: agent.EvTurnDone, At: at(c), Stats: &agent.TurnStats{}})
+	got, _ := v.FocusedText()
+	if got != "- **calc.go**: arithmetic\n- **greet.go**: greeting" {
+		t.Fatalf("copied %q", got)
+	}
+}

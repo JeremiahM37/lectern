@@ -1,5 +1,7 @@
 package chat
 
+import "strings"
+
 // SetSessionHeader sets the line shown above the transcript of a foreign
 // session (one saved from another project or client). Restore sets its own
 // header for a session that was compacted; call this after Restore. An empty
@@ -30,7 +32,22 @@ func (v *View) FocusedText() (text string, ok bool) {
 	}
 	rec := v.msgs[idx]
 	if rec.Role == roleAssistant {
-		return answerText(rec), true
+		return answerRaw(rec), true
 	}
 	return rec.Text, true
+}
+
+// answerRaw is the final answer's text as the model wrote it, line breaks and
+// markdown kept, for copying. (answerText normalises it for comparisons.)
+func answerRaw(rec *Record) string {
+	last := lastModelTools(rec)
+	var parts []string
+	for i, s := range rec.Segments {
+		if s.Kind == "text" && i > last {
+			if t := strings.TrimSpace(s.Text); t != "" {
+				parts = append(parts, t)
+			}
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
