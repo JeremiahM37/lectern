@@ -59,6 +59,11 @@ type Question struct {
 	Options  []string `json:"options,omitempty"`
 	// AllowFreeText lets the user type an answer instead of picking.
 	AllowFreeText bool `json:"allow_free_text,omitempty"`
+	// Kind is "" for a plain question or "plan_review" when the agent is
+	// asking the user to approve a plan (the UI shows the plan view).
+	Kind string `json:"kind,omitempty"`
+	// Body is extra content to show with the question (the plan markdown).
+	Body string `json:"body,omitempty"`
 }
 
 // Host is what the agent's surroundings (TUI, headless runner, Lectern
@@ -124,6 +129,21 @@ type Tool interface {
 	// commands. Restricted modes (plan, architect, ...) only allow these.
 	ReadOnly() bool
 	Run(ctx context.Context, env *Env, args json.RawMessage) Result
+}
+
+// CallReadOnly is implemented by tools whose read-only-ness depends on the
+// arguments (git status vs git commit). The agent's mode gate and its
+// parallel scheduler prefer it over Tool.ReadOnly.
+type CallReadOnly interface {
+	ReadOnlyCall(args json.RawMessage) bool
+}
+
+// IsReadOnlyCall reports whether this particular call of t only reads.
+func IsReadOnlyCall(t Tool, args json.RawMessage) bool {
+	if c, ok := t.(CallReadOnly); ok {
+		return c.ReadOnlyCall(args)
+	}
+	return t.ReadOnly()
 }
 
 // Registry is a name-indexed set of tools.

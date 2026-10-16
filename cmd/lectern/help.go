@@ -78,6 +78,71 @@ approvals (Ctrl+] y allows), leaving and coming back, and reviewing a change.
 		Examples: []string{"lectern demo"},
 	},
 	{
+		Name: "code", Aliases: []string{"scribe"}, Group: groupStart, Synopsis: "code [PROMPT]",
+		Summary: "Lectern's own coding agent, in this terminal",
+		Usage: []string{
+			"lectern code [PROMPT] [--model P/M] [--mode MODE] [--cwd DIR]     the full-screen terminal UI",
+			"lectern code [--resume [ID] | --continue]                         reopen a session (no ID: pick one)",
+			"lectern code -p PROMPT [flags]                                    one prompt, answer on stdout",
+			"lectern code --chat [flags]                                       line-based chat on stdin",
+			"lectern code --list-providers | --list-models [PROVIDER] | --set-key PROVIDER KEY",
+		},
+		About: `Scribe edits code, runs commands and answers questions about a folder, with
+the model you choose. The terminal UI runs when you give no headless flag and
+stdin is a terminal. Piped stdin runs headless, reading the prompt from it.
+
+Terminal UI:
+  --model P/M           model for this session, e.g. anthropic/claude-sonnet-5-5
+  --mode MODE           default, architect, socratic, challenge, plan or auto
+  --cwd DIR             project folder (default: the current folder)
+  --resume [ID]         reopen a session by id prefix; with no ID, pick one
+  -c, --continue        reopen the newest session in this folder
+  --demo                the TUI with a stand-in model, to try it without a key
+
+Headless (any of these switches it on):
+  -p, --print, --headless PROMPT
+                        run one prompt; the prompt may also come from stdin
+  --json                one JSON object with the answer, steps, tokens, cost
+                        and tool calls (chat: one object per turn)
+  --events              JSONL events: start, text, tool-call, tool-result,
+                        step, retry, warning, error, done (chat adds ready,
+                        turn-done, chat-done; --save-session adds session-saved)
+  --chat                many turns, one line each from stdin; end with EOF;
+                        a line ending in \ continues onto the next line
+  -q, --quiet           no progress on stderr
+  --max-steps N         stop after N model steps (exit 1)
+  --timeout T           abort after T: milliseconds (600000) or a duration (10m)
+                        (exit 2; in chat it aborts each turn instead)
+  --system TEXT         extra instructions for this run only
+  --include FILE        put FILE in the prompt first, as [FILE] (repeatable;
+                        a missing file is skipped with a warning)
+  --diff                list the files this run edited (text mode)
+  --no-repomap          skip the code map (same as SCRIBE_NO_REPOMAP=1)
+  --save-session        keep the session so --resume can continue it
+  -s, --session ID      continue a saved session (also --resume ID)
+  --render, --no-render render the final Markdown (default: on for a terminal)
+
+Providers and models:
+  --list-providers      each provider with its key status and default model
+  --list-models [P]     the models of provider P as provider/model
+  --set-key P KEY       store an API key for P (an environment variable wins)
+
+Exit codes: 0 done, 1 error or max steps, 2 timeout, 130 interrupted. Ctrl+C
+during a headless turn aborts that turn; a second Ctrl+C ends the run.
+Headless approvals: shell commands, edits outside the project and other
+risky actions are denied unless --mode auto is set.`,
+		Examples: []string{
+			"cd ~/myapp && lectern code",
+			`lectern code -p "why does TestParse fail?" --json`,
+			"git diff | lectern code -p 'review this change' --quiet",
+			`lectern code --chat --save-session`,
+			"lectern code --events --max-steps 20 -p 'fix the failing test'",
+			"lectern code --resume 3f2a --model openai/gpt-5.4",
+			"lectern code --list-models anthropic",
+			"lectern code --set-key anthropic sk-ant-...",
+		},
+	},
+	{
 		Name: "doctor", Group: groupStart, Synopsis: "doctor",
 		Summary: "Check this computer and say how to fix anything missing",
 		Usage:   []string{"lectern doctor"},

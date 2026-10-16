@@ -16,28 +16,28 @@ import (
 type EventKind string
 
 const (
-	EvTurnStart     EventKind = "turn_start"     // Prompt, Model, Mode
-	EvStepStart     EventKind = "step_start"     // Step (1-based)
-	EvText          EventKind = "text"           // Text delta
-	EvReasoning     EventKind = "reasoning"      // Text delta
-	EvToolStart     EventKind = "tool_start"     // CallID, Tool (args still streaming)
-	EvToolArgs      EventKind = "tool_args"      // CallID, Text = partial JSON delta
-	EvToolRun       EventKind = "tool_run"       // CallID, Tool, Args (execution begins)
-	EvToolProgress  EventKind = "tool_progress"  // CallID, Text (streamed output)
-	EvToolResult    EventKind = "tool_result"    // CallID, Tool, Result, Duration
-	EvStepFinish    EventKind = "step_finish"    // Step, Usage (this step), Total, CostUSD (cumulative)
-	EvRetry         EventKind = "retry"          // Attempt, MaxAttempts, Category, Text (reason), Delay
-	EvFallback      EventKind = "fallback"       // Model (new model ref), Text (reason)
-	EvWarning       EventKind = "warning"        // Text
-	EvError         EventKind = "error"          // Category, Text
-	EvSteering      EventKind = "steering"       // Text (queued user message consumed mid-turn)
-	EvCompactStart  EventKind = "compact_start"  // Text (reason)
-	EvCompactDone   EventKind = "compact_done"   // Text (summary), Tokens before/after in Meta
-	EvPlan          EventKind = "plan"           // Plan (proposed or updated)
-	EvTasks         EventKind = "tasks"          // Tasks (task_list changed)
-	EvSubagent      EventKind = "subagent"       // Agent (id, task, status, model, step, tokens)
-	EvContext       EventKind = "context"        // ContextUsed, ContextWindow (after each step)
-	EvTurnDone      EventKind = "turn_done"      // Stats; Text = final answer
+	EvTurnStart    EventKind = "turn_start"    // Prompt, Model, Mode
+	EvStepStart    EventKind = "step_start"    // Step (1-based)
+	EvText         EventKind = "text"          // Text delta
+	EvReasoning    EventKind = "reasoning"     // Text delta
+	EvToolStart    EventKind = "tool_start"    // CallID, Tool (args still streaming)
+	EvToolArgs     EventKind = "tool_args"     // CallID, Text = partial JSON delta
+	EvToolRun      EventKind = "tool_run"      // CallID, Tool, Args (execution begins)
+	EvToolProgress EventKind = "tool_progress" // CallID, Text (streamed output)
+	EvToolResult   EventKind = "tool_result"   // CallID, Tool, Result, Duration
+	EvStepFinish   EventKind = "step_finish"   // Step, Usage (this step), Total, CostUSD (cumulative)
+	EvRetry        EventKind = "retry"         // Attempt, MaxAttempts, Category, Text (reason), Delay
+	EvFallback     EventKind = "fallback"      // Model (new model ref), Text (reason)
+	EvWarning      EventKind = "warning"       // Text
+	EvError        EventKind = "error"         // Category, Text
+	EvSteering     EventKind = "steering"      // Text (queued user message consumed mid-turn)
+	EvCompactStart EventKind = "compact_start" // Text (reason)
+	EvCompactDone  EventKind = "compact_done"  // Text (summary), Tokens before/after in Meta
+	EvPlan         EventKind = "plan"          // Plan (proposed or updated)
+	EvTasks        EventKind = "tasks"         // Tasks (task_list changed)
+	EvSubagent     EventKind = "subagent"      // Agent (id, task, status, model, step, tokens)
+	EvContext      EventKind = "context"       // ContextUsed, ContextWindow (after each step)
+	EvTurnDone     EventKind = "turn_done"     // Stats; Text = final answer
 )
 
 // Event is one thing the agent did. Only the fields for its Kind are set.
@@ -92,9 +92,9 @@ type Plan struct {
 
 // PlanStep is one step of a Plan.
 type PlanStep struct {
-	ID     string `json:"id"`
-	Text   string `json:"text"`
-	Status string `json:"status"` // pending | active | done | skipped
+	ID     string   `json:"id"`
+	Text   string   `json:"text"`
+	Status string   `json:"status"` // pending | active | done | skipped
 	Files  []string `json:"files,omitempty"`
 }
 

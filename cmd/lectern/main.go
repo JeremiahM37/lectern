@@ -57,6 +57,8 @@ var reservedVerbs = map[string]bool{
 	"autonomy-overlay": true, "autonomy-overlay-inspect": true,
 	"local": true, "up": true, "doctor": true, "serve": true, "attach": true, "split": true,
 	"mcp": true, "version": true, "--version": true, "-v": true, "relay": true, "update": true,
+	// Scribe, Lectern's coding agent (code.go).
+	"code": true, "scribe": true,
 	// localCommand's own subcommands (cmd/lectern/local_cli.go), a different
 	// argument position (after "local") but reserved all the same so
 	// `lectern local claude` cannot mean two different things.
@@ -322,6 +324,8 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "code", "scribe":
+			os.Exit(codeCommand(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 		case "version", "--version", "-v":
 			fmt.Println(version.Version)
 			return
