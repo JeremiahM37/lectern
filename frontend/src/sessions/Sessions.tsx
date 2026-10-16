@@ -34,6 +34,7 @@ import { sessionState, STATE_RANK } from "./status";
 import { t, useLocale } from "../i18n";
 import { viewerUnavailable } from "../terminal/viewer";
 import "./sessions.css";
+import { fetchesEndedSessions, matchesFavoriteScope, type SessionScope } from "./favorite";
 export interface SessionsApi {
   sessions(options?: {
     archived?: boolean;
@@ -107,7 +108,7 @@ export function Sessions({
 }: SessionsProps) {
   useLocale();
   const [rows, setRows] = useState<SessionView[]>([]),
-    [scope, setScope] = useState<"active" | "all" | "archived">("active"),
+    [scope, setScope] = useState<SessionScope>("active"),
     [query, setQuery] = useState(""),
     phone = usePhone(),
     [group, setGroup] = useState<GroupMode>(savedGrouping),
@@ -154,7 +155,7 @@ export function Sessions({
     const version = ++generation.current;
     const next = await api.sessions({
       archived: currentScope.current === "archived",
-      all: currentScope.current === "all",
+      all: fetchesEndedSessions(currentScope.current),
       signal,
     });
     if (signal?.aborted || version !== generation.current) return;
@@ -268,6 +269,7 @@ export function Sessions({
           (scope !== "active" ||
             session.status !== "dead" ||
             session.setup_state === "failed") &&
+          matchesFavoriteScope(session, scope) &&
           terms.every((word) =>
             [
               session.name,
@@ -635,6 +637,7 @@ export function Sessions({
           <option value="active">{t("sessions.list.scopeActive")}</option>
           <option value="all">{t("sessions.list.scopeAll")}</option>
           <option value="archived">{t("sessions.list.scopeArchived")}</option>
+          <option value="favorites">{t("sessions.list.scopeFavorites")}</option>
         </select>
       </label>
       </div>
@@ -854,7 +857,7 @@ export function Sessions({
             ) : (
               query || scope !== "active" ? (
                 <div className="hint">
-                  {query ? t("sessions.list.noMatch") : scope === "archived" ? t("sessions.list.noArchived") : t("sessions.list.empty")}
+                  {query ? t("sessions.list.noMatch") : scope === "archived" ? t("sessions.list.noArchived") : scope === "favorites" ? t("sessions.list.noFavorites") : t("sessions.list.empty")}
                 </div>
               ) : (
                 <GettingStarted

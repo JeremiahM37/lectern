@@ -24,6 +24,7 @@ import { LimitBanner } from "../limits/LimitBanner";
 import { t, useLocale } from "../i18n";
 import { usePhone } from "../mobile/usePhone";
 import { paneLine, paneSummary, titleNamesProject } from "./paneSummary";
+import { favoriteLabelKey } from "./favorite";
 export function duration(seconds: number) {
   seconds = Math.max(0, Math.floor(seconds || 0));
   return seconds < 60
@@ -103,6 +104,7 @@ export function SessionCard({
   const modded = useModRender("session.card", { session: modSession(s) });
   useLocale();
   const phone = usePhone();
+  const favorite = s.favorite === true;
   const [progress, setProgress] = useState(""),
     [progressBusy, setProgressBusy] = useState(false);
   // Optimistic hide: `approval` is a prop from the parent's own poll (a
@@ -486,6 +488,15 @@ export function SessionCard({
       )}
       <SessionLineage api={api} session={s} onOpen={onChat} className="session-lineage" />
       <div className="btnrow">
+        <button
+          className={`b session-star${favorite ? " on" : ""}`}
+          aria-pressed={favorite}
+          aria-label={t(favoriteLabelKey(favorite))}
+          title={t(favoriteLabelKey(favorite))}
+          onClick={() => void run(`/sessions/${s.id}/favorite`, "PUT", { favorite: !favorite })}
+        >
+          ★
+        </button>
         {setup && (
           <>
             <button className="b" disabled>

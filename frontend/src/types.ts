@@ -182,6 +182,10 @@ export interface EffectCheck {
 }
 
 export interface SessionView extends Session {
+  // Starred by the person (`*` in the terminal client, the card star on the
+  // web). It survives the session ending. Absent from an older server.
+  favorite?: boolean;
+  favorite_at?: number | null;
   // One status word for every surface (internal/vocab): working, needs_you,
   // idle or ended, with the English words and an optional reason. Absent from
   // an older server; sessions/status.ts computes it then.
