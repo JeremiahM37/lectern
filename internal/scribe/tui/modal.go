@@ -1168,9 +1168,15 @@ func (v *InfoView) Icon() string { return v.icon }
 // Footer implements Footered.
 func (v *InfoView) Footer() string { return "↑↓ scroll · PgUp/PgDn page · Esc close" }
 
-// Size implements Sized.
+// Size implements Sized. The frame fits the text, so a five-line report is
+// not a screen-high box of blank lines; long text stops at 30 rows and scrolls.
 func (v *InfoView) Size(cols, rows int) (int, int) {
-	return min(88, int(float64(cols)*0.8)), min(rows-4, 30)
+	w := min(88, int(float64(cols)*0.8))
+	n := 0
+	for _, l := range v.lines {
+		n += strings.Count(render.Wrap(l, max(w-4, 10)), "\n") + 1
+	}
+	return w, clamp(n+2, 6, min(rows-4, 30))
 }
 
 // Update implements Modal.

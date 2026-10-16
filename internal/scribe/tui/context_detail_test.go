@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
 )
 
 func TestContextPanelShowsBreakdownAndBudget(t *testing.T) {
@@ -15,5 +17,19 @@ func TestContextPanelShowsBreakdownAndBudget(t *testing.T) {
 	}
 	if got := shareBar(1, 1000, 20); got != "█"+strings.Repeat("░", 19) {
 		t.Fatalf("a tiny share still shows one cell: %q", got)
+	}
+}
+
+func TestInfoPanelFitsItsText(t *testing.T) {
+	v := NewInfoView(theme.Resolve(""), "Claims", "", []string{"one", "two", "three"})
+	if _, h := v.Size(120, 45); h != 6 {
+		t.Fatalf("a three-line panel should be 6 rows (minimum), got %d", h)
+	}
+	long := make([]string, 80)
+	for i := range long {
+		long[i] = "line"
+	}
+	if _, h := NewInfoView(theme.Resolve(""), "Log", "", long).Size(120, 45); h != 30 {
+		t.Fatalf("a long panel should stop at 30 rows, got %d", h)
 	}
 }
