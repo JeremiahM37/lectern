@@ -19,6 +19,9 @@ func (v *View) build() {
 	v.advanceAll(now)
 	lines := []string{}
 	hits := map[int]hitTarget{}
+	if v.header != "" {
+		lines = append(lines, fg(v.th.TextFaint, "── "+v.header+" ──"), "")
+	}
 	if v.earlier > 0 {
 		lines = append(lines, earlierDivider(v.earlier, w, v.th.TextFaint), "")
 	}

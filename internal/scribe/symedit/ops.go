@@ -100,6 +100,8 @@ func (e *editor) apply(text string, o op) (string, string, string, error) {
 		out, msg, err = e.addMember(idx, masked, s, o.NewCode)
 	case "remove_member":
 		out, msg, err = e.removeMember(idx, s)
+	case "set_extends":
+		out, msg, err = e.setExtends(text, idx, masked, s, o.NewCode)
 	default:
 		err = fmt.Errorf("unknown action %q", o.Action)
 	}

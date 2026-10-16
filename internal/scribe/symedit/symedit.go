@@ -37,6 +37,7 @@ var actionNames = []string{
 	"insert_text",
 	"set_return_type", "set_async", "add_parameter", "remove_parameter", "set_type", "set_initializer", "remove_initializer", "rename",
 	"add_method", "add_property", "remove_member",
+	"set_extends", "create_file",
 }
 
 const description = "Edit one definition by name instead of matching text. symbol is a name such as ParseList, " +
@@ -49,6 +50,8 @@ const description = "Edit one definition by name instead of matching text. symbo
 	"set_return_type, set_async, add_parameter and remove_parameter (new_code is the parameter name), set_type, " +
 	"set_initializer, remove_initializer, and rename (declaration name only; new_name). Member edits on a class: " +
 	"add_method and add_property (new_code is the member), remove_member (symbol Owner.member). " +
+	"set_extends (class or interface; new_code is the base, Python parents or the extends clause; empty new_code removes it). " +
+	"create_file makes a new file whose full content is new_code, with no symbol; it cannot be combined with other operations. " +
 	"Several changes to one file can go in edits, applied atomically. Set apply to false to preview the diff without " +
 	"writing. The file must be read first. " +
 	"Go, TypeScript/JavaScript, Python, Rust, Java, Kotlin, C#, Swift, C/C++, Ruby, PHP, Lua, Zig and Elixir are supported."
@@ -86,7 +89,7 @@ func (t *astEdit) Spec() llm.ToolSpec {
 		"properties": map[string]any{
 			"action":     tools.Enum("Operation.", actionNames...),
 			"symbol":     tools.Str("Definition to edit, e.g. ParseList, Server.Start or class Foo."),
-			"new_code":   tools.Str("New code for replace, replace_body, insert_before, insert_after and add_import."),
+			"new_code":   tools.Str("New code for replace, replace_body, insert_before, insert_after, add_import, create_file (the whole file) and set_extends (the base)."),
 			"old_string": tools.Str("replace_in_body: text to find inside the symbol (the start anchor when end_string is given)."),
 			"end_string": tools.Str("replace_in_body: end anchor. With it, the span from old_string through end_string is replaced by new_string. Both must be unique inside the symbol."),
 			"new_string": tools.Str("replace_in_body: replacement text."),
@@ -141,9 +144,17 @@ func (t *astEdit) Run(ctx context.Context, env *tools.Env, raw json.RawMessage) 
 	if err != nil {
 		return fail(err)
 	}
+	for _, o := range ops {
+		if o.Action == "create_file" {
+			if len(ops) > 1 {
+				return fail(fmt.Errorf("create_file must be the only operation in a call: it writes a whole new file"))
+			}
+			return createFile(ctx, env, a, abs, rel)
+		}
+	}
 	fi, err := os.Stat(abs)
 	if os.IsNotExist(err) {
-		return tools.Errorf("File not found: %s. %s edits existing files; use write_file to create one.", rel, toolName)
+		return tools.Errorf("File not found: %s. %s edits existing files; to make a new file, use action create_file with new_code as its full content (or write_file).", rel, toolName)
 	}
 	if err != nil {
 		return fail(err)
@@ -310,12 +321,12 @@ func (o op) check() error {
 	if !known {
 		return fmt.Errorf("unknown action %q. Use one of: %s", o.Action, strings.Join(actionNames, ", "))
 	}
-	if o.Action != "add_import" && o.Action != "insert_text" && strings.TrimSpace(o.Symbol) == "" {
+	if o.Action != "add_import" && o.Action != "insert_text" && o.Action != "create_file" && strings.TrimSpace(o.Symbol) == "" {
 		return fmt.Errorf("symbol is required for %s", o.Action)
 	}
 	switch o.Action {
 	case "replace", "insert_before", "insert_after", "add_import", "add_method", "add_property", "add_parameter",
-		"set_return_type", "set_type", "set_initializer", "insert_text":
+		"set_return_type", "set_type", "set_initializer", "insert_text", "create_file":
 		if isBlank(o.NewCode) {
 			return fmt.Errorf("new_code is required for %s", o.Action)
 		}

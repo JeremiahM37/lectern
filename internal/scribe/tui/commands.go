@@ -183,7 +183,10 @@ func flashCmd(kind string, text string) tea.Cmd {
 func errFlash(err error) tea.Cmd { return flashCmd("err", err.Error()) }
 
 // cmdErr reports a command's returned error in the chat, as "Command error: ...".
-func cmdErr(err error) tea.Cmd { return cmdErrText(err.Error()) }
+func cmdErr(err error) tea.Cmd {
+	text := err.Error()
+	return func() tea.Msg { return flashMsg{kind: "err", text: text, chat: true, alert: true} }
+}
 
 func init() {
 	registerCommands(

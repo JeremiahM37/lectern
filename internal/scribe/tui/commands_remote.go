@@ -53,6 +53,23 @@ func (m *Model) remoteCommand(args string) tea.Cmd {
 	case "token":
 		say("info", m.remoteToken(rest))
 		return nil
+	case "discord":
+		ds, ok := t.be.(RemoteDiscordSetter)
+		if !ok {
+			say("err", "This session cannot change the Discord notifier.")
+			return nil
+		}
+		on := rest == "on"
+		if rest != "on" && rest != "off" {
+			say("info", "Usage: /remote discord on|off. The webhook comes from SCRIBE_DISCORD_WEBHOOK or the key store; the change applies from the next start.")
+			return nil
+		}
+		if err := ds.SetRemoteDiscord(on); err != nil {
+			say("err", "Could not change the Discord notifier: "+err.Error())
+			return nil
+		}
+		say("ok", "Discord notifier "+rest+" (from the next start of Scribe).")
+		return nil
 	case "allow":
 		id, err := telegram.Default.Allow(rest)
 		if err != nil {

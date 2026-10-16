@@ -53,6 +53,9 @@ type App struct {
 	opts    Options
 	Workdir string
 	Cfg     config.Config
+	// ConfigWarning is set when the project config was ignored at start
+	// (a parse error); empty otherwise. The TUI shows it once.
+	ConfigWarning string
 
 	Registry *registry.Registry
 	Tools    *tools.Registry
@@ -158,6 +161,30 @@ func DefaultModel(reg *registry.Registry) string {
 	return ""
 }
 
+// startConfig loads the merged config for a session. A broken project config
+// must not stop Scribe (spec 5.5): the global config is used alone and the
+// returned warning says so. A broken global file, or an unknown preset, still
+// fails.
+func startConfig(root, preset string) (config.Config, string, error) {
+	cfg, err := config.Load(root)
+	warn := ""
+	if err != nil {
+		g, gerr := config.Load("")
+		if gerr != nil {
+			return config.Config{}, "", fmt.Errorf("config: %w", gerr)
+		}
+		cfg, warn = g, fmt.Sprintf("project config ignored: %v", err)
+	}
+	if preset == "" {
+		return cfg, warn, nil
+	}
+	p, perr := config.FindPreset(root, preset)
+	if perr != nil {
+		return config.Config{}, "", fmt.Errorf("config: %w", perr)
+	}
+	return config.ApplyPreset(cfg, p), warn, nil
+}
+
 // Open builds a session.
 func Open(ctx context.Context, o Options) (*App, error) {
 	if o.Workdir == "" {
@@ -168,11 +195,11 @@ func Open(ctx context.Context, o Options) (*App, error) {
 		o.Workdir = wd
 	}
 	root := FindRoot(o.Workdir)
-	cfg, err := config.LoadWithPreset(root, o.Preset)
+	cfg, cfgWarning, err := startConfig(root, o.Preset)
 	if err != nil {
-		return nil, fmt.Errorf("config: %w", err)
+		return nil, err
 	}
-	a := &App{opts: o, Workdir: root, Cfg: cfg, date: time.Now().Format("2006-01-02")}
+	a := &App{opts: o, Workdir: root, Cfg: cfg, date: time.Now().Format("2006-01-02"), ConfigWarning: cfgWarning}
 	excludeScribeDir(root)
 	a.Registry = registry.New(cfg)
 	a.Store = session.NewStore(root)
@@ -258,7 +285,9 @@ func Open(ctx context.Context, o Options) (*App, error) {
 	}
 	a.Planner = &agent.Planner{Dir: a.Workdir, Sink: a.emit}
 	a.Planner.Register(a.Tools)
-	a.Dispatch = &agent.Dispatcher{New: a.newSubagent, MaxConcurrent: cfg.Router.MaxAgents, Sink: a.emit}
+	a.Dispatch = &agent.Dispatcher{New: a.newSubagent, MaxConcurrent: cfg.Router.MaxAgents, Sink: a.emit,
+		// Long subagent reports are archived here, beside the session state.
+		ArchiveDir: filepath.Join(config.Home(), "agent-reports")}
 	if a.ext.hookR != nil {
 		a.Dispatch.Hooks = a.ext.hookR // SubagentStart and SubagentStop
 	}
@@ -665,7 +694,9 @@ func (a *App) newSubagent(spec agent.SubagentSpec, sink agent.Sink) *agent.Agent
 		CompactAt:       -1,
 		RetryBase:       2 * time.Second, // subagents back off from 2 s (spec 03 §10)
 		Budget:          budget,
-		Hooks:           a.subagentClaimHooks(a.ext.hooks),
+		// Peer findings reach each step, not only check_findings calls.
+		Peers: agent.PeerFeed(id, spec.Bus),
+		Hooks: a.subagentClaimHooks(a.ext.hooks),
 	})
 }
 

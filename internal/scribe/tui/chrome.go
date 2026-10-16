@@ -99,9 +99,7 @@ func (m *Model) viewHeader() string {
 		mi := modeStyle(t.mode, th)
 		mode = fgb(mi.color).Render("[" + mi.label + "]")
 	}
-	if t.ctxWin > 0 || browsedCheckpoint(t) != nil {
-		bar, nums = m.contextParts(t)
-	}
+	bar, nums = m.contextParts(t)
 	if t.stale > 0 {
 		stale = fg(th.Warning).Render(staleHint(t.stale))
 	}
@@ -324,8 +322,20 @@ func (m *Model) contextParts(t *tab) (string, string) {
 		fg(th.TextSubtle).Render(strings.Repeat("▱", 8-filled)) +
 		fg(th.TextFaint).Render("]") + " " +
 		fg(col).Render(approx+itoa(pct)+"%")
-	nums := fg(col).Render(approx + render.HumanTokens(t.ctxUsed) + "/" + render.HumanTokens(t.ctxWin))
+	nums := fg(col).Render(approx + render.HumanTokens(t.ctxUsed) + "/" + render.HumanTokens(contextWindow(t)))
 	return bar, nums
+}
+
+// defaultContextWindow is the window the context bar assumes until the
+// backend reports one (spec 01 §9: "Window default 200,000").
+const defaultContextWindow = 200000
+
+// contextWindow is the window the live bar measures against.
+func contextWindow(t *tab) int {
+	if t.ctxWin > 0 {
+		return t.ctxWin
+	}
+	return defaultContextWindow
 }
 
 // browsedBar draws the checkpoint's context bar with a back arrow. The filled

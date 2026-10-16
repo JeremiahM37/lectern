@@ -195,6 +195,12 @@ func presetWrites(p config.Config, cur map[string]any) (writes []presetWrite, sk
 	if r.Fallback != nil {
 		add("router.fallback", r.Fallback)
 	}
+	// Providers go through the same provider.add write the settings screen
+	// uses: one write per provider, upserting by id. A built-in id is refused
+	// there and reported as a failed write.
+	for _, pr := range p.Providers {
+		add("provider.add", map[string]any{"id": pr.ID, "name": pr.Name, "base_url": pr.BaseURL, "api_key_env": pr.APIKeyEnv})
+	}
 	if r.MaxAgents != 0 {
 		add("router.max_agents", r.MaxAgents)
 	}
@@ -226,7 +232,7 @@ func presetWrites(p config.Config, cur map[string]any) (writes []presetWrite, sk
 		name string
 		set  bool
 	}{
-		{"providers", len(p.Providers) > 0}, {"hooks", len(p.Hooks) > 0}, {"mcp servers", len(p.MCP) > 0},
+		{"hooks", len(p.Hooks) > 0}, {"mcp servers", len(p.MCP) > 0},
 		{"disabled tools", len(p.DisabledTools) > 0}, {"deferred tools", p.DeferredTools != nil},
 		{"auto-check", p.AutoCheck != nil},
 	} {

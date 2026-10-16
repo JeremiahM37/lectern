@@ -69,6 +69,9 @@ type Options struct {
 	FallbackFor map[string][]Model
 
 	Tools *tools.Registry
+	// Peers, when set, returns the peer findings new since its last call;
+	// they are added to the next step's hints (PeerFeed).
+	Peers func() string
 	// SequentialTools runs every tool call in order. By default consecutive
 	// read-only calls run in parallel.
 	SequentialTools bool
@@ -193,6 +196,9 @@ type Agent struct {
 	running  bool
 	stopTurn bool
 	cancel   context.CancelFunc
+
+	// retries counts transient and stall retries in model calls this turn.
+	retries int
 
 	editedSinceCheck bool // files changed since the last project/test-like call
 	checkRounds      int  // auto-fix rounds used this turn
@@ -567,6 +573,7 @@ func (a *Agent) Run(ctx context.Context, prompt string, images []llm.Part) (Turn
 	}
 	a.running, a.cancel, a.stopTurn = true, cancel, false
 	a.checkRounds = 0
+	a.retries = 0
 	mode := a.mode
 	a.mu.Unlock()
 	defer func() {
@@ -611,6 +618,7 @@ func (a *Agent) Run(ctx context.Context, prompt string, images []llm.Part) (Turn
 	stats.Duration = time.Since(start)
 	a.mu.Lock()
 	stats.Tokens, stats.CostUSD = a.total, a.cost
+	stats.Retries = a.retries
 	a.mu.Unlock()
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -714,6 +722,11 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 		budgetHint, stopNow := a.budgetHints(calls, step)
 		if budgetHint != "" {
 			hints = append(hints, budgetHint)
+		}
+		if a.opts.Peers != nil {
+			if fresh := a.opts.Peers(); fresh != "" {
+				hints = append(hints, fresh)
+			}
 		}
 		q, imgs := a.drainSteering()
 		if q != "" {
@@ -1018,6 +1031,7 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 					lastErr = fmt.Errorf("%s after %d retries; giving up. You can resend your message", st.describe(), limit)
 					break
 				}
+				a.countRetry()
 				a.emit(Event{Kind: EvRetry, Attempt: stalls, MaxAttempts: limit, Category: llm.CatStream,
 					Text: fmt.Sprintf("%s. Auto-retrying (%d/%d)…", st.notice(), stalls, limit)})
 				continue
@@ -1033,6 +1047,7 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 			}
 			d := backoffFrom(a.opts.RetryBase, attempt, err)
 			attempt++
+			a.countRetry()
 			a.emit(Event{Kind: EvRetry, Attempt: attempt, MaxAttempts: a.opts.MaxRetries, Category: cat, Text: err.Error(), Delay: d, Status: status})
 			select {
 			case <-time.After(d):
@@ -1044,6 +1059,13 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 	cat, _ := llm.Classify(lastErr)
 	a.emit(Event{Kind: EvError, Category: cat, Text: errText(lastErr), Status: statusOf(lastErr)})
 	return llm.Message{}, "", lastErr
+}
+
+// countRetry records one in-run retry of a model call.
+func (a *Agent) countRetry() {
+	a.mu.Lock()
+	a.retries++
+	a.mu.Unlock()
 }
 
 // statusOf is the HTTP status of a provider error, or 0 when there is none.

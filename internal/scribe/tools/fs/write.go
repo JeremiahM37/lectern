@@ -85,7 +85,7 @@ func NewWriteFile(undo *UndoStack) tools.Tool {
 			if exists {
 				res.Output = fmt.Sprintf("Wrote %s (%d lines).", t.rel, countLines(after))
 			} else {
-				res.Output = fmt.Sprintf("Created %s (%d lines).", t.rel, countLines(after))
+				res.Output = fmt.Sprintf("Created %s (%d lines).%s", t.rel, countLines(after), creationPreview(after))
 			}
 			return res
 		},
@@ -138,7 +138,7 @@ func NewEditFile(undo *UndoStack) tools.Tool {
 				}
 				res := commit(env, undo, t, nil, false, a.NewString)
 				if !res.IsError {
-					res.Output = fmt.Sprintf("Created %s (%d lines).", t.rel, countLines(a.NewString))
+					res.Output = fmt.Sprintf("Created %s (%d lines).%s", t.rel, countLines(a.NewString), creationPreview(a.NewString))
 				}
 				return res
 			}
@@ -227,7 +227,7 @@ func editExisting(env *tools.Env, undo *UndoStack, t target, edits []editSpec, m
 	}
 	if env.Files != nil {
 		if !env.Files.WasRead(t.abs) {
-			return tools.Errorf("%s has not been read this session. Read it first so the edit is based on its current content.", t.rel)
+			return tools.Errorf("%s has not been read this session. Read it first so the edit is based on its current content.%s", t.rel, astEditHint(t.rel))
 		}
 		if env.Files.StaleSinceRead(t.abs) {
 			return errTag("concurrent modification", "%s changed on disk since you read it. Read it again, then retry the edit.", t.rel)
@@ -748,4 +748,42 @@ func dice(a, b map[string]int) float64 {
 		}
 	}
 	return 2 * float64(common) / float64(na+nb)
+}
+
+// creationPreview shows the first three and last two lines of a new file, so
+// the model can check what it wrote without reading it back. Shorter files
+// are shown whole. The result starts with a newline, or is empty.
+func creationPreview(content string) string {
+	if content == "" {
+		return ""
+	}
+	lines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+	const head, tail = 3, 2
+	var b strings.Builder
+	if len(lines) <= head+tail {
+		for _, l := range lines {
+			b.WriteString("\n  " + l)
+		}
+		return b.String()
+	}
+	for _, l := range lines[:head] {
+		b.WriteString("\n  " + l)
+	}
+	fmt.Fprintf(&b, "\n  ... (%d lines not shown)", len(lines)-head-tail)
+	for _, l := range lines[len(lines)-tail:] {
+		b.WriteString("\n  " + l)
+	}
+	return b.String()
+}
+
+// astEditHint points a source-file edit at ast_edit, which edits a definition
+// by name and does not need the text matched. It names the tool only: fs
+// cannot import symedit, which imports fs.
+func astEditHint(rel string) string {
+	switch strings.ToLower(filepath.Ext(rel)) {
+	case ".go", ".py", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".java", ".kt", ".cs", ".rs",
+		".swift", ".c", ".h", ".cc", ".cpp", ".hpp", ".rb", ".php", ".lua", ".zig", ".ex", ".exs":
+		return " For a whole function, method or class, ast_edit can edit it by name (symbol) without matching its text."
+	}
+	return ""
 }

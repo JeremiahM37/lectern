@@ -208,16 +208,17 @@ func (m *Model) vimCommand(arg string) tea.Cmd {
 		return flashCmd("ok", "Vim keys "+onOff(word == "on")+" ("+scopeName(project)+")")
 	}
 	p := NewPicker(m.th, "Vim Hints", "keys")
+	p.KeepOpen = true
+	p.Hint = "↑↓ move · Enter or Space toggle · Esc close"
 	p.Items = []PickItem{
-		{Value: "on", Label: "On", Desc: "vim keys in the input box", Current: on},
-		{Value: "off", Label: "Off", Desc: "plain input", Current: !on},
+		{Value: "vim", Label: "Vim keys in the input box", Desc: "normal, insert and visual modes in the prompt", Kind: PickToggle, On: on},
 	}
 	p.refilter()
 	p.OnSelect = func(it PickItem) tea.Cmd {
-		if err := t.be.SetConfig("vim", it.Value == "on", false); err != nil {
+		if err := t.be.SetConfig("vim", it.On, false); err != nil {
 			return cmdErr(err)
 		}
-		return flashCmd("ok", "Vim keys "+onOff(it.Value == "on"))
+		return flashCmd("ok", "Vim keys "+onOff(it.On))
 	}
 	m.pushModal(p)
 	return nil
@@ -233,13 +234,13 @@ func (m *Model) openAgentFeatures() {
 		p.Items = nil
 		for _, f := range featureLabels {
 			on := c.AgentFeatures.Enabled(f.key)
-			p.Items = append(p.Items, PickItem{Value: f.key, Label: f.label, Desc: f.note, Current: on})
+			p.Items = append(p.Items, PickItem{Value: f.key, Label: f.label, Desc: f.note, Kind: PickToggle, On: on})
 		}
 		p.SetItems(p.Items)
 	}
 	p.OnSelect = func(it PickItem) tea.Cmd {
-		c := fields7(m.cur().be)
-		if err := m.saveGlobalFlat("agent_features."+it.Value, !c.AgentFeatures.Enabled(it.Value)); err != nil {
+		// The picker has already flipped it.On; save that state.
+		if err := m.saveGlobalFlat("agent_features."+it.Value, it.On); err != nil {
 			return cmdErr(err)
 		}
 		rebuild()

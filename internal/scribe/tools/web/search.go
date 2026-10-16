@@ -66,14 +66,15 @@ func (t *searchTool) Run(ctx context.Context, env *tools.Env, args json.RawMessa
 	defer cancel()
 
 	key := strings.ToLower(q) + "\x00" + fmt.Sprint(n)
-	results, cached := t.w.searches.Get(key)
+	hit, cached := t.w.searches.Get(key)
 	var err error
 	if !cached {
-		results, err = t.w.search(ctx, q, n)
-		if err == nil && len(results) > 0 {
-			t.w.searches.Put(key, results)
+		hit.results, hit.backend, err = t.w.searchFrom(ctx, q, n)
+		if err == nil && len(hit.results) > 0 {
+			t.w.searches.Put(key, hit)
 		}
 	}
+	results := hit.results
 	if err != nil {
 		return tools.Errorf("web_search failed: %s. Retry once with different terms, or use fetch_page on a URL you already know.", describeErr(err))
 	}
@@ -87,22 +88,39 @@ func (t *searchTool) Run(ctx context.Context, env *tools.Env, args json.RawMessa
 	return tools.Result{
 		Output:  formatResults(results),
 		Summary: summary,
+		Meta:    map[string]any{"backend": hit.backend},
 	}
+}
+
+// searchHit is a result list and the backend that answered it, so a cached
+// answer still names its source.
+type searchHit struct {
+	results []searchResult
+	backend string
 }
 
 // search runs the configured backends in order: Brave when a key is set,
 // then SearXNG when a URL is set, else DuckDuckGo. Brave falls through on any
 // failure or an empty answer, so a bad key does not end web search.
 func (w *webTools) search(ctx context.Context, q string, n int) ([]searchResult, error) {
+	rs, _, err := w.searchFrom(ctx, q, n)
+	return rs, err
+}
+
+// searchFrom is search and also names the backend that answered: "brave",
+// "searxng" or "duckduckgo". web_search reports it in the result tag.
+func (w *webTools) searchFrom(ctx context.Context, q string, n int) ([]searchResult, string, error) {
 	if w.opts.BraveAPIKey != "" {
 		if rs, err := w.brave(ctx, q, n); err == nil && len(rs) > 0 {
-			return rs, nil
+			return rs, "brave", nil
 		}
 	}
 	if w.opts.SearchURL != "" {
-		return w.searxng(ctx, q, n)
+		rs, err := w.searxng(ctx, q, n)
+		return rs, "searxng", err
 	}
-	return w.duckduckgo(ctx, q, n)
+	rs, err := w.duckduckgo(ctx, q, n)
+	return rs, "duckduckgo", err
 }
 
 // brave queries the Brave Search web API with the subscription key.

@@ -75,7 +75,7 @@ type webTools struct {
 	approval approvalCache
 	// searches and pages hold results for resultTTL, so a repeated query or
 	// URL in one session does not hit the network again.
-	searches *ttlCache[[]searchResult]
+	searches *ttlCache[searchHit]
 	pages    *ttlCache[*page]
 }
 
@@ -95,7 +95,7 @@ func newWebTools(opts Options) *webTools {
 		ddgURL:   defaultDDGURL,
 		braveURL: defaultBraveURL,
 		jinaURL:  defaultJinaURL,
-		searches: newTTLCache[[]searchResult](resultTTL, resultCacheSize),
+		searches: newTTLCache[searchHit](resultTTL, resultCacheSize),
 		pages:    newTTLCache[*page](resultTTL, resultCacheSize),
 	}
 	if opts.HTTPClient != nil {

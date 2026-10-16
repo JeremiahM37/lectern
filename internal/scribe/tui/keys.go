@@ -17,6 +17,15 @@ func (m *Model) handleGlobalKey(km tea.KeyMsg) (tea.Cmd, bool) {
 		return m.railKey(km)
 	}
 	switch km.String() {
+	case "ctrl+y":
+		// Copy the message the transcript is focused on (the bottom one in view).
+		if text, ok := t.chat.FocusedText(); ok && text != "" {
+			copyToTerminal(text)
+			m.setFlash("ok", "Copied the message ("+itoa(strings.Count(text, "\n")+1)+" lines)")
+		} else {
+			m.setFlash("info", "Nothing to copy")
+		}
+		return nil, true
 	case "ctrl+k":
 		m.openPalette()
 	case "ctrl+l":

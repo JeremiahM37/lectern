@@ -57,6 +57,9 @@ type View struct {
 	// earlier is how many messages came before this transcript and are not
 	// in it; the top of the message area then shows a divider (scroll.go).
 	earlier int
+	// header is a line shown above the transcript for a foreign or
+	// post-compaction session (SetSessionHeader). Empty shows nothing.
+	header string
 	// streamChars counts the text and reasoning characters streamed this
 	// turn, for the rough token estimate (streamTokens).
 	streamChars int
@@ -619,6 +622,7 @@ func (v *View) removeRecord(r *Record) {
 func (v *View) Clear() {
 	v.msgs = nil
 	v.earlier = 0
+	v.header = ""
 	v.streamChars = 0
 	v.live = nil
 	v.busy = false
@@ -679,6 +683,14 @@ func (v *View) Restore(recs []Record) {
 		}
 	}
 	v.msgs = cp
+	// A session that was compacted before it was saved says so, on its own;
+	// a caller may still set a foreign-origin header after Restore.
+	for _, r := range cp {
+		if r.Kind == "compact" {
+			v.header = "resumed after compaction"
+			break
+		}
+	}
 	v.gen++
 }
 

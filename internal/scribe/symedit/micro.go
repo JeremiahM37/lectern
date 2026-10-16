@@ -462,6 +462,7 @@ var actionTargets = map[string][]string{
 	"remove_initializer": {"variable", "const", "var", "property", "field"},
 	"add_method":         {"class", "struct", "interface", "trait"},
 	"add_property":       {"class", "struct", "interface"},
+	"set_extends":        {"class", "interface"},
 }
 
 // checkTarget reports when a symbol-addressed operation cannot apply to the

@@ -222,9 +222,9 @@ func (w *wizard) Footer() string {
 	switch w.step {
 	case wzWelcome:
 		if len(missingRequired(w.prereqs)) > 0 {
-			return "r check again · Esc close"
+			return "r check again · i install hints · Esc close"
 		}
-		return "→ next · Esc close"
+		return "→ next · i install hints · Esc close"
 	case wzProvider:
 		return "↑↓ select · Enter choose · ← back"
 	case wzKey:
@@ -287,6 +287,13 @@ func (w *wizard) onKey(km tea.KeyMsg) (Modal, tea.Cmd, bool) {
 			return w, nil, true
 		case "r":
 			w.prereqs = checkPrereqs()
+		case "i":
+			// Show the install commands for what is missing; never run them.
+			if hints := missingHints(w.prereqs, goos); len(hints) > 0 {
+				w.note = "Install (not run): " + strings.Join(hints, " · ")
+			} else {
+				w.note = "Everything on this list is installed"
+			}
 		case "enter", "right", "l", "tab":
 			if miss := missingRequired(w.prereqs); len(miss) > 0 {
 				w.note = requiredMessage(miss, goos)

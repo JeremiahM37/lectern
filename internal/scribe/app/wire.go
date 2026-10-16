@@ -110,7 +110,7 @@ func (a *App) wire(ctx context.Context) error {
 				defer close(a.ext.mapOK)
 				if m.Build(context.WithoutCancel(ctx), nil) == nil {
 					a.mu.Lock()
-					a.codeMap = m.Render(repomap.Budget(0), nil)
+					a.codeMap = m.Render(budgetOr(mapBudget()), nil)
 					a.mu.Unlock()
 					// The post-edit pass checks an edited file's importers and
 					// gives clone hints from the built map.

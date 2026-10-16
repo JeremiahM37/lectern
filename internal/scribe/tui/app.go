@@ -149,6 +149,7 @@ type (
 	flashMsg struct {
 		kind, text string
 		chat       bool // a command error: shown in the chat as "Command error: ..."
+		alert      bool // a failure the backend reported: also opens the alert
 	}
 	closedMsg  struct{}
 	turnEndMsg struct{ tab int }
@@ -412,8 +413,18 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		if msg.chat && !strings.HasPrefix(msg.text, "Usage:") {
 			m.cur().chat.AddSystem("error", "Command error: "+msg.text)
 			m.enterChat()
+			// A failed command the user must notice gets a dismissable alert
+			// (spec 01 §7.3). Usage hints stay in the flash line only.
+			// Only failures the backend reported (cmdErr); a hint about how
+			// the command is typed stays in the flash line and the chat.
+			if msg.alert {
+				m.showAlert("Command failed", msg.text)
+			}
 		}
 		m.setFlash(msg.kind, msg.text)
+		return nil
+	case draftMsg:
+		m.restoreDraft(m.tabByID(msg.tab), msg.text)
 		return nil
 	case commitSuggestedMsg:
 		m.openCommitPrompt(msg.text)
@@ -432,6 +443,15 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case paneMsg:
 		return m.onPaneMsg(msg)
 	case tea.MouseMsg:
+		// The wheel scrolls a list modal by row, accelerating on bursts.
+		if p, ok := m.topModal().(*Picker); ok && m.phase != phaseShutdown {
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				return p.wheel(-1, time.Now())
+			case tea.MouseButtonWheelDown:
+				return p.wheel(1, time.Now())
+			}
+		}
 		if m.topModal() != nil || m.phase == phaseShutdown {
 			return nil
 		}

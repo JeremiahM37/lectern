@@ -23,6 +23,32 @@ func BusTools(id string, bus *AgentBus) []tools.Tool {
 	}
 }
 
+// PeerFeed returns the hook that hands agent id the findings its peers
+// posted since the last call, so each step sees them without a check_findings
+// call (spec 03 section 3.5). It returns "" when nothing is new. Findings are
+// append-only, so the hook keeps an index; it is called from the agent's loop
+// only.
+func PeerFeed(id string, bus *AgentBus) func() string {
+	if bus == nil {
+		return nil
+	}
+	seen := 0
+	return func() string {
+		all := bus.Findings()
+		var lines []string
+		for _, f := range all[min(seen, len(all)):] {
+			if f.Agent != id {
+				lines = append(lines, formatFinding(f))
+			}
+		}
+		seen = len(all)
+		if len(lines) == 0 {
+			return ""
+		}
+		return "<system-reminder>New findings from other subagents of this dispatch:\n" + strings.Join(lines, "\n") + "\n</system-reminder>"
+	}
+}
+
 // cancelDispatchTool stops the whole dispatch: every running subagent is
 // cancelled and the pending ones never start (spec 03 section 3.2).
 type cancelDispatchTool struct {

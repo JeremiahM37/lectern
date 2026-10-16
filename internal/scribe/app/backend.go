@@ -23,7 +23,6 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/registry"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/remote/telegram"
-	"github.com/JeremiahM37/lectern/v2/internal/scribe/repomap"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/session"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools/exec"
@@ -229,6 +228,10 @@ func NewBackend(a *App, h *TUIHost) tui.Backend {
 		reasoning: a.Cfg.Reasoning,
 	}
 	b.attach(a)
+	if a.ConfigWarning != "" {
+		// The project config was ignored at start; say so where it is seen.
+		b.events.push(agent.Event{Kind: agent.EvWarning, Text: a.ConfigWarning})
+	}
 	return b
 }
 
@@ -484,6 +487,9 @@ func (b *scribeBackend) SetKey(provider, key string) error {
 	if err := a.Registry.SetKey(provider, key); err != nil {
 		return err
 	}
+	// A new key can list different models (or none, before it worked), so the
+	// cached list for this provider is stale.
+	a.Registry.InvalidateModels(provider)
 	if ref := a.Agent.CurrentModel().Ref; strings.HasPrefix(ref, provider+"/") {
 		return a.SetModel(ref)
 	}
@@ -1064,7 +1070,7 @@ func (b *scribeBackend) RebuildMap() {
 		}()
 		if a.ext.cmap.Build(context.Background(), nil) == nil {
 			a.mu.Lock()
-			a.codeMap = a.ext.cmap.Render(repomap.Budget(0), nil)
+			a.codeMap = a.ext.cmap.Render(budgetOr(mapBudget()), nil)
 			a.mu.Unlock()
 		}
 	}()
@@ -1597,6 +1603,17 @@ func setConfigField(c *config.Config, key string, v any) error {
 			return err
 		}
 		c.Router.MaxAgents = n
+	case "daily_token_budget":
+		// /budget: 0 removes the cap. Stored as a pointer so a project file can
+		// still switch a global budget off explicitly.
+		n, err := toInt(v)
+		if err != nil {
+			return err
+		}
+		if n < 0 {
+			return fmt.Errorf("the daily token budget cannot be negative")
+		}
+		c.DailyTokenBudget = &n
 	default:
 		if ok, err := c.SetReasoningField(key, v); ok {
 			return err

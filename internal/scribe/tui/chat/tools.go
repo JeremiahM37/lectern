@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools/fs"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/icons"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
 )
@@ -280,6 +281,9 @@ func (v *View) callHeader(c *Call, now time.Time) string {
 	case running:
 		if el := now.Sub(c.Start); el >= time.Second {
 			suffix = fg(th.TextDim, " "+render.HumanDuration(el.Truncate(time.Second)))
+			if c.Tool == "dispatch" && len(c.Agents) > 0 {
+				suffix += fg(th.TextDim, " · "+agentProgress(c.Agents))
+			}
 		}
 	case c.Status == "error":
 		msg := "failed"
@@ -373,17 +377,18 @@ func (v *View) editDetails(c *Call, m map[string]any, cw int) []string {
 		}
 		return out
 	}
-	if c.Result.Diff == "" {
+	diff := joinedDiff(c, argStr(m, "path"))
+	if diff == "" {
 		return nil
 	}
 	path := v.relPath(argStr(m, "path"))
-	di := parseDiff(c.Result.Diff)
+	di := parseDiff(diff)
 	total := di.added + di.removed
 	if total > largeDiff && !c.Toggled {
 		return []string{"  " + fg(th.TextMuted, fmt.Sprintf("%d lines changed (click to show)", total))}
 	}
 	if v.opt.DiffStyle == DiffSideBySide {
-		return v.sideBySideBody(c.Result.Diff, cw)
+		return v.sideBySideBody(diff, cw)
 	}
 	verb := "Edit"
 	if di.created {
@@ -401,7 +406,25 @@ func (v *View) editDetails(c *Call, m map[string]any, cw int) []string {
 	for _, l := range boxed(title, body, cw, 1, th.Border, nil) {
 		out = append(out, "  "+l)
 	}
+	if impact, _ := c.Result.Meta["impact"].(string); impact != "" {
+		out = append(out, "  "+fg(th.Amber, icons.Icon("impact"))+" "+fg(th.TextSecondary, "[impact: "+clip(impact, cw-16)+"]"))
+	}
 	return out
+}
+
+// joinedDiff is the diff an edit call shows. A multi_edit batch carries the
+// whole file before and after in Meta, so its changes read as one diff, not
+// one per edit. Other edits show the diff their result carries.
+func joinedDiff(c *Call, path string) string {
+	if c.Tool == "multi_edit" && c.Result != nil {
+		before, okB := c.Result.Meta["before"].(string)
+		after, okA := c.Result.Meta["after"].(string)
+		if okB && okA {
+			d, _, _ := fs.UnifiedDiff(path, before, after)
+			return d
+		}
+	}
+	return c.Result.Diff
 }
 
 // dispatchWindow is how many subagent rows a dispatch shows at once. Older
@@ -464,7 +487,12 @@ func (v *View) agentLines(c *Call, now time.Time) []string {
 		if a.Status == "cancelled" {
 			metaCol = th.TextMuted
 		}
-		line := fg(th.TextFaint, "  "+conn) + glyph + " " + fg(metaCol, meta) + "  " + fg(th.TextMuted, clip(a.Task, 40))
+		line := fg(th.TextFaint, "  "+conn) + glyph + " " + fg(metaCol, meta)
+		// Prompt-cache reads this agent got back, as spec 01 2.9 shows them.
+		if cr := a.Tokens.CacheReadTokens; cr > 0 {
+			line += " " + fg(th.Amber, "[cache "+render.HumanTokens(cr)+"]")
+		}
+		line += "  " + fg(th.TextMuted, clip(a.Task, 40))
 		if a.Status == "error" && a.Error != "" {
 			line += fg(th.Error, " → "+clip(a.Error, 50))
 		}

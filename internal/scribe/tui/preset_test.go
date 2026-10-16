@@ -62,12 +62,13 @@ func TestPresetWritesMapEveryFlatField(t *testing.T) {
 		"reasoning_by_provider.anthropic.effort": "medium",
 		"reasoning_by_provider.anthropic.budget": 8000,
 		"reasoning_by_provider.anthropic.service_tier": "auto",
+		"provider.add": map[string]any{"id": "p", "name": "", "base_url": "", "api_key_env": ""},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("writes:\n got %v\nwant %v", got, want)
 	}
-	if !reflect.DeepEqual(skipped, []string{"providers"}) {
-		t.Fatalf("providers have no flat key and must be reported as skipped, got %v", skipped)
+	if len(skipped) != 0 {
+		t.Fatalf("providers now apply through provider.add, nothing should be skipped, got %v", skipped)
 	}
 }
 

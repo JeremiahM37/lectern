@@ -2,8 +2,51 @@ package chat
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
+
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 )
+
+// failedAfter matches a task report line the dispatch writes when a task
+// failed after its attempts, e.g. "FAILED after 2 attempts: ...".
+var failedAfter = regexp.MustCompile(`FAILED after (\d+) attempts?`)
+
+// attemptNote summarises the failed tasks of a dispatch result: how many
+// failed and the most attempts any one of them made. Empty when none failed
+// after running.
+func attemptNote(out string) string {
+	ms := failedAfter.FindAllStringSubmatch(out, -1)
+	if len(ms) == 0 {
+		return ""
+	}
+	most := 0
+	for _, m := range ms {
+		if n, _ := strconv.Atoi(m[1]); n > most {
+			most = n
+		}
+	}
+	word := "attempts"
+	if most == 1 {
+		word = "attempt"
+	}
+	if len(ms) == 1 {
+		return fmt.Sprintf("failed after %d %s", most, word)
+	}
+	return fmt.Sprintf("%d failed, up to %d %s", len(ms), most, word)
+}
+
+// agentProgress is the live count a running dispatch shows: "2/3 agents".
+func agentProgress(agents []*agent.AgentInfo) string {
+	done := 0
+	for _, a := range agents {
+		if a.Status == "done" {
+			done++
+		}
+	}
+	return fmt.Sprintf("%d/%d agents", done, len(agents))
+}
 
 // resultSuffix is the text after " → " on a finished row. A subagent
 // dispatch counts its agents; otherwise the tool's summary is shown, and a
@@ -22,6 +65,11 @@ func (v *View) resultSuffix(c *Call) string {
 		out := fmt.Sprintf("%d/%d agents", done, len(c.Agents))
 		if cancelled > 0 {
 			out += fmt.Sprintf(" · %d cancelled", cancelled)
+		}
+		if c.Result != nil {
+			if note := attemptNote(c.Result.Output); note != "" {
+				out += " · " + note
+			}
 		}
 		return out
 	}

@@ -159,6 +159,9 @@ type TurnStats struct {
 	Duration    time.Duration `json:"duration"`
 	Error       string        `json:"error,omitempty"`
 	Aborted     bool          `json:"aborted,omitempty"`
+	// Retries counts the transient and stall retries the run made inside
+	// its model calls. A subagent's attempt count includes them.
+	Retries int `json:"retries,omitempty"`
 }
 
 // Sink receives events. Implementations must not block for long; the TUI

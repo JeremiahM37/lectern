@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,4 +72,47 @@ func Secret(envName, keyName string) string {
 		return ""
 	}
 	return strings.TrimSpace(keys[keyName])
+}
+
+// SetRemoteDiscordEnabled writes remote.discord.enabled to the global config
+// file and keeps every other key, including the rest of the remote section.
+// The notifier is built when Scribe starts, so the change applies from the
+// next start.
+func SetRemoteDiscordEnabled(on bool) error {
+	path := GlobalPath()
+	top, err := readObject(path)
+	if err != nil {
+		return err
+	}
+	remote := map[string]json.RawMessage{}
+	if raw := top["remote"]; len(raw) > 0 {
+		if err := json.Unmarshal(raw, &remote); err != nil || remote == nil {
+			return fmt.Errorf("%s: the remote section is not an object", path)
+		}
+	}
+	discord := map[string]json.RawMessage{}
+	if raw := remote["discord"]; len(raw) > 0 {
+		if err := json.Unmarshal(raw, &discord); err != nil || discord == nil {
+			return fmt.Errorf("%s: remote.discord is not an object", path)
+		}
+	}
+	flag, err := json.Marshal(on)
+	if err != nil {
+		return err
+	}
+	discord["enabled"] = flag
+	if remote["discord"], err = json.Marshal(discord); err != nil {
+		return err
+	}
+	if top["remote"], err = json.Marshal(remote); err != nil {
+		return err
+	}
+	out, err := json.MarshalIndent(top, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return writeAtomic(path, append(out, '\n'))
 }

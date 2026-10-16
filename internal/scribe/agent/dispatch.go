@@ -60,6 +60,9 @@ type Dispatcher struct {
 	Sink          Sink
 	// Hooks, when set, sees each subagent start and finish.
 	Hooks SubagentObserver
+	// ArchiveDir receives the full text of a subagent report too long to show
+	// inline (dispatch_archive.go). Empty saves nothing.
+	ArchiveDir string
 	// WorkDir is the project root that task file targets are checked against.
 	// It is also in env, but a dispatch with no env workdir skips the check.
 
@@ -87,6 +90,8 @@ type Dispatcher struct {
 	active atomic.Int32
 	// lastBoard is the board of the newest dispatch, for Status.
 	lastBoard atomic.Pointer[board]
+	// lastBus is the bus of the newest dispatch, for CancelDispatch.
+	lastBus atomic.Pointer[AgentBus]
 }
 
 // features is the feature set in force.
@@ -127,6 +132,21 @@ func (d *Dispatcher) CancelAgent(id string) error {
 		return fmt.Errorf("no dispatch has run in this session")
 	}
 	return b.cancelAgent(id)
+}
+
+// CancelDispatch stops the newest dispatch while it runs: every subagent is
+// cancelled and the pending ones never start, as when one of them calls
+// cancel_dispatch. It is the host's stop for a dispatch whose tool call is
+// blocking the model, which cannot make a call of its own until it returns.
+func (d *Dispatcher) CancelDispatch() error {
+	b := d.lastBus.Load()
+	if d.active.Load() == 0 || b == nil {
+		return fmt.Errorf("no dispatch is running")
+	}
+	if !b.Abort() {
+		return fmt.Errorf("the dispatch is already cancelled")
+	}
+	return nil
 }
 
 // Register adds the dispatch tool.
@@ -250,6 +270,7 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 	n := len(in.Tasks)
 	run := newDispatchRun(d, env)
 	d.lastBoard.Store(run.board)
+	d.lastBus.Store(run.bus)
 	for _, st := range in.Tasks {
 		run.board.add(st.Role, st.Task)
 	}
@@ -332,6 +353,7 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 		}(i, st)
 	}
 	wg.Wait()
+	archiveReports(results, runIDs(run.board, n), d.ArchiveDir, env.CallID)
 
 	// Files that code tasks changed, and the project check that follows them.
 	// The check runs with the caller's context: the breaker must not cancel it.
@@ -440,6 +462,15 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 		res.Meta["review"] = verdict
 	}
 	return res
+}
+
+// runIDs is the subagent id of each of the first n tasks, as the board names them.
+func runIDs(b *board, n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = b.id(i)
+	}
+	return out
 }
 
 // renderTaskReports writes one section per task: its report, or why it

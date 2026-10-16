@@ -226,8 +226,10 @@ type Picker struct {
 	title string
 	icon  string
 	Items []PickItem
-	Empty string // text when nothing matches
-	Hint  string // footer override
+	// wheelState is the wheel acceleration for this list (wheel_tui12.go).
+	wheelState listWheel
+	Empty      string // text when nothing matches
+	Hint       string // footer override
 	// TypeToFilter makes printable keys filter immediately (palettes).
 	TypeToFilter bool
 	// KeepOpen keeps the picker on screen after OnSelect.

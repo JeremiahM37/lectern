@@ -270,3 +270,9 @@ type ContextDetail struct {
 	System, Tools, Conversation int
 	Today, DailyBudget          int
 }
+
+// RemoteDiscordSetter turns the Discord webhook notifier on or off in the
+// global config. The change applies from the next start of Scribe.
+type RemoteDiscordSetter interface {
+	SetRemoteDiscord(on bool) error
+}

@@ -39,3 +39,12 @@ func (b *scribeBackend) CancelSubagent(id string) error {
 	}
 	return ap.Dispatch.CancelAgent(id)
 }
+
+// CancelDispatch stops every subagent of the running dispatch (/cancel all).
+func (b *scribeBackend) CancelDispatch() error {
+	a := b.current()
+	if a.Dispatch == nil {
+		return errors.New("subagents are not available in this session")
+	}
+	return a.Dispatch.CancelDispatch()
+}

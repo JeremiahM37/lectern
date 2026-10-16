@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
 )
 
@@ -90,4 +92,32 @@ func (m *Model) saveStashes(t *tab) {
 	if err := t.in.saveStashes(); err != nil {
 		m.logError(t, "could not save stashed draft: "+err.Error())
 	}
+}
+
+// draftMsg is the draft-restore bus (spec 05 §3): a slash command or a remote
+// surface sends it to put text into a tab's input. Build it with draftCmd.
+type draftMsg struct {
+	tab  int
+	text string
+}
+
+// draftCmd returns a command that delivers text to tab's input.
+func draftCmd(tab int, text string) tea.Cmd {
+	return func() tea.Msg { return draftMsg{tab: tab, text: text} }
+}
+
+// restoreDraft puts text into t's input. An empty input takes it directly. A
+// draft already there is stashed first, so the person's words are never
+// overwritten; Alt+P brings it back.
+func (m *Model) restoreDraft(t *tab, text string) {
+	if t == nil || text == "" {
+		return
+	}
+	if !t.in.empty() {
+		t.in.pushStash(t.in.expand(t.in.value()))
+		t.in.clear()
+		m.saveStashes(t)
+		m.setFlash("info", "Your draft was stashed (Alt+P to pop)")
+	}
+	t.in.setValue(text)
 }

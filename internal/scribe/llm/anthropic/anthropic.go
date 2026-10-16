@@ -20,8 +20,10 @@ import (
 const (
 	defaultBaseURL = "https://api.anthropic.com"
 	apiVersion     = "2023-06-01"
-	// defaultMaxTokens applies when the request leaves MaxTokens unset.
-	defaultMaxTokens = 8192
+	// defaultMaxTokens applies when the request leaves MaxTokens unset (spec
+	// 2.1: 64000). A known model with a lower output limit is clamped to it
+	// (see clampOutput); an explicit MaxTokens is only clamped the same way.
+	defaultMaxTokens = 64000
 	// maxErrorBody bounds how much of a non-2xx body is read for the error.
 	maxErrorBody = 1 << 20
 )

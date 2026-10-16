@@ -33,11 +33,21 @@ func init() {
 				m.pushModal(newSubagentsView(m.th, m.cur().be))
 				return nil
 			}},
-		&command{Name: "cancel", Args: "<id>", Desc: "Stop one subagent (ids in /agents)", Group: "Intelligence",
+		&command{Name: "cancel", Args: "<id|all>", Desc: "Stop one subagent (ids in /agents), or the whole dispatch", Group: "Intelligence",
 			Run: func(m *Model, args string) tea.Cmd {
 				id := strings.TrimSpace(args)
 				if id == "" {
-					return flashCmd("info", "Usage: /cancel <id>. The ids are listed by /agents.")
+					return flashCmd("info", "Usage: /cancel <id> or /cancel all. The ids are listed by /agents.")
+				}
+				if id == "all" {
+					dc, ok := m.cur().be.(DispatchCanceller)
+					if !ok {
+						return flashCmd("err", "This session cannot cancel a dispatch.")
+					}
+					if err := dc.CancelDispatch(); err != nil {
+						return flashCmd("err", "Could not cancel the dispatch: "+err.Error())
+					}
+					return flashCmd("ok", "Cancelled the running dispatch; finished subagents keep their results.")
 				}
 				if err := m.cur().be.CancelSubagent(id); err != nil {
 					return flashCmd("err", "Could not cancel "+id+": "+err.Error())
@@ -773,4 +783,10 @@ func subagentCount(n int) string {
 		return "1 subagent in the newest dispatch"
 	}
 	return fmt.Sprintf("%d subagents in the newest dispatch", n)
+}
+
+// DispatchCanceller is a backend that can stop the whole running dispatch
+// (/cancel all).
+type DispatchCanceller interface {
+	CancelDispatch() error
 }

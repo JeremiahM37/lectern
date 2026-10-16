@@ -276,6 +276,38 @@ func (f *FakeBackend) runTurn(turn int, prompt string) {
 	f.emit(agent.Event{Kind: agent.EvToolResult, AgentID: "a1", CallID: "s1", Tool: "grep", Result: &tools.Result{Output: "no other callers", Summary: "0 matches"}})
 	f.emit(agent.Event{Kind: agent.EvSubagent, Agent: &agent.AgentInfo{ID: "a1", Task: "find other callers of ParseList", Role: "explore", Status: "done", Model: f.Model(), Step: 2, Last: "no other callers"}})
 
+	// a dispatch whose code agents hit the prompt cache, one of them failing
+	// after two attempts (spec 01 2.9: cache tag, attempt count, live progress)
+	dispatchArgs := json.RawMessage(`{"tasks":[{"role":"code","task":"add trailing comma test"},{"role":"code","task":"fix split of empty item"}]}`)
+	f.emit(agent.Event{Kind: agent.EvToolStart, CallID: "d1", Tool: "dispatch"})
+	f.emit(agent.Event{Kind: agent.EvToolRun, CallID: "d1", Tool: "dispatch", Args: dispatchArgs})
+	f.emit(agent.Event{Kind: agent.EvSubagent, CallID: "d1", Agent: &agent.AgentInfo{ID: "b1", Task: "add trailing comma test", Role: "code", Status: "running", Model: f.Model(), Step: 1}})
+	f.emit(agent.Event{Kind: agent.EvSubagent, CallID: "d1", Agent: &agent.AgentInfo{ID: "b2", Task: "fix split of empty item", Role: "code", Status: "running", Model: f.Model(), Step: 1}})
+	f.pause()
+	f.emit(agent.Event{Kind: agent.EvSubagent, CallID: "d1", Agent: &agent.AgentInfo{ID: "b1", Task: "add trailing comma test", Role: "code", Status: "done", Model: f.Model(), Step: 3,
+		Tokens: llm.Usage{InputTokens: 6200, OutputTokens: 900, CacheReadTokens: 5100}}})
+	f.emit(agent.Event{Kind: agent.EvSubagent, CallID: "d1", Agent: &agent.AgentInfo{ID: "b2", Task: "fix split of empty item", Role: "code", Status: "error", Model: f.Model(), Step: 2,
+		Tokens: llm.Usage{InputTokens: 2100, OutputTokens: 300}, Error: "provider timed out"}})
+	f.emit(agent.Event{Kind: agent.EvToolResult, CallID: "d1", Tool: "dispatch", Result: &tools.Result{
+		Output: "b1: done, 1 file edited\n\nFAILED after 2 attempts: provider timed out"}})
+	stats.ToolCalls = append(stats.ToolCalls, "dispatch")
+
+	// a multi_edit batch: one joined before/after, and the impact of the change
+	mBefore := "package parser\n\n// ParseList splits a list.\nfunc ParseList(src string) []string {\n\treturn strings.Split(src, \",\")\n}\n\n// trim is a helper.\nfunc trim(s string) string {\n\treturn strings.TrimSpace(s)\n}\n"
+	mAfter := "package parser\n\n// ParseList splits a comma list and skips empty items.\nfunc ParseList(src string) []string {\n\treturn splitNonEmpty(src)\n}\n\n// trim is a helper.\nfunc trim(s string) string {\n\treturn strings.TrimSpace(s)\n}\n\nfunc splitNonEmpty(src string) []string {\n\tvar out []string\n\tfor _, p := range strings.Split(src, \",\") {\n\t\tif p = trim(p); p != \"\" {\n\t\t\tout = append(out, p)\n\t\t}\n\t}\n\treturn out\n}\n"
+	mArgs := json.RawMessage(`{"path":"internal/parser/list.go","edits":[{"old_string":"strings.Split","new_string":"splitNonEmpty"},{"old_string":"func trim","new_string":"func trim"}]}`)
+	f.emit(agent.Event{Kind: agent.EvToolStart, CallID: "c6", Tool: "multi_edit"})
+	f.emit(agent.Event{Kind: agent.EvToolRun, CallID: "c6", Tool: "multi_edit", Args: mArgs})
+	f.pause()
+	f.emit(agent.Event{Kind: agent.EvToolResult, CallID: "c6", Tool: "multi_edit", Duration: 6 * time.Millisecond, Result: &tools.Result{
+		Output:  "Applied 2 edits to internal/parser/list.go: edit 1 replaced the split; edit 2 added splitNonEmpty.",
+		Summary: "+9 -2",
+		Files:   []string{"internal/parser/list.go"},
+		Meta: map[string]any{"before": mBefore, "after": mAfter,
+			"impact": "ParseList: 3 callers in cmd/lectern, 2 tests"}}})
+	edited = append(edited, "internal/parser/list.go")
+	stats.ToolCalls = append(stats.ToolCalls, "multi_edit")
+
 	step(2)
 	text("Done. Empty items are now skipped, and the test suite passes.")
 	f.emit(agent.Event{Kind: agent.EvStepFinish, Step: 2, Usage: llm.Usage{InputTokens: 9120, OutputTokens: 412}, Total: llm.Usage{InputTokens: 14210, OutputTokens: 1180}, CostUSD: 0.021})

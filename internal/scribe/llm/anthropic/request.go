@@ -64,12 +64,23 @@ func ephemeral(ttl string) block {
 	return block{"type": "ephemeral"}
 }
 
+// clampOutput lowers an output cap to the model's documented maximum when the
+// model is in the known table. Unknown ids are left alone: the provider
+// decides, as it always has.
+func clampOutput(model string, n int) int {
+	if s, ok := lookupKnown(model); ok && s.maxOut > 0 && n > s.maxOut {
+		return s.maxOut
+	}
+	return n
+}
+
 // buildBody translates an llm.Request into a Messages API request body.
 func buildBody(req llm.Request) ([]byte, error) {
 	maxTokens := req.MaxTokens
 	if maxTokens <= 0 {
 		maxTokens = defaultMaxTokens
 	}
+	maxTokens = clampOutput(req.Model, maxTokens)
 
 	body := wireRequest{Model: req.Model, Stream: true}
 
@@ -138,7 +149,7 @@ func buildBody(req llm.Request) ([]byte, error) {
 			}
 			// max_tokens must exceed the thinking budget.
 			if maxTokens <= budget {
-				maxTokens = budget + defaultMaxTokens
+				maxTokens = clampOutput(req.Model, budget+defaultMaxTokens)
 			}
 			body.Thinking = &wireThinking{Type: "enabled", BudgetTokens: budget}
 		}

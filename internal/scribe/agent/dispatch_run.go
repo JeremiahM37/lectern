@@ -307,7 +307,7 @@ type taskResult struct {
 	err      error
 	edited   []string
 	read     []string        // files the subagent read
-	attempts int             // subagent runs that started
+	attempts int             // provider attempts: each run, plus its in-run retries
 	noDone   bool            // a code task that edited nothing
 	notes    []string        // retries and other events, shown under the report
 	reg      *tools.Registry // the registry the last code attempt ran with
@@ -315,13 +315,14 @@ type taskResult struct {
 
 // attempt is one subagent run.
 type attempt struct {
-	report string
-	err    error
-	usage  llm.Usage
-	cost   float64
-	edited []string
-	read   []string
-	reg    *tools.Registry
+	report   string
+	err      error
+	usage    llm.Usage
+	cost     float64
+	edited   []string
+	read     []string
+	reg      *tools.Registry
+	attempts int // 1 when the subagent ran, plus its transient and stall retries
 }
 
 // attempt runs one fresh subagent on task and reports how it ended. Its
@@ -384,13 +385,14 @@ func (r *dispatchRun) attempt(ctx context.Context, idx int, role string, purpose
 		err = errDispatchCancelled
 	}
 	return attempt{
-		report: lastAssistantText(sub.Messages()),
-		err:    err,
-		usage:  stats.Tokens,
-		cost:   stats.CostUSD,
-		edited: stats.FilesEdited,
-		read:   stats.FilesRead,
-		reg:    sub.opts.Tools,
+		report:   lastAssistantText(sub.Messages()),
+		err:      err,
+		usage:    stats.Tokens,
+		cost:     stats.CostUSD,
+		edited:   stats.FilesEdited,
+		read:     stats.FilesRead,
+		reg:      sub.opts.Tools,
+		attempts: 1 + stats.Retries,
 	}
 }
 
@@ -440,7 +442,7 @@ func (r *dispatchRun) runTask(ctx context.Context, idx int, role string, purpose
 func (r *dispatchRun) runTaskOnce(ctx context.Context, idx int, role string, purpose Purpose, task string) taskResult {
 	first := r.launch(ctx, idx, role, purpose, task)
 	res := taskResult{report: first.report, err: first.err, edited: first.edited, read: first.read, reg: first.reg}
-	res.attempts = startedAttempts(first.err)
+	res.attempts = first.attempts
 	res.err = r.mapStop(res.err)
 	if role != "code" || ctx.Err() != nil || r.tripped() || r.bus.Aborted() {
 		return res
@@ -468,7 +470,7 @@ func (r *dispatchRun) runTaskOnce(ctx context.Context, idx int, role string, pur
 		res.notes = append(res.notes, "retry skipped: "+errBreakerOpen.Error())
 		return res
 	}
-	res.attempts += startedAttempts(second.err)
+	res.attempts += second.attempts
 	res.notes = append(res.notes, "retried once: "+why)
 	res.report, res.err = second.report, second.err
 	res.edited = sortedUnique(append(append([]string(nil), first.edited...), second.edited...))
@@ -478,15 +480,6 @@ func (r *dispatchRun) runTaskOnce(ctx context.Context, idx int, role string, pur
 	}
 	res.err = r.mapStop(res.err)
 	return res
-}
-
-// startedAttempts is 1 when a subagent ran, 0 when the breaker kept it from
-// starting.
-func startedAttempts(err error) int {
-	if errors.Is(err, errBreakerOpen) {
-		return 0
-	}
-	return 1
 }
 
 // providerFailure reports whether err came from the model provider (an HTTP
