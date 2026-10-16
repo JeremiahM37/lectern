@@ -697,8 +697,8 @@ func (m *Map) renderBlock(p string) string {
 			badge = fmt.Sprintf(" <-%d", n)
 		}
 		summary := ""
-		if s.Summary != "" {
-			summary = " - " + s.Summary
+		if t := m.symbolSummary(s); t != "" {
+			summary = " - " + t
 		}
 		fmt.Fprintf(&sb, "  %s%s :%d%s%s\n", mark, sig, s.Line, badge, summary)
 	}

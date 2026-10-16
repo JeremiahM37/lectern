@@ -35,7 +35,7 @@ func (m *Model) sessionCommand(args string) tea.Cmd {
 	}
 	c, rest := findCommand(args)
 	if c == nil || c.Name == "session" {
-		return flashCmd("err", "Usage: /session continue, history, new, clear, rename or export")
+		return cmdErrText("Usage: /session continue, history, new, clear, rename or export")
 	}
 	return c.Run(m, rest)
 }
@@ -46,7 +46,7 @@ func (m *Model) continueTurn() tea.Cmd {
 	t := m.cur()
 	c, ok := t.be.(Continuer)
 	if !ok {
-		return errFlash(errors.New("this session cannot continue a turn"))
+		return cmdErr(errors.New("this session cannot continue a turn"))
 	}
 	m.enterChat()
 	if t.busy {
@@ -54,7 +54,7 @@ func (m *Model) continueTurn() tea.Cmd {
 	}
 	started, err := c.Continue()
 	if err != nil {
-		return errFlash(err)
+		return cmdErr(err)
 	}
 	if !started {
 		t.chat.AddSystem("info", "Nothing to continue: the last turn finished.")

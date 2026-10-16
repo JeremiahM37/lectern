@@ -16,6 +16,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // Options tunes a Map. Zero values pick defaults.
@@ -24,7 +26,17 @@ type Options struct {
 	MaxFileBytes int64 // skip larger files; default 1 MiB
 	MaxFiles     int   // index at most this many files; default 10000
 	InMemory     bool  // keep the cache in memory (tests, throwaway use)
+	// IdleTimeout abandons a Build when no file finishes for this long, so a
+	// stuck parse cannot hold the map forever (spec 4.2: 10 minutes). Zero
+	// picks the default; a negative value turns the check off.
+	IdleTimeout time.Duration
+	// stall, when set, runs in a worker before each file is parsed. Tests use
+	// it to hold a parse open and exercise the idle watchdog.
+	stall func(rel string)
 }
+
+// DefaultIdleTimeout is the scan idle limit when Options.IdleTimeout is zero.
+const DefaultIdleTimeout = 10 * time.Minute
 
 // Map is the code map for one repository. Build and Update are serialised;
 // queries take a read lock and may run concurrently with either.
@@ -63,6 +75,10 @@ type Map struct {
 	callers    map[string][]callRef // callee name -> functions whose body calls it
 	summarizer Summarizer
 	summaries  map[string]summaryEntry // model summaries, keyed by path
+	// summaryMode picks what the map shows as a symbol's one-line summary; see
+	// SetSummaryMode.
+	summaryMode string
+	autoRegen   bool // see SetAutoRegen
 	// reexports lists, for each barrel, the files it re-exports from.
 	reexports map[string][]string
 	// derived holds indexes built on first use from the file set (symbol
@@ -161,6 +177,42 @@ func (m *Map) Close() error {
 	return m.db.Close()
 }
 
+// Clear empties the map: its cache rows, its summaries, its trigram index and
+// its in-memory graph. The next Build starts from nothing. It waits for a
+// running Build or Update, as Close does.
+func (m *Map) Clear() error {
+	m.buildMu.Lock()
+	defer m.buildMu.Unlock()
+	m.mu.RLock()
+	paths := append([]string(nil), m.paths...)
+	m.mu.RUnlock()
+	if err := writeRows(m.db, nil, paths); err != nil {
+		return err
+	}
+	m.mu.RLock()
+	sums := make([]string, 0, len(m.summaries))
+	for p := range m.summaries {
+		sums = append(sums, p)
+	}
+	m.mu.RUnlock()
+	if err := writeSummaries(m.db, nil, sums); err != nil {
+		return err
+	}
+	m.tri.mu.Lock()
+	m.tri.files = map[string]triEntry{}
+	m.tri.mu.Unlock()
+	m.mu.Lock()
+	m.summaries = map[string]summaryEntry{}
+	m.cochange = map[string][]Pair{}
+	m.recent = nil
+	m.warning = ""
+	m.lastParsed = 0
+	m.recompute(map[string]*fileInfo{}, map[string][]Pair{})
+	m.mu.Unlock()
+	m.recordRendered(nil)
+	return nil
+}
+
 // Root returns the absolute repository root.
 func (m *Map) Root() string { return m.root }
 
@@ -201,6 +253,37 @@ func (m *Map) Build(ctx context.Context, progress func(done, total int)) error {
 		return err
 	}
 
+	// The scan runs under its own context so the idle watchdog can abandon it.
+	// A worker stuck in one parse cannot be stopped, so on a stall Build stops
+	// waiting for it, and a goroutine drains the stragglers later.
+	scanCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var lastProgress atomic.Int64
+	lastProgress.Store(time.Now().UnixNano())
+	var stalled atomic.Bool
+	idle := m.opts.IdleTimeout
+	if idle == 0 {
+		idle = DefaultIdleTimeout
+	}
+	if idle > 0 {
+		go func() {
+			tick := time.NewTicker(max(idle/8, time.Millisecond))
+			defer tick.Stop()
+			for {
+				select {
+				case <-scanCtx.Done():
+					return
+				case <-tick.C:
+					if time.Since(time.Unix(0, lastProgress.Load())) > idle {
+						stalled.Store(true)
+						cancel()
+						return
+					}
+				}
+			}
+		}()
+	}
+
 	jobs := make(chan fileEntry)
 	results := make(chan fileResult)
 	var wg sync.WaitGroup
@@ -210,6 +293,9 @@ func (m *Map) Build(ctx context.Context, progress func(done, total int)) error {
 			defer wg.Done()
 			for e := range jobs {
 				row, have := rows[e.rel]
+				if m.opts.stall != nil {
+					m.opts.stall(e.rel)
+				}
 				results <- m.process(e, row, have)
 			}
 		}()
@@ -219,7 +305,7 @@ func (m *Map) Build(ctx context.Context, progress func(done, total int)) error {
 		for _, e := range entries {
 			select {
 			case jobs <- e:
-			case <-ctx.Done():
+			case <-scanCtx.Done():
 				return
 			}
 		}
@@ -232,7 +318,25 @@ func (m *Map) Build(ctx context.Context, progress func(done, total int)) error {
 	files := make(map[string]*fileInfo, len(entries))
 	var ups []upsert
 	parsed, done := 0, 0
-	for r := range results {
+	for {
+		var r fileResult
+		var open bool
+		select {
+		case r, open = <-results:
+		case <-scanCtx.Done():
+			go func() {
+				for range results {
+				}
+			}()
+			if stalled.Load() {
+				return fmt.Errorf("repomap: scan stalled: no file finished for %s, so the scan was abandoned. Check for a file that hangs the parser, or set a longer IdleTimeout", idle)
+			}
+			return ctx.Err()
+		}
+		if !open {
+			break
+		}
+		lastProgress.Store(time.Now().UnixNano())
 		done++
 		if progress != nil {
 			progress(done, len(entries))

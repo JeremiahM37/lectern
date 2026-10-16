@@ -41,6 +41,20 @@ type Hooks interface {
 	Stop(ctx context.Context, stats TurnStats)
 }
 
+// postCompactObserver is implemented by hooks that run after a compaction
+// replaced the history (the PostCompact event).
+type postCompactObserver interface {
+	PostCompact(ctx context.Context)
+}
+
+// SubagentObserver is implemented by hooks that see each subagent start and
+// finish (the SubagentStart and SubagentStop events). errText is empty when
+// the subagent finished normally.
+type SubagentObserver interface {
+	SubagentStart(ctx context.Context, role, task string)
+	SubagentStop(ctx context.Context, role, task, errText string)
+}
+
 // Compactor shrinks a conversation that is close to the context window.
 type Compactor interface {
 	Compact(ctx context.Context, msgs []llm.Message) (kept []llm.Message, summary string, err error)
@@ -1593,13 +1607,14 @@ func (a *Agent) Compact(ctx context.Context, reason string) error {
 	if h, ok := a.opts.Hooks.(compactObserver); ok {
 		h.PreCompact(context.WithoutCancel(ctx))
 	}
-	a.emit(Event{Kind: EvCompactStart, Text: reason})
+	model := a.CurrentModel().Ref // the compaction log shows which model did the work
+	a.emit(Event{Kind: EvCompactStart, Text: reason, Meta: map[string]any{"model": model}})
 	before := a.Messages()
 	kept, summary, err := a.opts.Compactor.Compact(ctx, before)
 	if err != nil {
 		// compact_start must always be closed, or the UI keeps its
 		// "compacting" spinner; skipped tells it nothing was replaced.
-		done := Event{Kind: EvCompactDone, Meta: map[string]any{"skipped": true, "messages_before": len(before), "messages_after": len(before)}}
+		done := Event{Kind: EvCompactDone, Meta: map[string]any{"skipped": true, "model": model, "messages_before": len(before), "messages_after": len(before)}}
 		if errors.Is(err, ErrNotEnoughHistory) {
 			// Nothing is wrong: there is simply too little to summarise yet.
 			a.emit(done)
@@ -1616,7 +1631,10 @@ func (a *Agent) Compact(ctx context.Context, reason string) error {
 	a.gen++
 	a.mu.Unlock()
 	a.persist(true)
-	a.emit(Event{Kind: EvCompactDone, Text: summary, Meta: map[string]any{"messages_before": len(before), "messages_after": len(kept)}})
+	if h, ok := a.opts.Hooks.(postCompactObserver); ok {
+		h.PostCompact(context.WithoutCancel(ctx))
+	}
+	a.emit(Event{Kind: EvCompactDone, Text: summary, Meta: map[string]any{"model": model, "messages_before": len(before), "messages_after": len(kept)}})
 	// The context bar should drop now, not at the next model call.
 	used, _ := a.ContextEstimate()
 	a.emit(Event{Kind: EvContext, ContextUsed: used, ContextWindow: a.CurrentModel().Info.ContextWindow, Estimated: true})

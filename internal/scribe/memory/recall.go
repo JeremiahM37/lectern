@@ -387,6 +387,10 @@ type Stores struct {
 
 	// session, surfaced and surfacedDir are set by SetSession. surfaced is
 	// the ids Inject has already put in front of the model in this session.
+	// CoChange returns the files that change with file in git history, most
+	// frequent first. The app sets it from the repo map; nil means none.
+	CoChange func(file string) []string
+
 	session     string
 	surfMu      sync.Mutex // guards surfaced and surfacedDir: recall and compaction run on different goroutines
 	surfaced    map[string]bool
@@ -410,6 +414,7 @@ func Open(root string) (*Stores, error) {
 		}
 		s.Project = p
 	}
+	_ = NoteSessionStart() // feeds the cleanup hint; a failed write only delays it
 	return s, nil
 }
 
@@ -467,7 +472,7 @@ func (s *Stores) Recall(query string, files []string, limit int) ([]Scored, erro
 		all = append(all, got...)
 	}
 	sort.SliceStable(all, func(i, j int) bool { return all[i].Score > all[j].Score })
-	return all, nil
+	return s.addCoChange(all, s.neighbours(files)), nil
 }
 
 // Inject renders the memories relevant to query and files as a

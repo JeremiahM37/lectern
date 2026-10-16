@@ -151,11 +151,61 @@ func within(root, path string) bool {
 func (o Options) denied(command string) (string, bool) {
 	c := normalize(command)
 	for _, d := range o.Deny {
-		if e := normalize(d); e != "" && strings.Contains(c, e) {
+		if ruleMatch(d, c) {
 			return d, true
 		}
 	}
 	return "", false
+}
+
+// ruleSig matches the Tool(glob) rule form, e.g. shell(git push --force*).
+var ruleSig = regexp.MustCompile(`^([A-Za-z_]+)\((.*)\)$`)
+
+// commandTools are the rule tool names whose signature is the command text.
+var commandTools = map[string]bool{"shell": true, "bash": true, "project": true, "git": true}
+
+// ruleMatch reports whether a config rule matches the normalized command c.
+// A Tool(glob) rule for a command tool matches the whole command against the
+// glob (see globMatch): the signature is ToolName(command), so the tool name is
+// implied by the command text. Any other entry keeps the older substring match
+// so existing configs keep working. Entries and command are normalized
+// (lower case, whitespace collapsed), which defeats "git push  --force".
+func ruleMatch(rule, c string) bool {
+	e := normalize(rule)
+	if e == "" {
+		return false
+	}
+	if m := ruleSig.FindStringSubmatch(e); m != nil {
+		if !commandTools[m[1]] {
+			return false
+		}
+		return globMatch(m[2], c)
+	}
+	return strings.Contains(c, e)
+}
+
+// globMatch matches s against pattern, anchored at both ends. "*" and "**"
+// match any run of characters, "?" matches one character, and everything else
+// is literal. Both sides are expected to be normalized already.
+func globMatch(pattern, s string) bool {
+	var b strings.Builder
+	b.WriteString("^")
+	for i := 0; i < len(pattern); i++ {
+		switch ch := pattern[i]; ch {
+		case '*':
+			for i+1 < len(pattern) && pattern[i+1] == '*' {
+				i++
+			}
+			b.WriteString(".*")
+		case '?':
+			b.WriteString(".")
+		default:
+			b.WriteString(regexp.QuoteMeta(string(ch)))
+		}
+	}
+	b.WriteString("$")
+	re, err := regexp.Compile("(?s)" + b.String())
+	return err == nil && re.MatchString(s)
 }
 
 // allowed reports whether command matches an Allow entry and is a single
@@ -167,6 +217,12 @@ func (o Options) allowed(command string) bool {
 	c := normalize(command)
 	for _, a := range o.Allow {
 		e := normalize(a)
+		if m := ruleSig.FindStringSubmatch(e); m != nil {
+			if commandTools[m[1]] && globMatch(m[2], c) {
+				return true
+			}
+			continue
+		}
 		if e != "" && (c == e || strings.HasPrefix(c, e+" ")) {
 			return true
 		}

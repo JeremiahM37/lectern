@@ -5,6 +5,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -51,6 +52,21 @@ type MemoryHider interface {
 	HiddenMemories() []MemoryItem
 	HideMemory(id string) error
 	RestoreMemory(id string) error
+}
+
+// MemoryTransfer is optionally implemented by a Backend that moves memories
+// in and out of a JSON file. Export writes the given scope ("project",
+// "global" or "all") under the exports folder and returns the path. Import
+// reads the newest export of that scope back in, through the normal dedupe.
+type MemoryTransfer interface {
+	ExportMemories(scope string) (path string, n int, err error)
+	ImportMemories(scope string) (path string, added, merged int, err error)
+}
+
+// MemoryCleanupDoner is optionally implemented by a Backend that resets the
+// cleanup-hint counter once the person completes a cleanup action.
+type MemoryCleanupDoner interface {
+	MemoryCleanupDone()
 }
 
 // MemoryPolicy is the memory settings the settings sub-modal edits. The
@@ -247,7 +263,7 @@ func (b *memoryBrowser) Footer() string {
 	if b.inHidden() {
 		return "↑↓ · r restore · d delete for good · Tab · Esc close"
 	}
-	return "↑↓ · Enter edit · n new · d hide · p pin · / search · s settings · Esc"
+	return "↑↓ · Enter edit · n new · d hide · p pin · e export · i import · ^X clear all · / search · s settings · Esc"
 }
 
 // Size implements Sized. It also records whether the preview goes beside the list.
@@ -351,6 +367,9 @@ func (b *memoryBrowser) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 		if it, ok := b.current(); ok {
 			if b.canHide() && !b.inHidden() {
 				b.hide(it)
+				if b.inCleanup() {
+					b.cleanupDone()
+				}
 			} else {
 				b.m.pushModal(b.confirmDelete(it))
 			}
@@ -363,8 +382,63 @@ func (b *memoryBrowser) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 		}
 	case "p":
 		b.togglePin()
+		if b.inCleanup() {
+			b.cleanupDone()
+		}
+	case "e":
+		b.exportScope()
+	case "i":
+		b.importScope()
 	}
 	return b, nil, false
+}
+
+// transferScope is the scope export and import act on: the tab's own scope,
+// or everything on the hidden tab.
+func (b *memoryBrowser) transferScope() string {
+	if b.inHidden() {
+		return "all"
+	}
+	return b.scope()
+}
+
+// exportScope writes the showing scope to a JSON file in the exports folder.
+func (b *memoryBrowser) exportScope() {
+	t, ok := b.be.(MemoryTransfer)
+	if !ok {
+		b.say("info", "This build cannot export memories.")
+		return
+	}
+	path, n, err := t.ExportMemories(b.transferScope())
+	if err != nil {
+		b.say("err", "Export failed: "+err.Error())
+		return
+	}
+	b.say("ok", fmt.Sprintf("Exported %d memories to %s", n, path))
+}
+
+// importScope reads the newest export of the showing scope back in.
+func (b *memoryBrowser) importScope() {
+	t, ok := b.be.(MemoryTransfer)
+	if !ok {
+		b.say("info", "This build cannot import memories.")
+		return
+	}
+	path, added, merged, err := t.ImportMemories(b.transferScope())
+	if err != nil {
+		b.say("err", "Import failed: "+err.Error())
+		return
+	}
+	b.reload()
+	b.say("ok", fmt.Sprintf("Imported from %s: %d new, %d merged", filepath.Base(path), added, merged))
+}
+
+// cleanupDone tells the backend a cleanup action completed, so the hint
+// counter restarts.
+func (b *memoryBrowser) cleanupDone() {
+	if d, ok := b.be.(MemoryCleanupDoner); ok {
+		d.MemoryCleanupDone()
+	}
 }
 
 // purgeAll deletes every memory in both scopes. It stops at the first error,

@@ -54,6 +54,11 @@ func newFakeTG(t *testing.T) *fakeTG {
 }
 
 func (f *fakeTG) serve(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/file/bot"+f.token+"/") {
+		// The file host: the bytes of photos/ or docs/ paths, nothing else.
+		_, _ = w.Write([]byte("\x89PNG-test-bytes"))
+		return
+	}
 	prefix := "/bot" + f.token + "/"
 	if !strings.HasPrefix(r.URL.Path, prefix) {
 		writeAPI(w, http.StatusUnauthorized, map[string]any{"ok": false, "description": "Unauthorized"})
@@ -91,6 +96,14 @@ func (f *fakeTG) serve(w http.ResponseWriter, r *http.Request) {
 		default:
 		}
 		writeAPI(w, http.StatusOK, map[string]any{"ok": true, "result": map[string]any{"message_id": 1}})
+	case "getFile":
+		var p struct {
+			FileID string `json:"file_id"`
+		}
+		_ = json.Unmarshal(raw, &p)
+		writeAPI(w, http.StatusOK, map[string]any{"ok": true, "result": map[string]any{
+			"file_path": "photos/" + p.FileID + ".png", "file_size": 16,
+		}})
 	case "answerCallbackQuery":
 		var p struct {
 			Text string `json:"text"`

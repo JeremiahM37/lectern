@@ -129,15 +129,49 @@ func TelegramEnabledInConfig() bool {
 	return err == nil && rc.Telegram != nil && rc.Telegram.Enabled
 }
 
-// Disable stops the poll loop. Approvals and questions then go to the local
-// host alone, and the bound tab gets no phone messages.
+// Disable stops the poll loop. Every phone approval still waiting is denied
+// first, so nothing hangs on a surface that is gone. Questions still waiting
+// fall back to the local host. The bound tab gets no phone messages.
 func (s *Surface) Disable() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.bot != nil {
+		s.bot.FailPending(nil, "Telegram was turned off, so the request was denied.")
+	}
 	if s.cancel != nil {
 		s.cancel()
 	}
 	s.bot, s.cancel = nil, nil
+}
+
+// CloseTab ends owner's part on the phone when its tab closes or shuts down:
+// its waiting approvals are denied, and it stops being the bound tab.
+func (s *Surface) CloseTab(owner Sink) {
+	s.mu.Lock()
+	bot := s.bot
+	if owner != nil && s.sink == owner {
+		s.sink = nil
+	}
+	s.mu.Unlock()
+	if bot != nil && owner != nil {
+		bot.FailPending(owner, "The Scribe tab closed before the phone answered.")
+	}
+}
+
+// Unpair forgets every chat paired from Telegram and reports how many. Chats
+// listed in the config stay. It works whether or not the surface is on.
+func (s *Surface) Unpair() (int, error) {
+	s.mu.Lock()
+	bot := s.bot
+	s.mu.Unlock()
+	if bot != nil {
+		return bot.allow.RemoveAll()
+	}
+	allow, err := remote.NewAllowlist(StatePath(), nil)
+	if err != nil {
+		return 0, err
+	}
+	return allow.RemoveAll()
 }
 
 // Enabled reports whether the surface is on.
@@ -207,13 +241,21 @@ func (s *Surface) Notify(source Sink, e agent.Event) {
 // straight to inner. The check is made on every call, so turning the surface
 // on or off takes effect at once.
 func (s *Surface) Host(inner tools.Host) tools.Host {
-	return &surfaceHost{s: s, inner: inner}
+	return s.HostFor(nil, inner)
 }
 
-// deliver is the Bot's Deliver: it hands a plain message to the bound tab.
-// A running turn takes it as steering, an idle tab starts a turn with it.
-// This mirrors the TUI's own rule for typed input.
-func (s *Surface) deliver(text string) string {
+// HostFor is Host for the tab owner. Owner is the tab's sink, so CloseTab can
+// deny that tab's waiting approvals. It also keeps the tab's "approve for
+// session" grants.
+func (s *Surface) HostFor(owner Sink, inner tools.Host) tools.Host {
+	return &surfaceHost{s: s, inner: inner, owner: owner, remembered: map[string]bool{}}
+}
+
+// deliver is the Bot's Deliver: it hands a plain message (and any images)
+// to the bound tab. A running turn takes text as steering, an idle tab starts
+// a turn with it. Images cannot be steered in, so they wait for the turn to
+// end. This mirrors the TUI's own rule for typed input.
+func (s *Surface) deliver(text string, images []llm.Part) string {
 	s.mu.Lock()
 	sink := s.sink
 	s.mu.Unlock()
@@ -221,10 +263,15 @@ func (s *Surface) deliver(text string) string {
 		return "No Scribe tab is bound to Telegram. In the Scribe tab you want to drive, run /remote here, then send again."
 	}
 	msg := "[via telegram] " + text
-	if sink.Running() && sink.Steer(msg) {
-		return "Steering the running turn."
+	if sink.Running() {
+		if len(images) > 0 {
+			return "Scribe is busy. Send the file once this turn finishes."
+		}
+		if sink.Steer(msg) {
+			return "Steering the running turn."
+		}
 	}
-	sink.Submit(msg, nil)
+	sink.Submit(msg, images)
 	return "Sent to Scribe."
 }
 
@@ -247,6 +294,10 @@ func (s *Surface) stop() string {
 type surfaceHost struct {
 	s     *Surface
 	inner tools.Host
+	owner Sink
+
+	mu         sync.Mutex
+	remembered map[string]bool // Kind+Tool approved for this session from the phone
 }
 
 // current returns the bot and wait time, or a nil bot when the surface is off.
@@ -257,11 +308,27 @@ func (h *surfaceHost) current() (*Bot, time.Duration) {
 }
 
 func (h *surfaceHost) Approve(ctx context.Context, ap tools.Approval) tools.Decision {
-	bot, wait := h.current()
-	if bot == nil {
-		return h.inner.Approve(ctx, ap)
+	key := ap.Kind + "\x00" + ap.Tool
+	h.mu.Lock()
+	granted := h.remembered[key]
+	h.mu.Unlock()
+	if granted {
+		return tools.AllowSession
 	}
-	return NewHost(bot, h.inner, wait).Approve(ctx, ap)
+	var d tools.Decision
+	if bot, wait := h.current(); bot == nil {
+		d = h.inner.Approve(ctx, ap)
+	} else {
+		host := NewHost(bot, h.inner, wait)
+		host.owner = h.owner
+		d = host.Approve(ctx, ap)
+	}
+	if d == tools.AllowSession {
+		h.mu.Lock()
+		h.remembered[key] = true
+		h.mu.Unlock()
+	}
+	return d
 }
 
 func (h *surfaceHost) Ask(ctx context.Context, q tools.Question) (string, error) {
@@ -269,7 +336,9 @@ func (h *surfaceHost) Ask(ctx context.Context, q tools.Question) (string, error)
 	if bot == nil {
 		return h.inner.Ask(ctx, q)
 	}
-	return NewHost(bot, h.inner, wait).Ask(ctx, q)
+	host := NewHost(bot, h.inner, wait)
+	host.owner = h.owner
+	return host.Ask(ctx, q)
 }
 
 func (h *surfaceHost) Progress(callID, text string) {

@@ -75,6 +75,8 @@ func (a *App) wire(ctx context.Context) error {
 	if r, err := hooks.NewFromDisk(a.Workdir, a.Meta.ID); err == nil {
 		a.ext.hookR = r
 		a.ext.hooks = r
+		// A hook's statusMessage is shown in the transcript while the hook runs.
+		r.SetStatus(func(text string) { a.emit(agent.Event{Kind: agent.EvNotice, At: time.Now(), Text: text}) })
 	}
 	if m, err := mcp.NewFromDisk(a.Workdir, hooks.Trusted(a.Workdir), a.opts.Version); err == nil {
 		a.ext.mcp = m
@@ -87,6 +89,9 @@ func (a *App) wire(ctx context.Context) error {
 	if config.Bool(a.Cfg.RepoMap, true) && !a.opts.NoRepoMap {
 		if m, err := repomap.Open(a.Workdir, repomap.Options{}); err == nil {
 			a.ext.cmap = m
+			if a.Memory != nil {
+				a.Memory.CoChange = coChangeFrom(m) // recall adds memories of files that change together
+			}
 			a.services["repomap"] = m
 			repomap.Register(a.Tools, m)
 			go func() {

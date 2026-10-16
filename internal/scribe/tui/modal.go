@@ -182,6 +182,11 @@ func (m *Model) updateModal(msg tea.Msg) tea.Cmd {
 	if md == nil {
 		return nil
 	}
+	if _, isKey := msg.(tea.KeyMsg); isKey {
+		if b, ok := md.(busyModal); ok && b.Busy() {
+			return nil // background work owns the modal; keys wait
+		}
+	}
 	next, cmd, done := md.Update(msg)
 	if done {
 		m.closeModal(md)
@@ -358,13 +363,7 @@ func (p *Picker) refilter() {
 			p.visible = append(p.visible, i)
 			continue
 		}
-		best, ok := -1<<30, false
-		for _, f := range []string{it.Label, it.Value, it.Desc, it.Group} {
-			if s, hit := fuzzyScore(f, p.query); hit && s > best {
-				best, ok = s, true
-			}
-		}
-		if ok {
+		if best, ok := matchItem(it, p.query); ok {
 			sc = append(sc, scored{i, best})
 		}
 	}
@@ -388,6 +387,23 @@ func (p *Picker) clampCursor() {
 	}
 	if p.cursor < 0 {
 		p.cursor = 0
+	}
+}
+
+// step moves the cursor one row, wrapping past either end and skipping
+// disabled rows. Up/down and j/k use it; paging and Home/End use move.
+func (p *Picker) step(delta int) {
+	n := len(p.visible)
+	if n == 0 {
+		return
+	}
+	i := p.cursor
+	for k := 0; k < n; k++ {
+		i = ((i+delta)%n + n) % n
+		if !p.Items[p.visible[i]].Disabled {
+			p.cursor = i
+			return
+		}
 	}
 }
 
@@ -511,10 +527,10 @@ func (p *Picker) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 		cmd := p.OnSelect(it)
 		return p, cmd, !p.KeepOpen
 	case key == "up" || key == "ctrl+k":
-		p.move(-1)
+		p.step(-1)
 		return p, p.fireCursor(), false
 	case key == "down" || key == "ctrl+j":
-		p.move(1)
+		p.step(1)
 		return p, p.fireCursor(), false
 	case p.Collapsible && !p.searching && !p.TypeToFilter && (key == "left" || key == "h"):
 		p.toggleFold(true)
@@ -567,9 +583,9 @@ func (p *Picker) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 		return p, nil, false
 	case !p.TypeToFilter && !p.searching && (key == "j" || key == "k"):
 		if key == "j" {
-			p.move(1)
+			p.step(1)
 		} else {
-			p.move(-1)
+			p.step(-1)
 		}
 		return p, p.fireCursor(), false
 	case text != "" && (p.TypeToFilter || p.searching):
@@ -1011,6 +1027,7 @@ type TextPrompt struct {
 	value       []rune
 	masked      bool
 	allowEmpty  bool
+	limit       int // most runes the value may hold; 0 means the 400-rune cap only
 	hint        string
 	onSubmit    func(string) tea.Cmd
 	onCancel    func()
@@ -1029,6 +1046,9 @@ func (t *TextPrompt) AllowEmpty() *TextPrompt { t.allowEmpty = true; return t }
 
 // WithHint sets a line shown under the input.
 func (t *TextPrompt) WithHint(h string) *TextPrompt { t.hint = h; return t }
+
+// WithLimit caps the value at n runes; typing past it is ignored.
+func (t *TextPrompt) WithLimit(n int) *TextPrompt { t.limit = n; return t }
 
 // OnCancel sets a callback for Esc.
 func (t *TextPrompt) OnCancel(f func()) *TextPrompt { t.onCancel = f; return t }
@@ -1075,7 +1095,7 @@ func (t *TextPrompt) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 	case "ctrl+u":
 		t.value = nil
 	default:
-		if s := printable(km); s != "" && len(t.value) < 400 {
+		if s := printable(km); s != "" && len(t.value) < 400 && (t.limit == 0 || len(t.value) < t.limit) {
 			t.value = append(t.value, []rune(s)...)
 		}
 	}

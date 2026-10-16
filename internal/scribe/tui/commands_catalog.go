@@ -29,7 +29,7 @@ func init() {
 					return nil
 				}
 				if !isForgeMode(args) {
-					return flashCmd("err", "Unknown mode "+args+". Modes: "+strings.Join(modeOrder, ", "))
+					return cmdErrText("Unknown mode " + args + ". Modes: " + strings.Join(modeOrder, ", "))
 				}
 				return m.setMode(args)
 			}},
@@ -48,25 +48,8 @@ func init() {
 				m.openInfo("Changes", "diff", m.changesLines())
 				return nil
 			}},
-		&command{Name: "checkpoint", Args: "[list|undo|redo]", Desc: "Checkpoints: browse, undo or redo a turn", Group: "Session",
-			Run: func(m *Model, args string) tea.Cmd {
-				switch strings.TrimSpace(args) {
-				case "", "list":
-					m.openCheckpoints()
-					return nil
-				case "undo":
-					m.confirmUndo()
-					return nil
-				case "redo":
-					c, _ := findCommand("redo")
-					return c.Run(m, "")
-				case "live":
-					return flashCmd("info", "Ctrl+F steps forward through checkpoints and returns to the live view")
-				case "save":
-					return flashCmd("info", "Checkpoints are kept in Scribe's own store; there is no git tag to save")
-				}
-				return flashCmd("err", "Usage: /checkpoint [list|undo|redo]")
-			}},
+		&command{Name: "checkpoint", Args: "[N|live|list|undo [n]|redo]", Desc: "Checkpoints: jump to a turn, go live, list, undo or redo", Group: "Session",
+			Run: func(m *Model, args string) tea.Cmd { return checkpointCommand(m, args) }},
 		&command{Name: "font", Args: "[nerd]", Desc: "Terminal font info; nerd toggles Nerd Font icons", Group: "Settings",
 			Run: func(m *Model, args string) tea.Cmd {
 				t := m.cur()
@@ -77,12 +60,12 @@ func init() {
 				case "nerd":
 					on, _ := t.be.Config()["nerd_font"].(bool)
 					if err := t.be.SetConfig("nerd_font", !on, false); err != nil {
-						return errFlash(err)
+						return cmdErr(err)
 					}
 					icons.SetNerd(!on)
 					return flashCmd("ok", "Nerd Font icons "+onOff(!on))
 				}
-				return flashCmd("err", "Usage: /font [nerd]. The terminal font is set in your terminal emulator")
+				return cmdErrText("Usage: /font [nerd]. The terminal font is set in your terminal emulator")
 			}},
 		&command{Name: "provider-settings", Aliases: []string{"providers", "provider"}, Desc: "Provider and model options: keys, thinking, effort", Group: "Models",
 			Run: func(m *Model, _ string) tea.Cmd { return m.openSettingsTab(stProviders) }},
@@ -125,7 +108,7 @@ func runAlias(m *Model, name, args string) tea.Cmd {
 	line := strings.TrimSpace(name + " " + args)
 	c, rest := findCommand(line)
 	if c == nil || c.Name != name {
-		return flashCmd("err", "Command /"+name+" is not registered")
+		return cmdErrText("Command /" + name + " is not registered")
 	}
 	return c.Run(m, rest)
 }
@@ -288,18 +271,18 @@ func (m *Model) copyExport() tea.Cmd {
 	if md, ok := be.(MarkdownExporter); ok {
 		text, err := md.ExportMarkdown()
 		if err != nil {
-			return errFlash(err)
+			return cmdErr(err)
 		}
 		copyToTerminal(text)
 		return flashCmd("ok", "Copied the chat as markdown")
 	}
 	path, err := be.Export("markdown")
 	if err != nil {
-		return errFlash(err)
+		return cmdErr(err)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return errFlash(err)
+		return cmdErr(err)
 	}
 	copyToTerminal(string(data))
 	return flashCmd("ok", "Copied the chat as markdown (file kept at "+path+")")

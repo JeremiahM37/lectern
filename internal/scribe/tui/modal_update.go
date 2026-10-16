@@ -36,7 +36,15 @@ type UpdateStatus struct {
 	Known   bool   // Current and Latest could be compared
 	Newer   bool   // Latest is newer than Current
 	Err     string // why the check failed
+	// Notes is the changelog excerpt for Latest, one line per change, newest
+	// first. Empty when the release source does not carry release notes.
+	Notes []string
+	// URL is the release page for Latest. Empty means the releases index.
+	URL string
 }
+
+// maxNotes caps the changelog excerpt in the notice.
+const maxNotes = 6
 
 // UpdateChecker is optionally implemented by a Backend that can check the
 // release list. It may block for a few seconds; the notice runs it in the
@@ -67,7 +75,15 @@ func (u *updateNotice) Title() string { return "Updates" }
 func (u *updateNotice) Icon() string { return "download" }
 
 // Footer implements Footered.
-func (u *updateNotice) Footer() string { return "r check again · Esc close" }
+func (u *updateNotice) Footer() string {
+	if u.st.Newer {
+		return "r check again · g GitHub · Esc close"
+	}
+	return "r check again · Esc close"
+}
+
+// Busy implements busyModal: keys wait while the release list is read.
+func (u *updateNotice) Busy() bool { return u.loading }
 
 // Size implements Sized.
 func (u *updateNotice) Size(cols, rows int) (int, int) {
@@ -89,6 +105,15 @@ func (u *updateNotice) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 				u.loading = true
 				return u, u.check(), false
 			}
+		case "g":
+			link := u.st.URL
+			if link == "" {
+				link = releasePage(u.st.Latest)
+			}
+			if err := openURL(link); err != nil {
+				return u, flashCmd("info", "Open this in a browser: "+link), false
+			}
+			return u, flashCmd("ok", "Opened the release page"), false
 		}
 	}
 	return u, nil, false
@@ -123,11 +148,23 @@ func (u *updateNotice) lines(th theme.Theme) []string {
 			fg(th.Error).Render("  Could not read the release list: " + oneLine(st.Err)),
 		}
 	case st.Newer:
-		return []string{
+		out := []string{
 			"  You are running " + cur + ".",
 			"",
 			fg(th.Warning).Render(fmt.Sprintf("  Release %s is out. Run lectern update to install it.", st.Latest)),
+			fg(th.TextMuted).Render("  Release page: " + releasePageOf(st)),
 		}
+		if len(st.Notes) > 0 {
+			out = append(out, "", fgb(th.TextPrimary).Render("  What's new"))
+			for i, n := range st.Notes {
+				if i == maxNotes {
+					out = append(out, fg(th.TextFaint).Render(fmt.Sprintf("    … and %d more on GitHub", len(st.Notes)-maxNotes)))
+					break
+				}
+				out = append(out, fg(th.TextSecondary).Render("    • "+oneLine(n)))
+			}
+		}
+		return out
 	case st.Known:
 		return []string{
 			"  You are running " + cur + ".",
@@ -140,4 +177,12 @@ func (u *updateNotice) lines(th theme.Theme) []string {
 		"",
 		fg(th.TextMuted).Render("  The newest release is " + st.Latest + ". This build cannot be compared with it."),
 	}
+}
+
+// releasePageOf is the release link the notice shows for a newer release.
+func releasePageOf(st UpdateStatus) string {
+	if st.URL != "" {
+		return st.URL
+	}
+	return releasePage(st.Latest)
 }

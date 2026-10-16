@@ -10,26 +10,39 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
 )
 
-// Register adds the read-only code map tools to r: code_map, find_symbol,
-// symbol_refs, code_impact and file_outline.
+// Register adds the read-only code map tools to r: code_map (with actions),
+// find_symbol, symbol_refs, code_impact and file_outline.
 func Register(r *tools.Registry, m *Map) {
 	r.Register(&mapTool{m: m, spec: llm.ToolSpec{
 		Name: "code_map",
-		Description: "Show the ranked code map of the repository: the most important files and their key symbols as signatures with line numbers. " +
-			"Use it first to orient yourself. Pass focus files, or a query to personalize the ranking toward matching files.",
+		Description: "Look at the repository's code map. With no action it shows the ranked map: the most important files and their key symbols. " +
+			"Other actions answer specific questions: identifier_frequency, unused_exports, packages, symbols_by_kind, class_members, top_files, " +
+			"file_profile, duplication, call_graph, search_symbols (name prefix), summaries. Pass only the arguments that action needs.",
 		Schema: tools.Schema(map[string]any{
-			"focus":  tools.Arr("Repo-relative files to rank around", map[string]any{"type": "string"}),
-			"query":  tools.Str("Optional name or concept; matching files are added to the focus"),
+			"action": tools.Str("map (default), identifier_frequency, unused_exports, packages, symbols_by_kind, class_members, top_files, file_profile, duplication, call_graph, search_symbols, summaries"),
+			"focus":  tools.Arr("Repo-relative files to rank around (action map)", map[string]any{"type": "string"}),
+			"query":  tools.Str("Optional name or concept; matching files are added to the focus (action map)"),
 			"budget": tools.Int("Approximate token budget for the map (default 2500, max 4000)"),
+			"name":   tools.Str("Symbol or type name (call_graph, class_members, search_symbols with a prefix such as build*, packages filter)"),
+			"file":   tools.Str("Repo-relative file path (file_profile)"),
+			"kind":   tools.Str("Symbol kind: function, method, class, interface, type, enum, trait, struct (symbols_by_kind)"),
+			"limit":  tools.Int("Maximum rows for the action"),
 		}),
 	}, run: runCodeMap})
 	r.Register(&mapTool{m: m, spec: llm.ToolSpec{
-		Name:        "find_symbol",
-		Description: "Find functions, types, classes and other symbols by name. Fuzzy: prefixes, substrings and abbreviations all match. Returns file, line and signature. Set callees to also list the functions each function calls.",
+		Name: "find_symbol",
+		Description: "Find functions, types, classes and other symbols by name. Fuzzy: prefixes, substrings and abbreviations all match. " +
+			"Exact names come first, then the most important symbols. Results are grouped by file. " +
+			"Filter with kind (function, class, ...) or type (test, component, config, types, style). Set concept to search by what the code is about " +
+			"(for example \"token refresh\"). Set callees or callers to list what a function calls or is called by.",
 		Schema: tools.Schema(map[string]any{
-			"query":   tools.Str("Symbol name or fragment"),
-			"limit":   tools.Int("Maximum results (default 20)"),
+			"query":   tools.Str("Symbol name or fragment, or a phrase when concept is true"),
+			"kind":    tools.Str("Only symbols of this kind: function, method, class, interface, type, enum, trait, struct"),
+			"type":    tools.Str("Only files of this category: test, component, config, types, style"),
+			"limit":   tools.Int("Maximum symbols (default 20)"),
+			"concept": tools.Bool("Search by concept over symbol names, file paths and doc summaries (default false; also used when no name matches)"),
 			"callees": tools.Bool("List the function definitions each matched function calls (default false)"),
+			"callers": tools.Bool("List the functions that call each matched function (default false)"),
 		}, "query"),
 	}, run: runFindSymbol})
 	r.Register(&mapTool{m: m, spec: llm.ToolSpec{
@@ -77,81 +90,6 @@ func (t *mapTool) Run(_ context.Context, _ *tools.Env, args json.RawMessage) (re
 		return tools.Errorf("the code map is not available in this session. Use grep and glob instead.")
 	}
 	return t.run(t.m, args)
-}
-
-func runCodeMap(m *Map, args json.RawMessage) tools.Result {
-	var a struct {
-		Focus  []string `json:"focus"`
-		Query  string   `json:"query"`
-		Budget int      `json:"budget"`
-	}
-	if err := tools.Decode(args, &a); err != nil {
-		return tools.Errorf("%v", err)
-	}
-	if a.Budget <= 0 {
-		a.Budget = 2500
-	}
-	if a.Budget > 4000 {
-		a.Budget = 4000
-	}
-	focus := a.Focus
-	if q := strings.TrimSpace(a.Query); q != "" {
-		for _, h := range m.FindFile(q, 5) {
-			focus = append(focus, h.Path)
-		}
-		for _, h := range m.SearchSymbols(q, 10) {
-			focus = append(focus, h.File)
-		}
-	}
-	out := m.Render(a.Budget, focus)
-	if out == "" {
-		return tools.Errorf("the code map is empty. The repository may have no supported source files, or it has not been built yet.")
-	}
-	return tools.Result{Output: out, Summary: fmt.Sprintf("%d focus files", len(focus))}
-}
-
-func runFindSymbol(m *Map, args json.RawMessage) tools.Result {
-	var a struct {
-		Query   string `json:"query"`
-		Limit   int    `json:"limit"`
-		Callees bool   `json:"callees"`
-	}
-	if err := tools.Decode(args, &a); err != nil {
-		return tools.Errorf("%v", err)
-	}
-	if strings.TrimSpace(a.Query) == "" {
-		return tools.Errorf("query is required. Pass a symbol name or fragment.")
-	}
-	hits := m.SearchSymbols(a.Query, a.Limit)
-	if len(hits) == 0 {
-		fl := m.FindFile(a.Query, 5)
-		msg := fmt.Sprintf("no symbols match %q. Try a shorter fragment, or grep for the text.", a.Query)
-		if len(fl) > 0 {
-			msg += " Matching files: " + joinPaths(fl)
-		}
-		return tools.Result{Output: msg, Summary: "0 matches"}
-	}
-	var sb strings.Builder
-	for _, h := range hits {
-		fmt.Fprintf(&sb, "%s %s  %s:%d", h.Kind, h.Name, h.File, h.Line)
-		if h.Parent != "" {
-			fmt.Fprintf(&sb, "  (in %s)", h.Parent)
-		}
-		if h.Signature != "" {
-			fmt.Fprintf(&sb, "\n    %s", h.Signature)
-		}
-		sb.WriteByte('\n')
-		if a.Callees && isFuncKind(h.Kind) {
-			cs := m.Callees(h.File, h.Line)
-			if len(cs) == 0 {
-				sb.WriteString("    calls: none found in the code map\n")
-			}
-			for _, c := range cs {
-				fmt.Fprintf(&sb, "    calls %s  %s:%d\n", c.Name, c.File, c.Line)
-			}
-		}
-	}
-	return tools.Result{Output: sb.String(), Summary: fmt.Sprintf("%d symbols", len(hits))}
 }
 
 func runSymbolRefs(m *Map, args json.RawMessage) tools.Result {

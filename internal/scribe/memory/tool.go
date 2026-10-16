@@ -38,13 +38,13 @@ func (t *memoryTool) Spec() llm.ToolSpec {
 	return llm.ToolSpec{
 		Name: "memory",
 		Description: "Durable memory across sessions. Save a decision, convention, bug, preference, fact or todo " +
-			"that a later session should know; search or list what is already saved; get, delete or pin a record by id; " +
+			"that a later session should know; search or list what is already saved; get, delete (a soft delete: restore brings it back) or pin a record by id; " +
 			"review stale records. Save only things that will still matter later, with a short specific title (max 200 " +
 			"characters), a body of at most 2000 characters, up to 8 tags and the file paths it concerns. When a new " +
 			"memory contradicts or replaces an older one, save it with supersedes set to the old id, so the old one " +
 			"stops being recalled. Relevant memories are also recalled automatically at the start of each turn.",
 		Schema: tools.Schema(map[string]any{
-			"action":     tools.Enum("What to do.", "save", "search", "list", "get", "delete", "pin", "stale"),
+			"action":     tools.Enum("What to do.", "save", "search", "list", "get", "delete", "restore", "pin", "stale"),
 			"scope":      tools.Enum("project (this repo) or global (all repos). Default: project for save; all for search, list, get, delete, pin and stale.", "project", "global", "all"),
 			"id":         tools.Str("Record id or unique id prefix (get, delete, pin, and supersedes)."),
 			"category":   tools.Enum("Record category (save), or filter (list).", "decision", "convention", "bug", "preference", "fact", "todo"),
@@ -74,7 +74,7 @@ func (t *memoryTool) Run(_ context.Context, _ *tools.Env, raw json.RawMessage) t
 	if t.stores == nil {
 		return tools.Errorf("memory is not available in this session.")
 	}
-	switch a.Action {
+	switch a.Action = normAction(a.Action); a.Action {
 	case "save":
 		return t.save(a)
 	case "search":
@@ -85,14 +85,36 @@ func (t *memoryTool) Run(_ context.Context, _ *tools.Env, raw json.RawMessage) t
 		return t.get(a)
 	case "delete":
 		return t.delete(a)
+	case "restore":
+		return t.restore(a)
 	case "pin":
 		return t.pin(a)
 	case "stale":
 		return t.stale(a)
 	case "":
-		return tools.Errorf("action is required: save, search, list, get, delete, pin or stale.")
+		return tools.Errorf("action is required: save, search, list, get, delete, restore, pin or stale.")
 	}
-	return tools.Errorf("unknown action %q. Use save, search, list, get, delete, pin or stale.", a.Action)
+	return tools.Errorf("unknown action %q. Use save, search, list, get, delete, restore, pin or stale.", a.Action)
+}
+
+// normAction maps the near misses a model tends to send onto the real actions
+// (forget and remove mean delete, unhide means restore, and so on).
+func normAction(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "forget", "remove", "hide", "soft_delete", "softdelete":
+		return "delete"
+	case "unhide", "undelete", "unforget", "recover":
+		return "restore"
+	case "remember", "store", "add", "write":
+		return "save"
+	case "find", "query", "recall":
+		return "search"
+	case "pinned", "unpin":
+		return "pin"
+	case "show", "read", "fetch":
+		return "get"
+	}
+	return strings.ToLower(strings.TrimSpace(s))
 }
 
 func (t *memoryTool) save(a memoryArgs) tools.Result {
@@ -280,10 +302,28 @@ func (t *memoryTool) delete(a memoryArgs) tools.Result {
 	if err != nil {
 		return tools.Errorf("%v", err)
 	}
-	if err := db.Delete(r.ID); err != nil {
+	if r.Hidden {
+		return tools.Errorf("memory %s is already deleted. action restore with this id brings it back.", shortID(r.ID))
+	}
+	if err := db.Hide(r.ID); err != nil {
 		return tools.Errorf("delete failed: %v", err)
 	}
-	return tools.Result{Output: fmt.Sprintf("Deleted memory %s (%s): %s.", shortID(r.ID), r.Scope, r.Title), Summary: "deleted"}
+	return tools.Result{Output: fmt.Sprintf("Deleted memory %s (%s): %s. It is kept but no longer recalled; action restore with this id brings it back.", shortID(r.ID), r.Scope, r.Title), Summary: "deleted"}
+}
+
+// restore brings a soft-deleted memory back into recall, search and list.
+func (t *memoryTool) restore(a memoryArgs) tools.Result {
+	if a.ID == "" {
+		return tools.Errorf("restore needs an id. Soft-deleted memories are listed by the memory modal's hidden tab.")
+	}
+	r, db, err := t.find(a)
+	if err != nil {
+		return tools.Errorf("%v", err)
+	}
+	if err := db.Restore(r.ID); err != nil {
+		return tools.Errorf("restore failed: %v", err)
+	}
+	return tools.Result{Output: fmt.Sprintf("Restored memory %s (%s): %s.", shortID(r.ID), r.Scope, r.Title), Summary: "restored"}
 }
 
 func (t *memoryTool) pin(a memoryArgs) tools.Result {

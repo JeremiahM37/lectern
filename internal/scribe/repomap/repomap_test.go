@@ -604,7 +604,7 @@ func TestToolsAreReadOnlyAndWork(t *testing.T) {
 	}
 	cases := []struct{ name, args, want string }{
 		{"code_map", `{"query":"clean","budget":800}`, "internal/util/util.go"},
-		{"find_symbol", `{"query":"Start"}`, "internal/api/server.go:"},
+		{"find_symbol", `{"query":"Start"}`, "internal/api/server.go\n  method Start  :17"},
 		{"symbol_refs", `{"name":"Clean"}`, "internal/worker/worker.go:"},
 		{"code_impact", `{"file":"internal/util/util.go"}`, "Direct importers (4)"},
 		{"file_outline", `{"path":"internal/api/server.go"}`, "    L"},

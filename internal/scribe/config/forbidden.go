@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 // ForbiddenFile is the name of the forbidden-paths file, in the global
@@ -32,6 +33,7 @@ func ForbiddenPatterns(root string) ([]string, error) {
 		return nil, err
 	}
 	out := unionStrings(c.Forbidden, nil)
+	out = unionStrings(out, SessionForbidden())
 	files := []string{filepath.Join(Home(), ForbiddenFile)}
 	if root != "" {
 		files = append(files, filepath.Join(ProjectDir(root), ForbiddenFile))
@@ -63,4 +65,46 @@ func readForbiddenFile(path string) ([]string, error) {
 		return nil, fmt.Errorf("%s is not valid JSON (%v). Fix or remove it; file access is paused until then.", path, err)
 	}
 	return unionStrings(nil, doc.Patterns), nil
+}
+
+// sessionForbidden holds the patterns added with /privacy session. They last
+// for this process only and are never written to a file.
+var (
+	sessionForbiddenMu sync.Mutex
+	sessionForbidden   []string
+)
+
+// SessionForbidden returns the patterns added for this session only.
+func SessionForbidden() []string {
+	sessionForbiddenMu.Lock()
+	defer sessionForbiddenMu.Unlock()
+	return append([]string(nil), sessionForbidden...)
+}
+
+// AddSessionForbidden adds a pattern for this process only. It reports false
+// when the pattern is already there.
+func AddSessionForbidden(pat string) bool {
+	sessionForbiddenMu.Lock()
+	defer sessionForbiddenMu.Unlock()
+	for _, p := range sessionForbidden {
+		if p == pat {
+			return false
+		}
+	}
+	sessionForbidden = append(sessionForbidden, pat)
+	return true
+}
+
+// RemoveSessionForbidden drops a session-only pattern. It reports whether it
+// was there.
+func RemoveSessionForbidden(pat string) bool {
+	sessionForbiddenMu.Lock()
+	defer sessionForbiddenMu.Unlock()
+	for i, p := range sessionForbidden {
+		if p == pat {
+			sessionForbidden = append(sessionForbidden[:i], sessionForbidden[i+1:]...)
+			return true
+		}
+	}
+	return false
 }

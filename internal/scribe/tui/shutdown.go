@@ -35,6 +35,29 @@ type Stopper interface {
 	Shutdown(timeout time.Duration)
 }
 
+// EmergencySaver is implemented by backends that can write their session to
+// disk at once, without aborting or waiting for a running turn. It is the
+// last resort after a crash (spec 05 §2.2): a panic must not lose the
+// conversation that a signal would have saved.
+type EmergencySaver interface {
+	EmergencySave()
+}
+
+// EmergencySaveAll calls EmergencySave on every backend that has it. A save
+// that panics is contained, so the others still run.
+func EmergencySaveAll(list []Backend) {
+	for _, be := range list {
+		s, ok := be.(EmergencySaver)
+		if !ok {
+			continue
+		}
+		func() {
+			defer func() { _ = recover() }()
+			s.EmergencySave()
+		}()
+	}
+}
+
 // SavedBanner is the line printed once the terminal is restored, so the user
 // can find the session again. The id is the full session id, so `-s` matches
 // it exactly.

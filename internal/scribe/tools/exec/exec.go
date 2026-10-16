@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools/fs"
@@ -56,6 +57,7 @@ func gate(ctx context.Context, env *tools.Env, opts Options, tool, command, desc
 	if description != "" {
 		title = description + ": " + desc
 	}
+	ctx, reason := tools.WithReasonSlot(ctx)
 	dec := env.Host.Approve(ctx, tools.Approval{
 		Tool:   tool,
 		Kind:   "destructive",
@@ -64,12 +66,16 @@ func gate(ctx context.Context, env *tools.Env, opts Options, tool, command, desc
 		Danger: true,
 	})
 	if dec == tools.Deny {
-		return tools.Errorf("Denied: %s. Do not retry this command. Ask the user what they want, or use a narrower command.", desc), true
+		return tools.Errorf("Denied: %s. Do not retry this command. Ask the user what they want, or use a narrower command.%s", desc, tools.DeniedWithReason(reason())), true
 	}
 	return tools.Result{}, false
 }
 
-// clampTimeout turns a timeout_ms argument into a duration in [1s, 30 min].
+// minShellTimeout is the floor for a timeout the model asks for: the spec
+// clamps tool timeouts to 0.5 to 30 minutes.
+const minShellTimeout = 30 * time.Second
+
+// clampTimeout turns a timeout_ms argument into a duration in [30 s, 30 min].
 // The 30 minute ceiling is the spec's upper clamp for tool timeouts.
 // Zero or negative means the default.
 func clampTimeout(ms int, def time.Duration) time.Duration {
@@ -80,8 +86,8 @@ func clampTimeout(ms int, def time.Duration) time.Duration {
 	if d > maxShellTimeout {
 		return maxShellTimeout
 	}
-	if d < time.Second {
-		return time.Second
+	if d < minShellTimeout {
+		return minShellTimeout
 	}
 	return d
 }
@@ -108,6 +114,20 @@ func runForeground(ctx context.Context, env *tools.Env, command string, timeout 
 // output the model reads is capped at outputLimit; the full text goes to a
 // tee file when it was cut.
 func runForegroundIn(ctx context.Context, env *tools.Env, dir, command string, timeout time.Duration, extraEnv []string) foreground {
+	return runForegroundShaped(ctx, env, dir, command, timeout, extraEnv, shellShape)
+}
+
+// shape turns the full command text into the body the model reads and the
+// number of lines it dropped. label names the tee file when text is cut.
+type shape func(text, label string) (body string, omitted int)
+
+// shellShape is the default: outputLimit bytes, head and tail.
+func shellShape(text, label string) (string, int) {
+	return spill(text, outputLimit, label)
+}
+
+// runForegroundShaped is runForegroundIn with the output shape given.
+func runForegroundShaped(ctx context.Context, env *tools.Env, dir, command string, timeout time.Duration, extraEnv []string, sh shape) foreground {
 	tctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -128,7 +148,7 @@ func runForegroundIn(ctx context.Context, env *tools.Env, dir, command string, t
 	if res.truncated {
 		text += fmt.Sprintf("\n[output truncated — %d KB total, showing the first %d KB]", res.total/1024, collectLimit/1024)
 	}
-	body, omitted := spill(text, outputLimit, firstWord(command))
+	body, omitted := sh(text, firstWord(command))
 	return foreground{
 		raw:       res.output,
 		body:      body,
@@ -208,8 +228,13 @@ func (t *shellTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessage
 	if mutatingGit.MatchString(command) && dispatchActive(env) {
 		return tools.Errorf("%s", dispatchBlockedMsg)
 	}
-	if !within(env.Workdir, dir) {
+	if !within(env.Workdir, dir) && !exemptPath(dir) {
 		if res, blocked := approveOutsideCwd(ctx, env, dir, command); blocked {
+			return res
+		}
+	}
+	if outs := outsideWrites(env.Workdir, dir, command); len(outs) > 0 {
+		if res, blocked := approveOutsideCwd(ctx, env, strings.Join(outs, ", "), command); blocked {
 			return res
 		}
 	}
@@ -268,23 +293,66 @@ func resolveCwd(workdir, cwd string) (string, error) {
 	return dir, nil
 }
 
+// exemptPaths are places a command may work in without asking: the system
+// temp directory and the Scribe home (spec 05 section 9.4 exempts ~/.soulforge,
+// /tmp and /private/tmp).
+func exemptPaths() []string {
+	out := []string{"/tmp", "/private/tmp", os.TempDir(), config.Home()}
+	return out
+}
+
+// exemptPath reports whether p is inside one of the exempt places.
+func exemptPath(p string) bool {
+	p = filepath.Clean(p)
+	for _, root := range exemptPaths() {
+		if root != "" && within(root, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// outsideWrites lists the files command writes that lie outside the project
+// and outside the exempt places. Relative targets resolve against dir, the
+// directory the command runs in.
+func outsideWrites(workdir, dir, command string) []string {
+	var out []string
+	for _, p := range writtenFiles(command) {
+		abs := p
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(dir, p)
+		}
+		abs = filepath.Clean(abs)
+		if within(workdir, abs) || exemptPath(abs) {
+			continue
+		}
+		out = append(out, abs)
+	}
+	return out
+}
+
 // approveOutsideCwd asks the user before a command runs outside the project.
-// Without a host, or when the user says no, it refuses.
-func approveOutsideCwd(ctx context.Context, env *tools.Env, dir, command string) (tools.Result, bool) {
+// what names the outside directory or write targets. Without a host, or when
+// the user says no, it refuses.
+func approveOutsideCwd(ctx context.Context, env *tools.Env, what, command string) (tools.Result, bool) {
 	if env.Mode == "auto" {
 		return tools.Result{}, false
 	}
-	deny := tools.Errorf("Denied: %s is outside the project directory. Run it from inside the project.", dir)
+	deny := tools.Errorf("Denied: %s is outside the project directory. Run it from inside the project, or write under the project or /tmp.", what)
 	if env.Host == nil {
 		return deny, true
 	}
+	ctx, reason := tools.WithReasonSlot(ctx)
 	dec := env.Host.Approve(ctx, tools.Approval{
 		Tool:   "shell",
 		Kind:   "shell",
-		Title:  "Run shell command outside the project: " + dir,
+		Title:  "Run shell command outside the project: " + what,
 		Detail: command,
 	})
 	if dec == tools.Deny {
+		if r := reason(); r != "" {
+			return tools.Errorf("Denied: %s is outside the project directory. Run it from inside the project, or write under the project or /tmp.%s", what, tools.DeniedWithReason(r)), true
+		}
 		return deny, true
 	}
 	return tools.Result{}, false

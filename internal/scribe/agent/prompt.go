@@ -25,6 +25,7 @@ type PromptInput struct {
 	ModelRef     string
 	Instructions []Instruction
 	Skills       string // skills catalog, one line per skill
+	MemoryIndex  string // counts of saved memories per store (memory.Stores.Index)
 	Deferred     string // deferred tool catalog, one line per tool (may be empty)
 	CodeMap      string // rendered code map (may be empty)
 	Extra        string // --system text
@@ -32,6 +33,13 @@ type PromptInput struct {
 	// GitHub overrides the gh availability check. nil means detect it once
 	// per process (gh --version succeeds).
 	GitHub *bool
+	// Commands is the "Project commands" line (lint, typecheck, test, build)
+	// from the project's detected profile. Empty when none is detected.
+	Commands string
+	// GitContext is the git block: branch, working-tree counts, merge
+	// conflicts and recent commits. Empty outside a repository. The app
+	// computes it through the exec package, which caches it briefly.
+	GitContext string
 }
 
 // Instruction is one loaded project instruction file.
@@ -200,6 +208,15 @@ You are in challenge mode: read-only. Act as a sharp reviewer of the user's idea
 You are in auto mode: the user is away. Do not ask questions; make reasonable assumptions and record them in your final answer. Verify after each unit of work. Approvals are granted automatically, so be conservative with anything destructive.`,
 }
 
+// commitGuidance is how the agent words a commit when asked for one.
+const commitGuidance = `When you commit (git commit or the git tool's commit):
+- Subject: one line in the imperative, under 72 characters, saying what the change does ("Add retry to the fetch client", not "Fixed stuff" or "Updates").
+- Body: only when the reason is not obvious from the diff, wrapped at 72 characters, explaining why rather than what.
+- Write the message exactly as you intend it. Do not add Co-Authored-By or any other trailer, and do not add "Generated with" lines.
+- Stage only the files that belong to this change. Never stage secret files (.env, keys, credentials).
+- Do not amend, force-push or rewrite history unless the user asked.
+- The project's native checks run before the commit and block it when they fail. Fix the reported errors and commit again; do not use no_verify to get past them.`
+
 // Modes in the order Shift+Tab cycles them.
 var Modes = []string{"default", "auto", "plan", "architect", "socratic", "challenge"}
 
@@ -245,7 +262,7 @@ func promptKey(in PromptInput, mode string) string {
 	if in.GitHub != nil {
 		gh = fmt.Sprint(*in.GitHub)
 	}
-	field(mode, in.Workdir, in.Date, in.Branch, in.ModelRef, in.Skills, in.Deferred, in.CodeMap, in.Extra, in.Subagent, gh, runtime.GOOS, runtime.GOARCH)
+	field(mode, in.Workdir, in.Date, in.Branch, in.ModelRef, in.Skills, in.Deferred, in.CodeMap, in.Extra, in.Subagent, gh, runtime.GOOS, runtime.GOARCH, in.Commands, in.GitContext, in.MemoryIndex)
 	for _, ins := range in.Instructions {
 		field(ins.Path, ins.Text, ins.Scope, ins.Name)
 	}
@@ -285,6 +302,9 @@ func buildSystem(in PromptInput, mode string) string {
 	if in.Branch != "" {
 		fmt.Fprintf(&b, "- Git branch: %s\n", in.Branch)
 	}
+	if in.Commands != "" {
+		fmt.Fprintf(&b, "- Project commands: %s. Use the project tool for these; it also takes cwd for a monorepo package.\n", in.Commands)
+	}
 	if in.Date != "" {
 		fmt.Fprintf(&b, "- Date: %s\n", in.Date)
 	}
@@ -302,10 +322,23 @@ func buildSystem(in PromptInput, mode string) string {
 	if gh {
 		b.WriteString("- GitHub CLI (gh) is installed: use it for issues, pull requests and releases.\n")
 	}
+	if !reasoner && in.GitContext != "" {
+		b.WriteString("\n# Git context\nThe state of the repository when this turn started. It is a snapshot; run git status for the current state.\n")
+		b.WriteString(in.GitContext)
+		b.WriteString("\n")
+	}
+	if !reasoner && (in.Subagent == "" || in.Subagent == "code") {
+		b.WriteString("\n# Commit messages\n" + commitGuidance + "\n")
+	}
 	writeInstructions(&b, in.Instructions)
 	if !reasoner && in.Deferred != "" {
 		b.WriteString("\n# Deferred tools\nThese tools are not loaded yet. Call request_tools with their names to load them; they can be called from the next step. Load only what the task needs.\n")
 		b.WriteString(in.Deferred)
+		b.WriteString("\n")
+	}
+	if in.MemoryIndex != "" {
+		b.WriteString("\n# Memory\nSaved memories for this project and your preferences. Search or list them with the memory tool before relying on what you remember:\n")
+		b.WriteString(in.MemoryIndex)
 		b.WriteString("\n")
 	}
 	if !reasoner && in.Skills != "" {

@@ -80,7 +80,7 @@ func TestAutoFixRunsAfterCompoundToolOnly(t *testing.T) {
 	if src.fixes != 1 {
 		t.Fatalf("move_symbol should run source fixes once, ran %d", src.fixes)
 	}
-	if !strings.Contains(res.Output, "Auto-fixed: organized imports and applied fixes in a.go.") {
+	if !strings.Contains(res.Output, "Auto-fixed: applied fixes and formatting in a.go.") {
 		t.Fatalf("auto-fix not reported: %q", res.Output)
 	}
 	if !strings.Contains(res.Diff, "import \"os\"") {

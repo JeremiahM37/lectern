@@ -595,6 +595,9 @@ func (v *View) Clear() {
 	v.gen++
 }
 
+// Len is the number of records in the transcript.
+func (v *View) Len() int { return len(v.msgs) }
+
 // Export returns the transcript as plain, JSON-serialisable records.
 func (v *View) Export() []Record {
 	b, _ := json.Marshal(v.msgs)

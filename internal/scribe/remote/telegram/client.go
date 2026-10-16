@@ -38,6 +38,7 @@ func (e *APIError) Error() string {
 // errors.
 type Client struct {
 	token  string
+	root   string
 	base   string
 	http   *http.Client
 	redact *redact.Redactor
@@ -54,9 +55,11 @@ func NewClient(apiBase, token string, hc *http.Client) *Client {
 		// and each call carries its own context.
 		hc = &http.Client{}
 	}
+	root := strings.TrimRight(apiBase, "/")
 	return &Client{
 		token:  token,
-		base:   strings.TrimRight(apiBase, "/") + "/bot" + token,
+		root:   root,
+		base:   root + "/bot" + token,
 		http:   hc,
 		redact: redact.New(token),
 	}
@@ -80,9 +83,26 @@ type Message struct {
 	Chat          Chat            `json:"chat"`
 	Date          int64           `json:"date"`
 	Text          string          `json:"text,omitempty"`
+	Caption       string          `json:"caption,omitempty"`
+	Photo         []PhotoSize     `json:"photo,omitempty"`
+	Document      *Document       `json:"document,omitempty"`
 	ForwardOrigin json.RawMessage `json:"forward_origin,omitempty"`
 	ViaBot        *User           `json:"via_bot,omitempty"`
 	SenderChat    *Chat           `json:"sender_chat,omitempty"`
+}
+
+// PhotoSize is one size of a photo. Telegram lists them smallest first.
+type PhotoSize struct {
+	FileID   string `json:"file_id"`
+	FileSize int64  `json:"file_size,omitempty"`
+}
+
+// Document is a file sent as a document.
+type Document struct {
+	FileID   string `json:"file_id"`
+	FileName string `json:"file_name,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
+	FileSize int64  `json:"file_size,omitempty"`
 }
 
 // CallbackQuery is a tap on an inline keyboard button.
@@ -201,4 +221,48 @@ func (c *Client) SendMessage(ctx context.Context, chat int64, text string, kb *I
 // short note.
 func (c *Client) AnswerCallbackQuery(ctx context.Context, id, text string) error {
 	return c.call(ctx, "answerCallbackQuery", map[string]any{"callback_query_id": id, "text": text}, nil)
+}
+
+// errTooLarge means a download went past the size limit.
+var errTooLarge = errors.New("file is larger than the limit")
+
+// GetFile asks for the path and size of a file uploaded to Telegram. The
+// path is used with Download; it is valid for about an hour.
+func (c *Client) GetFile(ctx context.Context, fileID string) (string, int64, error) {
+	var out struct {
+		FilePath string `json:"file_path"`
+		FileSize int64  `json:"file_size"`
+	}
+	if err := c.call(ctx, "getFile", map[string]any{"file_id": fileID}, &out); err != nil {
+		return "", 0, err
+	}
+	if out.FilePath == "" {
+		return "", 0, fmt.Errorf("telegram getFile: no file path for %q", fileID)
+	}
+	return out.FilePath, out.FileSize, nil
+}
+
+// Download reads a file from Telegram's file host. It fails with errTooLarge
+// when the file is over limit bytes.
+func (c *Client) Download(ctx context.Context, path string, limit int64) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.root+"/file/bot"+c.token+"/"+strings.TrimLeft(path, "/"), nil)
+	if err != nil {
+		return nil, c.clean("file", err)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, c.clean("file", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("telegram file: HTTP %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return nil, c.clean("file", err)
+	}
+	if int64(len(data)) > limit {
+		return nil, errTooLarge
+	}
+	return data, nil
 }

@@ -7,21 +7,28 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
 )
 
-// approvalWait is how long a Telegram approval waits before it stops
-// counting. It matches the 5 minute approval timeout of the spec. Expiry
-// never allows.
+// approvalWait is how long a Telegram approval waits for a tap. It matches
+// the 5 minute approval timeout of the spec. When it runs out the approval
+// is denied, never allowed.
 const approvalWait = 5 * time.Minute
 
 // DefaultQuestionWait is how long a question waits for a phone answer.
 const DefaultQuestionWait = 5 * time.Minute
 
 // Host is a tools.Host that puts each approval, question and plan review to
-// the local host and to the paired Telegram chats at once. The first real
-// answer wins and the other prompt is cancelled. When no chat is paired, or
-// none answers in time, the local host decides alone. A headless local host
-// then gets its usual answer.
+// the local host and to the paired Telegram chats at once.
+//
+// Approvals: the first answer wins. A phone answer is the decision (approve,
+// approve for session, or deny, with the reason typed). A phone failure
+// (unreachable, timed out, tab closed, surface turned off) is a deny with the
+// reason, and the local prompt is cancelled. When no chat is paired the phone
+// is not involved and the local host decides alone.
+//
+// Questions: a phone answer wins; a phone failure leaves the question to the
+// local host, because a question is not a permission.
 type Host struct {
 	bot          *Bot
+	owner        any
 	inner        tools.Host
 	questionWait time.Duration
 }
@@ -37,23 +44,17 @@ func NewHost(bot *Bot, inner tools.Host, questionWait time.Duration) *Host {
 
 // Approve races the local host against the phone. See the type comment.
 func (h *Host) Approve(ctx context.Context, ap tools.Approval) tools.Decision {
-	type answer struct {
-		d  tools.Decision
-		ok bool
-	}
 	remoteCtx, cancelRemote := context.WithTimeout(ctx, approvalWait)
 	defer cancelRemote()
-	remote := make(chan answer, 1)
-	go func() {
-		d, ok := h.bot.askApproval(remoteCtx, ap)
-		remote <- answer{d, ok}
-	}()
+	remote := make(chan outcome, 1)
+	go func() { remote <- h.bot.askApproval(remoteCtx, h.owner, ap) }()
 
 	if !localAnswers(h.inner) {
-		if a := <-remote; a.ok {
-			return a.d
+		o := <-remote
+		if o.notAsked {
+			return h.inner.Approve(ctx, ap)
 		}
-		return h.inner.Approve(ctx, ap)
+		return settleApproval(ctx, o)
 	}
 
 	localCtx, cancelLocal := context.WithCancel(ctx)
@@ -64,32 +65,48 @@ func (h *Host) Approve(ctx context.Context, ap tools.Approval) tools.Decision {
 	case d := <-local:
 		cancelRemote()
 		return d
-	case a := <-remote:
-		if a.ok {
-			cancelLocal()
-			return a.d
+	case o := <-remote:
+		if o.notAsked {
+			return <-local
 		}
+		if o.answer != "" || o.failed != "" {
+			cancelLocal()
+			return settleApproval(ctx, o)
+		}
+		// Cancelled: the local host is answering, so wait for it.
 		return <-local
 	}
 }
 
+// settleApproval turns a phone outcome into the decision the agent gets, and
+// records the reason on the context for the tool result.
+func settleApproval(ctx context.Context, o outcome) tools.Decision {
+	if o.failed != "" {
+		tools.SetApprovalReason(ctx, o.failed+" The request was denied, so nothing ran.")
+		return tools.Deny
+	}
+	if o.reason != "" {
+		tools.SetApprovalReason(ctx, o.reason)
+	}
+	switch o.answer {
+	case "approve":
+		return tools.AllowOnce
+	case "session":
+		return tools.AllowSession
+	}
+	return tools.Deny
+}
+
 // Ask races the local host against the phone for a question or plan review.
 func (h *Host) Ask(ctx context.Context, q tools.Question) (string, error) {
-	type answer struct {
-		text string
-		ok   bool
-	}
 	remoteCtx, cancelRemote := context.WithTimeout(ctx, h.questionWait)
 	defer cancelRemote()
-	remote := make(chan answer, 1)
-	go func() {
-		text, ok := h.bot.askQuestion(remoteCtx, q)
-		remote <- answer{text, ok}
-	}()
+	remote := make(chan outcome, 1)
+	go func() { remote <- h.bot.askQuestion(remoteCtx, h.owner, q) }()
 
 	if !localAnswers(h.inner) {
-		if a := <-remote; a.ok {
-			return a.text, nil
+		if o := <-remote; o.answer != "" {
+			return o.answer, nil
 		}
 		return h.inner.Ask(ctx, q)
 	}
@@ -109,10 +126,10 @@ func (h *Host) Ask(ctx context.Context, q tools.Question) (string, error) {
 	case r := <-local:
 		cancelRemote()
 		return r.text, r.err
-	case a := <-remote:
-		if a.ok {
+	case o := <-remote:
+		if o.answer != "" {
 			cancelLocal()
-			return a.text, nil
+			return o.answer, nil
 		}
 		r := <-local
 		return r.text, r.err

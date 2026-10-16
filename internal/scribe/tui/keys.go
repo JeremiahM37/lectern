@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/remote/telegram"
 )
 
 // handleGlobalKey runs the keys that work from anywhere (spec 8.1, Scribe's
@@ -228,6 +230,8 @@ func (m *Model) closeTab(t *tab) {
 	if t.busy {
 		t.be.Abort()
 	}
+	// A closed tab's phone approvals are denied, and it stops taking phone messages.
+	telegram.Default.CloseTab(t.be)
 	m.tabs = append(m.tabs[:idx], m.tabs[idx+1:]...)
 	if m.active >= len(m.tabs) {
 		m.active = len(m.tabs) - 1
@@ -235,6 +239,9 @@ func (m *Model) closeTab(t *tab) {
 	go func() { _ = t.be.Close() }()
 	m.setFlash("info", "Closed "+t.name)
 }
+
+// maxTabName is the longest tab name the new-tab popup accepts.
+const maxTabName = 30
 
 // openNewTab asks for a name, then opens a tab with its own backend.
 func (m *Model) openNewTab() {
@@ -261,7 +268,7 @@ func (m *Model) openNewTab() {
 		m.phase = phaseChat
 		return waitBoth(t)
 	})
-	p.AllowEmpty()
+	p.AllowEmpty().WithLimit(maxTabName)
 	p.icon = "tabs"
 	p.WithHint("Enter creates it. Leave it empty for " + name + ".")
 	m.pushModal(p)

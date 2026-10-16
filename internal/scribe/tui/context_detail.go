@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
 )
 
@@ -60,4 +61,58 @@ func shareBar(n, total, width int) string {
 		fill = width
 	}
 	return strings.Repeat("█", fill) + strings.Repeat("░", width-fill)
+}
+
+// contextTabWord returns "dispatch" or "system" when the /context argument
+// names one of the other panels, else "". The first word decides, so
+// "/context system" and "/context dispatch now" both open their tab.
+func contextTabWord(args string) string {
+	f := strings.Fields(strings.ToLower(args))
+	if len(f) == 0 {
+		return ""
+	}
+	switch f[0] {
+	case "dispatch", "system":
+		return f[0]
+	}
+	return ""
+}
+
+// contextTabLines is the Dispatch or System tab of /context. Dispatch lists
+// the subagents of the newest dispatch; System says what fills the system
+// prompt and which instruction files are loaded.
+func contextTabLines(t *tab, which string) []string {
+	if which == "dispatch" {
+		subs := t.be.Subagents()
+		lines := []string{"Newest dispatch"}
+		if len(subs) == 0 {
+			return append(lines, "  No subagents have run in this session.",
+				"", "Subagents appear here once the agent dispatches explore or code work.")
+		}
+		for _, a := range subs {
+			last := a.Last
+			if a.Error != "" {
+				last = "error: " + a.Error
+			}
+			lines = append(lines, fmt.Sprintf("  %-10s %-8s %-8s step %-3d %6s tokens  %s",
+				a.ID, a.Role, a.Status, a.Step, render.HumanTokens(a.Tokens.InputTokens+a.Tokens.OutputTokens), last))
+		}
+		return lines
+	}
+	d := t.be.ContextDetail()
+	lines := []string{"System prompt",
+		fmt.Sprintf("  System prompt    %6s  (estimated)", render.HumanTokens(d.System)),
+		fmt.Sprintf("  Tool definitions %6s  (estimated)", render.HumanTokens(d.Tools)),
+		"", "Instruction files loaded"}
+	files := fields7(t.be).Instructions
+	if files == nil {
+		files = agent.DefaultInstructionFiles
+	}
+	if len(files) == 0 {
+		return append(lines, "  none; the instruction files are all off on the Tools tab of /settings")
+	}
+	for _, f := range files {
+		lines = append(lines, "  "+f)
+	}
+	return lines
 }

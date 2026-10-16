@@ -153,7 +153,7 @@ func TestShellCwdInsideProjectAndOutsideNeedsApproval(t *testing.T) {
 	if !res.IsError || !strings.Contains(res.Output, "is not a directory") {
 		t.Fatalf("missing cwd should be an error: %+v", res)
 	}
-	outside := filepath.Dir(dir)
+	outside := "/" // not under the temp dir, which is an exempt place
 	res = runTool(t, r, "shell", newTestEnv(dir, nil), map[string]any{"command": "pwd", "cwd": outside})
 	if !res.IsError || !strings.Contains(res.Output, "outside the project") {
 		t.Fatalf("outside cwd with no host should be refused: %+v", res)

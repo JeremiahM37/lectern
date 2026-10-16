@@ -35,6 +35,9 @@ type grepEntry struct {
 	line  int
 	text  string
 	match bool
+	// enc names the innermost symbol around a match line, when the code map
+	// knows the file ("method Server.Run"). Empty otherwise.
+	enc string
 }
 
 // fileResult holds the output lines for one file.
@@ -53,7 +56,9 @@ func newGrep(forceGo bool) tools.Tool {
 		spec: newSpec("grep",
 			"Search file contents with a regular expression (Go/RE2 syntax). Output is path:line:text. "+
 				"Respects .gitignore, skips hidden and binary files and secret-looking files. "+
-				"output_mode: content (default), files (paths only) or count.",
+				"output_mode: content (default), files (paths only) or count. "+
+				"Content matches name the enclosing function or type when the code map knows the file. "+
+				"dep searches a dependency instead: a package name looks in node_modules/ and vendor/, and true searches everything including ignored paths.",
 			tools.Schema(map[string]any{
 				"pattern":          tools.Str("Regular expression to search for."),
 				"path":             tools.Str("File or directory to search, relative to the project root. Default: the project root."),
@@ -62,6 +67,8 @@ func newGrep(forceGo bool) tools.Tool {
 				"context":          tools.Int("Lines of context before and after each match (0-20). Default 0."),
 				"output_mode":      tools.Enum("What to print. Default content.", "content", "files", "count"),
 				"max_results":      tools.Int("Maximum matching lines (content) or files (files, count). Default 200."),
+				"force":            tools.Bool("Search every candidate file, even when the code map could rule some out. Same answer, slower. Default false."),
+				"dep":              tools.Str(`Search inside a dependency: a package name (searches node_modules/<name>, then vendor/<name>), or "true" to search ignored paths and node_modules too.`),
 			}, "pattern")),
 		readOnly: true,
 		run: func(ctx context.Context, env *tools.Env, args json.RawMessage) tools.Result {
@@ -79,6 +86,8 @@ func runGrep(ctx context.Context, env *tools.Env, args json.RawMessage, forceGo 
 		Context         flexInt  `json:"context"`
 		OutputMode      string   `json:"output_mode"`
 		MaxResults      flexInt  `json:"max_results"`
+		Force           flexBool `json:"force"`
+		Dep             string   `json:"dep"`
 	}
 	if err := tools.Decode(args, &a); err != nil {
 		return failTagged(err)
@@ -116,6 +125,14 @@ func runGrep(ctx context.Context, env *tools.Env, args json.RawMessage, forceGo 
 	if p == "" {
 		p = "."
 	}
+	dep := strings.TrimSpace(a.Dep)
+	if dep != "" && !strings.EqualFold(dep, "true") {
+		found, err := locateDependency(env, p, dep)
+		if err != nil {
+			return tools.Errorf("%v", err)
+		}
+		p = found
+	}
 	t, err := resolve(ctx, env, "grep", p, accessSearch)
 	if err != nil {
 		return failTagged(err)
@@ -127,12 +144,16 @@ func runGrep(ctx context.Context, env *tools.Env, args json.RawMessage, forceGo 
 	if err != nil {
 		return failTagged(err)
 	}
+	scope := grepScope{noIgnore: dep != ""}
 
 	runCtx, cancel := context.WithTimeout(ctx, grepTimeout)
 	defer cancel()
 	var files []fileResult
 	total, stopped := 0, false
 	sink := func(fr fileResult) bool {
+		if mode == "content" {
+			annotateEnclosing(env, &fr)
+		}
 		files = append(files, fr)
 		total += fr.matches
 		if mode == "content" {
@@ -146,7 +167,12 @@ func runGrep(ctx context.Context, env *tools.Env, args json.RawMessage, forceGo 
 	// The code map's trigram index can rule out files that cannot contain a
 	// literal run of the pattern. Ruling out is only ever a skip of a file
 	// that would not match, so the answer is the same as without it.
+	// force and a dependency search both skip the narrowing: the first asks
+	// for every candidate, and the second looks where the index does not.
 	skip := trigramSkip(env, a.Pattern)
+	if bool(a.Force) || dep != "" {
+		skip = nil
+	}
 	var searchErr error
 	usedRg := false
 	if !forceGo {
@@ -159,12 +185,12 @@ func runGrep(ctx context.Context, env *tools.Env, args json.RawMessage, forceGo 
 				}
 			}
 			if len(targets) > 0 {
-				searchErr = rgSearch(runCtx, rg, env.Workdir, targets, pat, ctxN, a.Glob, sink)
+				searchErr = rgSearch(runCtx, rg, env.Workdir, targets, pat, ctxN, a.Glob, scope, sink)
 			}
 		}
 	}
 	if !usedRg {
-		goSearch(runCtx, env.Workdir, t.abs, re, gf, ctxN, skip, sink)
+		goSearch(runCtx, env.Workdir, t.abs, re, gf, ctxN, skip, scope, sink)
 	}
 	if searchErr != nil {
 		return tools.Errorf("grep failed: %v", searchErr)
@@ -210,6 +236,10 @@ func formatGrep(files []fileResult, mode string, ctxN, max int, stopped, timedOu
 					}
 					shown++
 				}
+				enc := ""
+				if e.match && e.enc != "" {
+					enc = "  [in " + e.enc + "]"
+				}
 				if ctxN > 0 && started && (fr.rel != lastRel || e.line > lastLine+1) {
 					lines = append(lines, "--")
 				}
@@ -217,7 +247,7 @@ func formatGrep(files []fileResult, mode string, ctxN, max int, stopped, timedOu
 				if !e.match {
 					sep = "-"
 				}
-				lines = append(lines, fmt.Sprintf("%s%s%d%s%s", fr.rel, sep, e.line, sep, e.text))
+				lines = append(lines, fmt.Sprintf("%s%s%d%s%s%s", fr.rel, sep, e.line, sep, e.text, enc))
 				lastRel, lastLine, started = fr.rel, e.line, true
 			}
 		}
@@ -256,7 +286,7 @@ func formatGrep(files []fileResult, mode string, ctxN, max int, stopped, timedOu
 
 // goSearch walks target and calls sink per file with matches. It skips what
 // rg skips by default: hidden entries, binary files and files over 256KB.
-func goSearch(ctx context.Context, wd, target string, re *regexp.Regexp, gf globFilter, ctxN int, skip trigramFilter, sink func(fileResult) bool) {
+func goSearch(ctx context.Context, wd, target string, re *regexp.Regexp, gf globFilter, ctxN int, skip trigramFilter, scope grepScope, sink func(fileResult) bool) {
 	fi, err := os.Stat(target)
 	if err != nil {
 		return
@@ -284,12 +314,63 @@ func goSearch(ctx context.Context, wd, target string, re *regexp.Regexp, gf glob
 	if baseRel != "." {
 		base = baseRel + "/"
 	}
-	walkDir(ctx, wd, target, chainIgnore(wd, target), 1, -1, func(abs, rel string, fi fs.FileInfo) bool {
+	var ig *Ignore
+	if !scope.noIgnore {
+		ig = chainIgnore(wd, target)
+	}
+	walkDirWith(ctx, wd, target, ig, 1, -1, scope.skipName(), func(abs, rel string, fi fs.FileInfo) bool {
 		if fi.IsDir() {
 			return true
 		}
 		return consider(abs, rel, fi, base)
 	})
+}
+
+// grepScope changes what a search may enter. The default follows .gitignore
+// and skips node_modules. A dependency search ignores .gitignore and reads
+// node_modules, so a package's own files can be searched.
+type grepScope struct {
+	noIgnore bool
+}
+
+// skipName is the walker's rule for names never entered.
+func (g grepScope) skipName() func(string) bool {
+	if g.noIgnore {
+		return func(name string) bool { return name == ".git" }
+	}
+	return alwaysSkip
+}
+
+// locateDependency finds the directory of a dependency named dep under the
+// search path p: node_modules/<dep>, then vendor/<dep>. It returns the path
+// relative to the project root.
+func locateDependency(env *tools.Env, p, dep string) (string, error) {
+	dep = strings.Trim(strings.TrimSpace(dep), "/")
+	if dep == "" || strings.Contains(dep, "..") {
+		return "", fmt.Errorf(`dep must be a package name such as "react" or "@scope/pkg", or "true".`)
+	}
+	base := path.Clean(filepath.ToSlash(p))
+	for _, dir := range []string{"node_modules", "vendor"} {
+		cand := path.Join(base, dir, dep)
+		if fi, err := os.Stat(filepath.Join(env.Workdir, filepath.FromSlash(cand))); err == nil && fi.IsDir() {
+			return cand, nil
+		}
+	}
+	return "", fmt.Errorf(`No dependency named %q in node_modules or vendor under %s. Check the package name, or pass dep=true to search everything.`, dep, base)
+}
+
+// annotateEnclosing names the innermost symbol around each match line of fr,
+// when the code map knows the file. It costs one map lookup per file.
+func annotateEnclosing(env *tools.Env, fr *fileResult) {
+	syms, known := mapSymbols(env, filepath.Join(env.Workdir, filepath.FromSlash(fr.rel)))
+	if !known || len(syms) == 0 {
+		return
+	}
+	for i := range fr.entries {
+		if fr.entries[i].match {
+			fr.entries[i].enc = enclosingAt(syms, fr.entries[i].line)
+		}
+	}
 }
 
 // grepWanted reports whether a file takes part in a grep at all: a regular
@@ -359,12 +440,17 @@ func secretGlobArgs() []string {
 
 // rgSearch runs ripgrep with JSON output and feeds sink one file at a time.
 // It stops the process as soon as sink asks it to.
-func rgSearch(ctx context.Context, rg, wd string, targets []string, pattern string, ctxN int, glob string, sink func(fileResult) bool) error {
+func rgSearch(ctx context.Context, rg, wd string, targets []string, pattern string, ctxN int, glob string, scope grepScope, sink func(fileResult) bool) error {
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	args := []string{"--json", "--no-config", "--no-require-git",
 		"--max-filesize", "256K", "--max-columns", "1000", "--max-count", strconv.Itoa(maxGrepPerFile),
-		"--glob", "!.git", "--glob", "!node_modules"}
+		"--glob", "!.git"}
+	if scope.noIgnore {
+		args = append(args, "--no-ignore")
+	} else {
+		args = append(args, "--glob", "!node_modules")
+	}
 	args = append(args, secretGlobArgs()...)
 	if ctxN > 0 {
 		args = append(args, "-C", strconv.Itoa(ctxN))

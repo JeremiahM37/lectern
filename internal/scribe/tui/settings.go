@@ -527,7 +527,7 @@ func (s *settings) providerRows() []setRow {
 	rows = append(rows, setRow{label: "+ Add a custom OpenAI-compatible provider", note: "id, base URL, key variable",
 		act: s.addCustomProvider})
 	rows = append(rows, s.keyPriorityRow(fields7(s.be)))
-	return append(rows, s.performanceRows(fields7(s.be))...)
+	return rows
 }
 
 // keyStatus is the Providers tab's status column.
@@ -960,7 +960,7 @@ func (s *settings) reasoningRows() []setRow {
 	if tiers, ok := serviceTiers[provider]; ok {
 		rows = append(rows, s.cycleRow("Service tier", key+"service_tier", rs.ServiceTier, tiers, provider))
 	}
-	return rows
+	return append(rows, s.performanceRows(fields7(s.be), provider, st.style)...)
 }
 
 // cycleRow is a Reasoning-tab row that steps through opts on Enter. The empty

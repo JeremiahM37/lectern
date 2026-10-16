@@ -13,6 +13,10 @@ import (
 type derivedIndex struct {
 	tri   map[uint32][]int32 // symbol-name trigram -> ascending indices into m.syms
 	clone *cloneIdx
+	// sorted lists symbol indices by lower-case name, and sortedKeys holds
+	// those names in the same order (see namesSorted).
+	sorted     []int32
+	sortedKeys []string
 }
 
 // derivedFor returns the derived indexes, building the ones asked for. The

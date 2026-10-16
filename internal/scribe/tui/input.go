@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/session"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
 )
@@ -629,7 +630,7 @@ func (m *Model) handleInputKey(km tea.KeyMsg) tea.Cmd {
 		return nil
 	case "alt+s":
 		if !s.empty() {
-			s.stashes = append(s.stashes, s.expand(s.value()))
+			s.pushStash(s.expand(s.value()))
 			s.clear()
 			m.saveStashes(t)
 			m.setFlash("ok", "Draft stashed (Alt+P to pop)")
@@ -714,6 +715,7 @@ func (m *Model) acceptMention(t *tab) {
 		return
 	}
 	pick := files[clamp(s.acSel, 0, len(files)-1)]
+	_ = session.RecordPick(session.PickFile, pick) // frecency ranks files by use
 	v := s.value()
 	i := strings.LastIndexAny(v, " \n\t")
 	s.setValue(v[:i+1] + "@" + pick + " ")

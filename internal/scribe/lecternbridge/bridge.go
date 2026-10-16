@@ -89,6 +89,7 @@ func Attach(a *app.App, host tools.Host) (tools.Host, error) {
 	}
 	b := newBridge(cfg)
 	a.Subscribe(b.handle)
+	a.OnClose(b.Close)
 	wrapped := &approvalHost{b: b, inner: host}
 	a.SetHost(wrapped)
 	return wrapped, nil
@@ -99,6 +100,11 @@ type bridge struct {
 	cfg    Config
 	client *http.Client
 	queue  chan post
+
+	// ctx ends when the session shuts down (Close). Approvals still waiting
+	// on Lectern then come back denied, not hanging.
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	mu       sync.Mutex
 	model    string
@@ -118,15 +124,25 @@ func newBridge(cfg Config) *bridge {
 	if client == nil {
 		client = http.DefaultClient
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	b := &bridge{
 		cfg:      cfg,
 		client:   client,
 		queue:    make(chan post, queueSize),
+		ctx:      ctx,
+		cancel:   cancel,
 		callArgs: map[string]map[string]any{},
 	}
 	go b.worker()
 	return b
 }
+
+// Close ends the bridge at shutdown. Approvals still waiting on Lectern are
+// denied with a reason, and nothing new is asked. Safe to call twice.
+func (b *bridge) Close() { b.cancel() }
+
+// closing reports whether Close has run.
+func (b *bridge) closing() bool { return b.ctx.Err() != nil }
 
 func (b *bridge) worker() {
 	for p := range b.queue {
@@ -261,37 +277,64 @@ func (b *bridge) statusline(e agent.Event) {
 	})
 }
 
-// answer is the remote side's reply to one approval.
+// answer is the remote side's reply to one approval. decided means Lectern
+// allowed or denied it. failed is set when the approval must be denied
+// without Lectern's opinion: Lectern could not be reached, did not answer in
+// time, or the session is shutting down. reason is the text Lectern sent
+// with its decision, for the agent.
 type answer struct {
 	decided bool
 	dec     tools.Decision
+	reason  string
+	failed  string
 }
 
 // askRemote posts the approval as a PermissionRequest and waits for Lectern.
-// It returns decided=false when Lectern has no opinion (not in ask mode, hold
-// window passed, the request was cancelled, or Lectern is unreachable).
-func (b *bridge) askRemote(ctx context.Context, ap tools.Approval) answer {
+// It returns an empty answer when the caller stopped waiting (the local host
+// answered first, or the turn was aborted). It returns failed when Lectern
+// has to be treated as a deny: unreachable, no answer in time, or shutdown.
+// It returns no opinion (neither decided nor failed) when Lectern sent {}:
+// Lectern is not asking this session, so the local host decides.
+func (b *bridge) askRemote(parent context.Context, ap tools.Approval) answer {
 	name, input := approvalTool(ap)
-	ctx, cancel := context.WithTimeout(ctx, maxApprovalWait)
+	ctx, cancel := context.WithTimeout(parent, maxApprovalWait)
 	defer cancel()
+	stop := context.AfterFunc(b.ctx, cancel)
+	defer stop()
 	out, err := b.send(ctx, "PermissionRequest", map[string]any{
 		"hook_event_name": "PermissionRequest",
 		"tool_name":       name,
 		"tool_input":      input,
 	}, true)
 	if err != nil {
-		return answer{}
+		switch {
+		case b.closing():
+			return answer{failed: shutdownText}
+		case parent.Err() != nil:
+			return answer{}
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
+			return answer{failed: "Lectern did not answer in time, so the approval was denied."}
+		}
+		return answer{failed: "Lectern could not be reached, so the approval was denied."}
 	}
 	hso, _ := out["hookSpecificOutput"].(map[string]any)
 	dec, _ := hso["decision"].(map[string]any)
+	msg, _ := dec["message"].(string)
 	switch behavior, _ := dec["behavior"].(string); behavior {
 	case "allow":
-		return answer{decided: true, dec: tools.AllowOnce}
+		d := tools.AllowOnce
+		if remember, _ := dec["remember"].(bool); remember {
+			d = tools.AllowSession
+		}
+		return answer{decided: true, dec: d, reason: msg}
 	case "deny":
-		return answer{decided: true, dec: tools.Deny}
+		return answer{decided: true, dec: tools.Deny, reason: msg}
 	}
 	return answer{}
 }
+
+// shutdownText is the reason an approval gets when the session shuts down.
+const shutdownText = "Scribe is shutting down, so the approval was denied."
 
 // askQuestion posts a question or plan review as an AskUser hook event and
 // waits for Lectern's answer. The reply is
@@ -335,7 +378,9 @@ type approvalHost struct {
 
 // Approve asks the local host and Lectern at the same time. The first real
 // answer wins; the other request is cancelled. A remote answer also
-// dismisses the local prompt.
+// dismisses the local prompt. A remote failure (see answer.failed) is a deny
+// with its reason, and the local prompt is cancelled. Lectern's "no opinion"
+// leaves the decision to the local host.
 func (h *approvalHost) Approve(ctx context.Context, ap tools.Approval) tools.Decision {
 	remoteCtx, cancelRemote := context.WithCancel(ctx)
 	defer cancelRemote()
@@ -345,8 +390,9 @@ func (h *approvalHost) Approve(ctx context.Context, ap tools.Approval) tools.Dec
 	if !localAnswers(h.inner) {
 		// A headless local host would answer at once with a deny, so wait
 		// for Lectern. With no remote answer, the local rule applies.
-		if a := <-remote; a.decided {
-			return a.dec
+		a := <-remote
+		if a.decided || a.failed != "" {
+			return settleRemote(ctx, a)
 		}
 		return h.inner.Approve(ctx, ap)
 	}
@@ -364,13 +410,26 @@ func (h *approvalHost) Approve(ctx context.Context, ap tools.Approval) tools.Dec
 		cancelRemote()
 		return d
 	case a := <-remote:
-		if a.decided {
+		if a.decided || a.failed != "" {
 			cancelLocal()
-			return a.dec
+			return settleRemote(ctx, a)
 		}
 		// Lectern had no opinion: the local host decides alone.
 		return <-local
 	}
+}
+
+// settleRemote turns Lectern's answer into the decision and records the
+// reason on the context for the tool result.
+func settleRemote(ctx context.Context, a answer) tools.Decision {
+	if a.failed != "" {
+		tools.SetApprovalReason(ctx, a.failed)
+		return tools.Deny
+	}
+	if a.reason != "" {
+		tools.SetApprovalReason(ctx, a.reason)
+	}
+	return a.dec
 }
 
 // Ask puts a question (ask_user) or a plan review (Kind "plan_review") to the

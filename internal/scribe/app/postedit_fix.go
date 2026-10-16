@@ -11,6 +11,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/lsp"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools/exec"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools/fs"
 )
 
@@ -44,18 +45,21 @@ type quickFixer interface {
 	QuickFixes(ctx context.Context, abs string, d lsp.FileDiagnostic) ([]lsp.CodeAction, error)
 }
 
-// autoFix runs the server's source fixes on each file a compound tool changed,
-// but only where a language server is already running, so the tool never
-// pays a cold start. The fix's own diff is appended to the tool's diff, and
-// any file the fix touched beyond the tool's own list is added to Files.
+// formatterTimeout bounds the project formatter run after a refactor (spec 06
+// section 9.3: 10 s soft).
+const formatterTimeout = 10 * time.Second
+
+// autoFix runs the file-wide fixes on each file a compound tool changed. Where
+// a language server is running, its organize-imports and fix-all run first.
+// Then the project's formatter runs on the file, so a refactor leaves the file
+// formatted even with no server up (the refactor's formatter fallback). The
+// fixes' own diff is appended to the tool's diff, and any file the server
+// touched beyond the tool's own list is added to Files.
 func (p *postEditor) autoFix(ctx context.Context, name string, files []string, res *tools.Result) {
-	if !compoundTools[name] || p.diags == nil {
+	if !compoundTools[name] {
 		return
 	}
-	fixer, ok := p.diags.(sourceFixer)
-	if !ok {
-		return
-	}
+	fixer, _ := p.diags.(sourceFixer) // nil when no language server is available
 	var fixedFiles []string
 	var diff strings.Builder
 	inCall := map[string]bool{}
@@ -63,24 +67,25 @@ func (p *postEditor) autoFix(ctx context.Context, name string, files []string, r
 		inCall[abs] = true
 	}
 	for _, abs := range files {
-		if !p.diags.Active(abs) {
-			continue
-		}
 		before, err := os.ReadFile(abs)
 		if err != nil {
 			continue
 		}
-		fctx, cancel := context.WithTimeout(ctx, autoFixTimeout)
-		touched, err := fixer.SourceFix(fctx, abs)
-		cancel()
-		if err != nil {
-			continue
-		}
-		for _, t := range touched {
-			if !inCall[t] && !containsStr(res.Files, p.rel(t)) {
-				res.Files = append(res.Files, p.rel(t))
+		if fixer != nil && p.diags.Active(abs) {
+			fctx, cancel := context.WithTimeout(ctx, autoFixTimeout)
+			touched, err := fixer.SourceFix(fctx, abs)
+			cancel()
+			if err == nil {
+				for _, t := range touched {
+					if !inCall[t] && !containsStr(res.Files, p.rel(t)) {
+						res.Files = append(res.Files, p.rel(t))
+					}
+				}
 			}
 		}
+		fmtCtx, cancelFmt := context.WithTimeout(ctx, formatterTimeout)
+		_ = exec.FormatFile(fmtCtx, p.workdir, abs, formatterTimeout) // no formatter: the file is left as it is
+		cancelFmt()
 		after, err := os.ReadFile(abs)
 		if err != nil || bytes.Equal(before, after) {
 			continue
@@ -92,7 +97,7 @@ func (p *postEditor) autoFix(ctx context.Context, name string, files []string, r
 	if len(fixedFiles) == 0 {
 		return
 	}
-	res.Output = appendBlock(res.Output, "Auto-fixed: organized imports and applied fixes in "+strings.Join(fixedFiles, ", ")+".")
+	res.Output = appendBlock(res.Output, "Auto-fixed: applied fixes and formatting in "+strings.Join(fixedFiles, ", ")+".")
 	res.Diff += diff.String()
 }
 

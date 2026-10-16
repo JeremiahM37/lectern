@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
 )
 
@@ -40,7 +41,28 @@ type Checkpoints struct {
 	st   cpState
 	open *cpRecord // the turn in progress, nil between turns
 	err  error     // first capture or persist error since the last End
+	hist History   // the agent's messages, nil when only files are tracked
 }
+
+// History is the agent's message list. Undo drops the messages of the turns
+// it reverts and redo puts them back, so the conversation matches the files.
+type History interface {
+	Messages() []llm.Message
+	SetMessages([]llm.Message)
+}
+
+// SetHistory binds the message list that undo and redo keep in step with the
+// files. Without it checkpoints track files only, as before.
+func (c *Checkpoints) SetHistory(h History) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.hist = h
+}
+
+// ErrHistoryMoved is returned by Redo when the conversation has changed since
+// the undo, so its messages cannot go back in their place. Redo with force
+// re-applies the files and appends the messages at the end.
+var ErrHistoryMoved = errors.New("the conversation changed after this undo, so its messages cannot go back in place; redo with force to re-apply the files and append them")
 
 // Checkpoint describes one turn that changed files.
 type Checkpoint struct {
@@ -111,6 +133,10 @@ type cpRecord struct {
 	// the context bar's checkpoint browsing. Zero when not recorded.
 	CtxUsed   int `json:"ctx_used,omitempty"`
 	CtxWindow int `json:"ctx_window,omitempty"`
+	// MsgLen is how many agent messages existed before this turn started:
+	// the anchor undo truncates to. Nil for checkpoints from older sessions,
+	// which then leave the conversation alone.
+	MsgLen *int `json:"msg_len,omitempty"`
 }
 
 // redoOp undoes one undo operation. Pre is what the files held when Undo ran;
@@ -118,6 +144,11 @@ type cpRecord struct {
 type redoOp struct {
 	Turns []int                `json:"turns"`
 	Files map[string]*redoFile `json:"files"`
+	// Msgs are the messages the undo dropped, and MsgAt the length the
+	// history had after the drop. Redo appends Msgs only when the history is
+	// still MsgAt long.
+	Msgs  []llm.Message `json:"msgs,omitempty"`
+	MsgAt *int          `json:"msg_at,omitempty"`
 }
 
 type redoFile struct {
@@ -279,6 +310,10 @@ func (c *Checkpoints) Begin(turn int, prompt string) {
 		c.endLocked()
 	}
 	c.open = &cpRecord{Turn: turn, Prompt: prompt, Created: time.Now().UTC(), Files: map[string]*cpFile{}}
+	if c.hist != nil {
+		n := len(c.hist.Messages())
+		c.open.MsgLen = &n
+	}
 }
 
 // BeforeWrite snapshots abs before the agent changes it. The first call in a
@@ -598,7 +633,34 @@ func (c *Checkpoints) applyLocked(targets []*cpRecord, force bool) ([]int, error
 		turns = append(turns, t.Turn)
 	}
 	c.st.Redo = append(c.st.Redo, op)
+	c.truncateHistoryLocked(targets, op)
 	return turns, c.saveLocked()
+}
+
+// truncateHistoryLocked drops the messages from the oldest target's anchor on,
+// and keeps them in op for redo. Caller holds c.mu.
+func (c *Checkpoints) truncateHistoryLocked(targets []*cpRecord, op *redoOp) {
+	if c.hist == nil || len(targets) == 0 {
+		return
+	}
+	// Targets are newest first, so the last one with an anchor is the oldest.
+	var anchor *int
+	for _, t := range targets {
+		if t.MsgLen != nil {
+			anchor = t.MsgLen
+		}
+	}
+	if anchor == nil {
+		return
+	}
+	cur := c.hist.Messages()
+	if *anchor >= len(cur) {
+		return
+	}
+	op.Msgs = append([]llm.Message(nil), cur[*anchor:]...)
+	c.hist.SetMessages(cur[:*anchor])
+	kept := *anchor
+	op.MsgAt = &kept
 }
 
 // Redo re-applies the most recent undo operation. The files must still hold
@@ -614,6 +676,10 @@ func (c *Checkpoints) Redo(force bool) ([]int, error) {
 		return nil, ErrNothingToRedo
 	}
 	op := c.st.Redo[len(c.st.Redo)-1]
+	moved := c.hist != nil && op.MsgAt != nil && len(c.hist.Messages()) != *op.MsgAt
+	if moved && !force {
+		return nil, ErrHistoryMoved
+	}
 	if !force {
 		var conflicts []string
 		for k, f := range op.Files {
@@ -643,6 +709,9 @@ func (c *Checkpoints) Redo(force bool) ([]int, error) {
 		}
 	}
 	c.st.Redo = c.st.Redo[:len(c.st.Redo)-1]
+	if c.hist != nil && len(op.Msgs) > 0 {
+		c.hist.SetMessages(append(c.hist.Messages(), op.Msgs...))
+	}
 	for _, turn := range op.Turns {
 		if r := c.findLocked(turn); r != nil {
 			r.Undone = false

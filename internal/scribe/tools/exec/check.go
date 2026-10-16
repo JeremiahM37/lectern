@@ -31,7 +31,7 @@ type stageOutcome struct {
 // runCheck runs typecheck, lint and test in order and reports one summary.
 // Every stage runs even when an earlier one fails, so the model sees all the
 // problems at once. Lint warnings fail the lint stage.
-func (t *projectTool) runCheck(ctx context.Context, env *tools.Env, a projectArgs, p Profile) tools.Result {
+func (t *projectTool) runCheck(ctx context.Context, env *tools.Env, a projectArgs, p Profile, dir string) tools.Result {
 	if strings.TrimSpace(a.Target) != "" || strings.TrimSpace(a.Args) != "" {
 		return tools.Errorf("check runs typecheck, lint and test in full and takes no target or args. Run test or lint on its own to narrow it.")
 	}
@@ -53,14 +53,14 @@ func (t *projectTool) runCheck(ctx context.Context, env *tools.Env, a projectArg
 	timeout := clampTimeout(a.TimeoutMS, t.jobs.defaultTimeout(projectTimeout))
 	outcomes := make([]stageOutcome, 0, len(checkStages))
 	for _, action := range checkStages {
-		outcomes = append(outcomes, t.runStage(ctx, env, a.Fix, p, action, timeout))
+		outcomes = append(outcomes, t.runStage(ctx, env, dir, a.Fix, p, action, timeout))
 	}
 	return checkResult(outcomes)
 }
 
 // runStage runs one check stage. A stage with no command is skipped, not
 // failed: a project without a typechecker is not a broken project.
-func (t *projectTool) runStage(ctx context.Context, env *tools.Env, fix bool, p Profile, action string, timeout time.Duration) stageOutcome {
+func (t *projectTool) runStage(ctx context.Context, env *tools.Env, dir string, fix bool, p Profile, action string, timeout time.Duration) stageOutcome {
 	out := stageOutcome{action: action, cmd: p.Commands[action]}
 	if out.cmd == "" {
 		out.skipped = true
@@ -80,7 +80,7 @@ func (t *projectTool) runStage(ctx context.Context, env *tools.Env, fix bool, p 
 		out.preview = []string{firstLine(res.Output)}
 		return out
 	}
-	fg := runForeground(ctx, env, out.cmd, timeout, []string{"FORCE_COLOR=0", "NO_COLOR=1"})
+	fg := runForegroundIn(ctx, env, dir, out.cmd, timeout, []string{"FORCE_COLOR=0", "NO_COLOR=1"})
 	switch {
 	case fg.err != nil:
 		out.note += fmt.Sprintf("could not start: %v", fg.err)

@@ -32,8 +32,9 @@ type target struct {
 
 // resolve applies the path gates for one tool call:
 //   - writes into .git internals are refused outright;
-//   - secret-looking files (read) and sensitive files (write) need approval
-//     (Approval.Kind "sensitive");
+//   - secret-looking files (read) need approval (Approval.Kind "sensitive");
+//     secret-named files are never written (hard deny); CI and container
+//     definitions (sensitive write names) need approval;
 //   - writes whose real path leaves the workdir need approval
 //     (Kind "write_outside") unless env.Mode is "auto".
 //
@@ -66,9 +67,14 @@ func resolve(ctx context.Context, env *tools.Env, toolName, p string, acc access
 			}
 		}
 	}
+	if acc == accessWrite && (isSecretName(filepath.Base(abs)) || isSecretName(filepath.Base(t.real))) {
+		// Built-in forbidden names (spec 05 section 9.1) are never written by
+		// the agent, whatever the user would approve.
+		return target{}, fmt.Errorf("Denied: %s is a secret file (.env, key or credentials). Do not write secrets from the agent; ask the user to edit it by hand.", t.rel)
+	}
 	if acc == accessRead || acc == accessWrite {
-		sensitive := isSecretName(filepath.Base(abs)) || isSecretName(filepath.Base(t.real))
-		if acc == accessWrite && !sensitive {
+		sensitive := acc == accessRead && (isSecretName(filepath.Base(abs)) || isSecretName(filepath.Base(t.real)))
+		if acc == accessWrite {
 			sensitive = isSensitiveWriteName(t.rel)
 		}
 		if sensitive {

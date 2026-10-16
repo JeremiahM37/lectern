@@ -8,6 +8,19 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
 )
 
+// stashCap is how many drafts a directory keeps (spec 05 §3). The oldest
+// is dropped first.
+const stashCap = 50
+
+// pushStash adds a draft as the newest stash, dropping the oldest drafts once
+// the directory holds stashCap.
+func (s *inputState) pushStash(text string) {
+	s.stashes = append(s.stashes, text)
+	if n := len(s.stashes); n > stashCap {
+		s.stashes = append([]string(nil), s.stashes[n-stashCap:]...)
+	}
+}
+
 // Stashes (Alt+S / Alt+P) are kept per working directory in stashes.json in the
 // Scribe home, so a draft survives a restart. The file maps a directory to its
 // stashes, oldest first.

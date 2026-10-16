@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -94,9 +95,14 @@ func runGrepArgs(t *testing.T, env *tools.Env, args map[string]any, forceGo bool
 	return res.Output
 }
 
+var enclosingNote = regexp.MustCompile(`  \[in [^\]]*\]`)
+
 // sortedLines makes ripgrep output comparable: rg writes files in parallel
 // order, so only the set of lines is meaningful across engines.
 func sortedLines(s string) string {
+	// The enclosing-symbol note appears only when a code map is present, and
+	// the plain run has none, so it is not part of the narrowing contract.
+	s = enclosingNote.ReplaceAllString(s, "")
 	lines := strings.Split(s, "\n")
 	sort.Strings(lines)
 	return strings.Join(lines, "\n")

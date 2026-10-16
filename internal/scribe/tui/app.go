@@ -62,6 +62,10 @@ func Run(ctx context.Context, newBackend func() (Backend, error), opts Options) 
 		// back, so the quit screen's resume hint is not repeated here.
 		fm.closePanes()
 	}
+	if err == nil {
+		// /restart asked for a fresh process; it replaces this one on success.
+		err = execPendingRestart()
+	}
 	return err
 }
 
@@ -123,6 +127,7 @@ type errEntry struct {
 	Source string
 	Text   string
 	Count  int
+	Args   string // a failed tool call's arguments as JSON, when known
 }
 
 // Messages.
@@ -143,6 +148,7 @@ type (
 	// backendDoneMsg reports a command that finished with a status line.
 	flashMsg struct {
 		kind, text string
+		chat       bool // a command error: shown in the chat as "Command error: ..."
 	}
 	closedMsg  struct{}
 	turnEndMsg struct{ tab int }
@@ -396,6 +402,13 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 	case flashMsg:
+		// A command's error always shows in the flash line, where the user is
+		// looking. A real failure is also kept in the chat; a usage hint is not,
+		// so a typo does not clutter the transcript.
+		if msg.chat && !strings.HasPrefix(msg.text, "Usage:") {
+			m.cur().chat.AddSystem("error", "Command error: "+msg.text)
+			m.enterChat()
+		}
 		m.setFlash(msg.kind, msg.text)
 		return nil
 	case commitSuggestedMsg:
@@ -612,6 +625,7 @@ func (m *Model) onEvent(msg eventMsg) tea.Cmd {
 		if r := ev.Result; r != nil && r.IsError {
 			src, text := toolErrorEntry(ev)
 			m.logErrorFrom(t, src, text)
+			m.attachErrorArgs(ev)
 		}
 	case agent.EvWarning:
 		if strings.HasPrefix(ev.Text, "compaction failed") {

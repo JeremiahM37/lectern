@@ -229,8 +229,11 @@ func nativeChecks(dir string) []string {
 		cmds = append(cmds, "cargo clippy", "cargo check")
 	}
 	if has("go.mod") {
+		// Go: golangci-lint when configured, else go vet; then the build.
 		if has(".golangci.yml", ".golangci.yaml", ".golangci.toml", ".golangci.json") {
 			cmds = append(cmds, "golangci-lint run")
+		} else {
+			cmds = append(cmds, "go vet ./...")
 		}
 		cmds = append(cmds, "go build ./...")
 	}
@@ -274,6 +277,18 @@ func programInstalled(dir, name string) bool {
 	return err == nil
 }
 
+// preCommitLines is how many lines of a failing check the commit refusal shows.
+const preCommitLines = 30
+
+// headLines keeps the first n lines of s and says how many were left out.
+func headLines(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) <= n {
+		return s
+	}
+	return strings.Join(lines[:n], "\n") + fmt.Sprintf("\n… %d more lines omitted", len(lines)-n)
+}
+
 // runPreCommit runs the project's native checks in order and returns a
 // blocking result for the first one that fails or times out.
 func runPreCommit(ctx context.Context, env *tools.Env, dir string) (tools.Result, bool) {
@@ -282,7 +297,7 @@ func runPreCommit(ctx context.Context, env *tools.Env, dir string) (tools.Result
 		if fg.err == nil && !fg.timedOut && !fg.cancelled && fg.exit == 0 {
 			continue
 		}
-		body := strings.TrimRight(fg.body, "\n")
+		body := headLines(strings.TrimRight(fg.body, "\n"), preCommitLines)
 		if fg.timedOut {
 			body += fmt.Sprintf("\n[%s timed out after %s]", cmd, nativeCheckTimeout)
 		}

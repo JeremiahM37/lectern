@@ -114,3 +114,32 @@ func (a *Allowlist) saveLocked() error {
 	}
 	return os.Rename(tmp, a.path)
 }
+
+// ErrStaticChat means a chat is listed in the config. Only the config can
+// remove it, so /unpair from the phone cannot touch it.
+var ErrStaticChat = errors.New("this chat is listed in the config, so it cannot be unpaired from here")
+
+// Remove unpairs chat and saves the change. It reports whether the chat was
+// paired. A static chat returns ErrStaticChat and is left alone.
+func (a *Allowlist) Remove(chat string) (bool, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.static[chat] {
+		return false, ErrStaticChat
+	}
+	if !a.paired[chat] {
+		return false, nil
+	}
+	delete(a.paired, chat)
+	return true, a.saveLocked()
+}
+
+// RemoveAll unpairs every paired chat (static chats stay) and saves the
+// change. It returns how many chats were unpaired.
+func (a *Allowlist) RemoveAll() (int, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	n := len(a.paired)
+	a.paired = map[string]bool{}
+	return n, a.saveLocked()
+}

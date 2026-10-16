@@ -27,11 +27,15 @@ func init() {
 	overrideCommands(&command{Name: "context", Args: "[clear|reset] [memory|skills]",
 		Desc: "Context window and token use. /context clear or reset unloads skills and memory recall", Group: "Intelligence",
 		Run: func(m *Model, args string) tea.Cmd {
+			if which := contextTabWord(args); which != "" {
+				m.openInfo("Context", "gauge", contextTabLines(m.cur(), which))
+				return nil
+			}
 			if verb, _, ok := contextVerb8(args); ok {
 				return contextClear8(m, verb, args)
 			}
 			if dashboard == nil {
-				return flashCmd("err", "Usage: /context, or /context clear [memory|skills]")
+				return cmdErrText("Usage: /context, or /context clear [memory|skills]")
 			}
 			return dashboard(m, args)
 		}})
@@ -70,7 +74,7 @@ func contextTarget8(word string) (string, bool) {
 func contextClear8(m *Model, verb string, args string) tea.Cmd {
 	rest := strings.Fields(args)[1:]
 	if len(rest) > 1 {
-		return flashCmd("err", fmt.Sprintf("Usage: /context %s [memory|skills]. Give one target, or none for both.", verb))
+		return cmdErrText(fmt.Sprintf("Usage: /context %s [memory|skills]. Give one target, or none for both.", verb))
 	}
 	word := ""
 	if len(rest) == 1 {
@@ -78,14 +82,14 @@ func contextClear8(m *Model, verb string, args string) tea.Cmd {
 	}
 	target, ok := contextTarget8(word)
 	if !ok {
-		return flashCmd("err", fmt.Sprintf("Unknown target %q. Use memory, skills, or no target for both.", word))
+		return cmdErrText(fmt.Sprintf("Unknown target %q. Use memory, skills, or no target for both.", word))
 	}
 	cc, ok := m.cur().be.(ContextClearer)
 	if !ok {
-		return errFlash(errors.New("this backend cannot clear context"))
+		return cmdErr(errors.New("this backend cannot clear context"))
 	}
 	if err := cc.ClearContext(target); err != nil {
-		return errFlash(err)
+		return cmdErr(err)
 	}
 	switch target {
 	case "skills":

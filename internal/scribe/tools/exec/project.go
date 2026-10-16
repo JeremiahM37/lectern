@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -13,9 +14,16 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
 )
 
-// projectTimeout is the default for project commands, which are slower than
-// ordinary shell calls.
-const projectTimeout = 10 * time.Minute
+// projectTimeout is the default for project commands (spec 06 section 9.2:
+// config toolTimeout, default 2 minutes).
+const projectTimeout = 2 * time.Minute
+
+// Project output is capped at 10,000 characters: the first 3,000 and the last
+// 5,000 are kept and the rest is cut, with the full text in a tee file.
+const (
+	projectHeadBytes = 3000
+	projectTailBytes = 5000
+)
 
 type projectTool struct{ jobs *Jobs }
 
@@ -26,6 +34,7 @@ type projectArgs struct {
 	Fix       bool              `json:"fix"`
 	Env       map[string]string `json:"env"`
 	TimeoutMS int               `json:"timeout_ms"`
+	Cwd       string            `json:"cwd"`
 }
 
 func (t *projectTool) Spec() llm.ToolSpec {
@@ -33,7 +42,7 @@ func (t *projectTool) Spec() llm.ToolSpec {
 		Name: "project",
 		Description: "Run this project's own test, lint, typecheck, build, format or run command. " +
 			"The toolchain is detected from the files in the project root (Go, Rust, Node with npm/pnpm/yarn/bun, Python, .NET, PHP, Swift, Xcode, Dart/Flutter, Elixir, Ruby, Gradle, Maven, CMake, Make, Zig, Haskell, Scala, Clojure, Deno). " +
-			"Use action list to see the detected commands. Failing tests and error locations are reported. " +
+			"Use action list to see the detected commands; in a monorepo it also lists the workspace packages, and cwd (a package directory relative to the project root) runs the command for one package. Failing tests and error locations are reported. " +
 			"Action check runs typecheck, then lint, then test and gives one summary; lint warnings fail it. " +
 			"fix: true applies the linter's auto-fix (lint, or the lint stage of check) where the toolchain has one. " +
 			"Prefer this to shell for checks: it knows the right command for the project.",
@@ -43,7 +52,8 @@ func (t *projectTool) Spec() llm.ToolSpec {
 			"args":       tools.Str("Optional extra arguments appended to the command, e.g. \"-run TestFoo -v\"."),
 			"fix":        tools.Bool("lint: apply the linter's auto-fix (e.g. eslint --fix, ruff check --fix). check: apply it to the lint stage. Changes files."),
 			"env":        map[string]any{"type": "object", "description": "Extra environment variables for the command, as name: value. FORCE_COLOR and NO_COLOR are always set.", "additionalProperties": map[string]any{"type": "string"}},
-			"timeout_ms": tools.Int("Timeout in milliseconds (default 600000, max 1800000 = 30 min; per stage for check)."),
+			"timeout_ms": tools.Int("Timeout in milliseconds (default 120000 = 2 min, max 1800000 = 30 min; per stage for check)."),
+			"cwd":        tools.Str("Optional package directory relative to the project root, e.g. \"packages/api\" in a monorepo. The command runs there and the project is detected there."),
 		}, "action"),
 	}
 }
@@ -69,13 +79,20 @@ func (t *projectTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessa
 		return tools.Errorf("project needs a project environment; this call has none")
 	}
 	action := strings.ToLower(strings.TrimSpace(a.Action))
-	profile := Detect(env.Workdir)
+	dir, err := resolveCwd(env.Workdir, a.Cwd)
+	if err != nil {
+		return tools.Errorf("%v. In a monorepo, list the packages with action list, then pass one as cwd.", err)
+	}
+	if dir != env.Workdir && !within(env.Workdir, dir) {
+		return tools.Errorf("cwd %q is outside the project. Pass a package directory inside it.", a.Cwd)
+	}
+	profile := Detect(dir)
 
 	if action == "list" {
-		return listResult(profile, env.Workdir)
+		return listResult(profile, dir, env.Workdir)
 	}
 	if action == "check" {
-		return t.runCheck(ctx, env, a, profile)
+		return t.runCheck(ctx, env, a, profile, dir)
 	}
 	if !isAction(action) {
 		return tools.Errorf("unknown action %q. Use one of: check, test, lint, typecheck, build, format, run, list.", a.Action)
@@ -114,7 +131,7 @@ func (t *projectTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessa
 		return tools.Errorf("%v", err)
 	}
 	timeout := clampTimeout(a.TimeoutMS, t.jobs.defaultTimeout(projectTimeout))
-	fg := runForeground(ctx, env, cmd, timeout, append([]string{"FORCE_COLOR=0", "NO_COLOR=1"}, extra...))
+	fg := runForegroundShaped(ctx, env, dir, cmd, timeout, append([]string{"FORCE_COLOR=0", "NO_COLOR=1"}, extra...), projectShape)
 	return projectResult(action, cmd, fg, timeout)
 }
 
@@ -177,31 +194,45 @@ func isAction(a string) bool {
 	return false
 }
 
-func listResult(p Profile, dir string) tools.Result {
-	if p.Ecosystem == "" {
-		return tools.Result{
-			Output:  fmt.Sprintf("No project toolchain detected in %s. Use shell to run commands manually.", dir),
-			Summary: "no toolchain",
-			Meta:    map[string]any{"ecosystem": ""},
-		}
-	}
+// listResult shows the commands detected in dir. At the project root it also
+// lists the workspace packages, so the model can pick one as cwd.
+func listResult(p Profile, dir, root string) tools.Result {
 	var b strings.Builder
-	head := p.Ecosystem
-	if p.Manager != "" {
-		head += " (" + p.Manager + ")"
-	}
-	fmt.Fprintf(&b, "Detected: %s\n", head)
-	for _, action := range Actions {
-		if c, ok := p.Commands[action]; ok {
-			fmt.Fprintf(&b, "  %-9s %s\n", action, c)
-		} else {
-			fmt.Fprintf(&b, "  %-9s (none)\n", action)
+	if p.Ecosystem == "" {
+		fmt.Fprintf(&b, "No project toolchain detected in %s. Use shell to run commands manually.", dir)
+	} else {
+		head := p.Ecosystem
+		if p.Manager != "" {
+			head += " (" + p.Manager + ")"
 		}
+		fmt.Fprintf(&b, "Detected: %s\n", head)
+		for _, action := range Actions {
+			if c, ok := p.Commands[action]; ok {
+				fmt.Fprintf(&b, "  %-9s %s\n", action, c)
+			} else {
+				fmt.Fprintf(&b, "  %-9s (none)\n", action)
+			}
+		}
+	}
+	pkgs := workspacePackages(dir)
+	if len(pkgs) > 0 {
+		b.WriteString("\nWorkspace packages (pass one as cwd to run its commands):\n")
+		for _, rel := range pkgs {
+			eco := Detect(filepath.Join(dir, rel)).Ecosystem
+			if eco == "" {
+				eco = "no toolchain marker"
+			}
+			fmt.Fprintf(&b, "  %s (%s)\n", rel, eco)
+		}
+	}
+	summary := p.Ecosystem
+	if summary == "" {
+		summary = "no toolchain"
 	}
 	return tools.Result{
 		Output:  strings.TrimRight(b.String(), "\n"),
-		Summary: p.Ecosystem,
-		Meta:    map[string]any{"ecosystem": p.Ecosystem, "manager": p.Manager, "commands": p.Commands},
+		Summary: summary,
+		Meta:    map[string]any{"ecosystem": p.Ecosystem, "manager": p.Manager, "commands": p.Commands, "workspaces": pkgs, "root": root},
 	}
 }
 
@@ -212,6 +243,12 @@ func projectResult(action, cmd string, fg foreground, timeout time.Duration) too
 		return tools.Errorf("could not start %s: %v", action, fg.err)
 	}
 	diags, failed := parseDiagnostics(fg.raw)
+	// Plain lint fails on warnings too, not only on a non-zero exit: a linter
+	// that reports warnings with exit 0 has still found problems (spec 06 9.2).
+	var warnings []string
+	if action == "lint" && fg.exit == 0 && !fg.timedOut && !fg.cancelled {
+		warnings = warningLines(fg.raw)
+	}
 	body := strings.TrimRight(fg.body, "\n")
 	if strings.TrimSpace(body) == "" {
 		body = "(no output)"
@@ -225,16 +262,22 @@ func projectResult(action, cmd string, fg foreground, timeout time.Duration) too
 		"lines":   fg.lines,
 	}
 
-	if fg.timedOut || fg.cancelled || fg.exit != 0 {
+	if fg.timedOut || fg.cancelled || fg.exit != 0 || len(warnings) > 0 {
 		var verdict string
-		if fg.timedOut || fg.cancelled {
+		switch {
+		case fg.timedOut || fg.cancelled:
 			verdict = footerFor(fg, timeout, action)
-		} else {
+		case fg.exit != 0:
 			verdict = fmt.Sprintf("— failed (exit %d).", fg.exit)
+		default:
+			verdict = fmt.Sprintf("— failed: %d warning(s). Fix them or run with fix: true.", len(warnings))
 		}
 		summary := fmt.Sprintf("%s failed (%d errors)", action, len(diags))
 		if len(diags) == 0 {
 			summary = action + " failed"
+		}
+		if len(warnings) > 0 && fg.exit == 0 {
+			summary = fmt.Sprintf("%s failed (%d warnings)", action, len(warnings))
 		}
 		if fg.timedOut {
 			summary = action + " timed out"

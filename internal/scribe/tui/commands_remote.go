@@ -13,10 +13,17 @@ import (
 )
 
 func init() {
-	overrideCommands(&command{Name: "remote", Args: "[on|off|here|pair|status]",
-		Desc: "Telegram: turn the phone surface on or off, send messages to this tab, pair a chat", Group: "System",
+	overrideCommands(&command{Name: "remote", Args: "[on|off|here|pair|unpair|status]",
+		Desc: "Telegram: turn the phone surface on or off, send messages to this tab, pair or unpair a chat", Group: "System",
 		Run: func(m *Model, args string) tea.Cmd {
 			return m.remoteCommand(strings.TrimSpace(args))
+		}})
+}
+
+func init() {
+	overrideCommands(&command{Name: "unpair", Desc: "Telegram: forget every chat paired from the phone (config chats stay)", Group: "System",
+		Run: func(m *Model, args string) tea.Cmd {
+			return m.remoteCommand("unpair")
 		}})
 }
 
@@ -53,12 +60,19 @@ func (m *Model) remoteCommand(args string) tea.Cmd {
 		say("info", fmt.Sprintf("Send this code to the Scribe bot from the chat to pair: %s\n"+
 			"It works once, until %s. Five wrong codes lock that chat out for ten minutes.",
 			code, expires.Format("15:04")))
+	case "unpair":
+		n, err := telegram.Default.Unpair()
+		if err != nil {
+			say("err", "Could not save the change: "+err.Error())
+			return nil
+		}
+		say("info", fmt.Sprintf("Unpaired %d chat(s). Chats listed in the config stay paired. Pair again with /remote pair.", n))
 	case "off":
 		telegram.Default.Bind(nil)
 		telegram.Default.Disable()
 		say("info", "Telegram is off. Approvals and questions stay in this terminal.")
 	default:
-		say("err", "Usage: /remote [on|off|here|pair|status]")
+		say("err", "Usage: /remote [on|off|here|pair|unpair|status]")
 	}
 	return nil
 }

@@ -58,6 +58,8 @@ type Dispatcher struct {
 	New           SubagentFactory
 	MaxConcurrent int // default 3, clamped to 2..8
 	Sink          Sink
+	// Hooks, when set, sees each subagent start and finish.
+	Hooks SubagentObserver
 	// WorkDir is the project root that task file targets are checked against.
 	// It is also in env, but a dispatch with no env workdir skips the check.
 

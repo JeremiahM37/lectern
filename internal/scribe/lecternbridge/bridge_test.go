@@ -319,15 +319,16 @@ func TestHeadlessHostDeniesWhenLecternHasNoOpinion(t *testing.T) {
 	}
 }
 
-func TestRefusedTokenIsNoOpinion(t *testing.T) {
+// A refused token is a Lectern that cannot be reached for approvals: the
+// approval is denied (fail closed), not handed to the local rule.
+func TestRefusedTokenDenies(t *testing.T) {
 	f := newFakeLectern(t)
 	cfg := f.config()
 	cfg.Token = "wrong"
-	local := newLocalHost(true, tools.AllowOnce)
-	close(local.release)
+	local := newLocalHost(true, tools.AllowOnce) // the person has not answered at the terminal
 	h := &approvalHost{b: newBridge(cfg), inner: local}
-	if got := h.Approve(context.Background(), shellApproval); got != tools.AllowOnce {
-		t.Fatalf("Approve = %v, want the local answer when Lectern refuses the token", got)
+	if got := h.Approve(context.Background(), shellApproval); got != tools.Deny {
+		t.Fatalf("Approve = %v, want Deny when Lectern refuses the token", got)
 	}
 }
 

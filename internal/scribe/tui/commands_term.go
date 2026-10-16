@@ -49,7 +49,7 @@ func init() {
 					m.renameFloatCmd(rest)
 					return nil
 				}
-				return flashCmd("err", "Usage: /terminals [list|new|show|hide|close [n]|rename [n] <name>]")
+				return cmdErrText("Usage: /terminals [list|new|show|hide|close [n]|rename [n] <name>]")
 			}},
 		&command{Name: "editor", Args: "[file[:line]|open <file[:line]>|split|close|access [on|when-open|off]|sync [on|off]]",
 			Desc: "Open the editor beside the chat (Ctrl+E) at a file and line; split changes its width; access sets what the agent may do in it; sync sets whether its edits follow into the buffer", Group: "Tabs",
@@ -66,7 +66,7 @@ func init() {
 					m.closeEditor()
 					return nil
 				case "open":
-					return flashCmd("err", "Usage: /editor open <file[:line]>")
+					return cmdErrText("Usage: /editor open <file[:line]>")
 				case "access":
 					m.setFlash("info", "Agent editor access: "+nvim.GetAccess().Label()+" (on, when-open or off)")
 					return nil
@@ -77,7 +77,7 @@ func init() {
 				if val, ok := strings.CutPrefix(args, "sync "); ok {
 					on, err := parseOnOff(val)
 					if err != nil {
-						return flashCmd("err", "Usage: /editor sync [on|off]")
+						return cmdErrText("Usage: /editor sync [on|off]")
 					}
 					nvim.SetSyncOnEdit(on)
 					m.setFlash("info", syncLabel(on)+" (saved)")
@@ -89,7 +89,7 @@ func init() {
 				if val, ok := strings.CutPrefix(args, "access "); ok {
 					a, err := nvim.ParseAccess(val)
 					if err != nil {
-						return flashCmd("err", "Usage: /editor access [on|when-open|off]")
+						return cmdErrText("Usage: /editor access [on|when-open|off]")
 					}
 					nvim.SetAccess(a)
 					m.setFlash("info", "Agent editor access: "+a.Label()+" (saved)")

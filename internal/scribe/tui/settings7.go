@@ -15,6 +15,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/registry"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/nvim"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/chat"
@@ -363,6 +364,8 @@ func (s *settings) agentRows() []setRow {
 		"rate limits and network errors; 0 keeps the default (3)"))
 	rows = append(rows, s.numRow7("Stall retries", "retry.stall", c.Retry.Stall,
 		"a stream that stops; 0 keeps the default"))
+	rows = append(rows, s.numRow7("Messages kept when compacting", "compact_keep_recent", c.CompactKeepRecent,
+		"the newest messages kept verbatim; 0 keeps the default"))
 	rows = append(rows, s.toolTimeoutRow(c))
 	return rows
 }
@@ -403,6 +406,8 @@ func (s *settings) toolRows() []setRow {
 			"passed before the file name"),
 		s.editorAccessRow(),
 	)
+
+	rows = append(rows, s.editorIntegrationRows(c)...)
 
 	rows = append(rows, setRow{label: "Web search", header: true})
 	rows = append(rows, s.secretRow("Brave Search key", registry.BraveKeyID, "masked; stored in the key store"))
@@ -591,21 +596,64 @@ func nextInstructions(cur []string, id string) ([]string, error) {
 	return next, nil
 }
 
-// performanceRows are the request options of the provider adapters. The
-// config keys and their setter exist; the adapters do not read them yet, so
-// each row says so.
-func (s *settings) performanceRows(c config.Config) []setRow {
+// performanceRows are the request options the Think tab shows for the
+// current model. Each row appears only when the provider and the model's
+// reasoning style take it: thinking on/off depends on the style, effort only
+// on adaptive and effort-style models, and the cache lifetime only on
+// Anthropic. Speed, tool streaming and send-reasoning are not in the rows
+// because no adapter reads them yet; their config keys stay settable.
+func (s *settings) performanceRows(c config.Config, provider, style string) []setRow {
 	p := c.Performance
-	const note = "saved; the provider adapters do not read it yet"
-	boolOf := func(v *bool, def bool) bool { return config.Bool(v, def) }
-	return []setRow{
-		{label: "Request options", header: true, note: "per provider, sent with each request"},
-		s.pickRow7("Thinking", "performance.thinking", p.Thinking, []string{"default", "off", "adaptive", "auto", "enabled"}, note),
-		s.pickRow7("Effort", "performance.effort", p.Effort, []string{"default", "low", "medium", "high", "xhigh", "max", "minimal", "none"}, note),
-		s.textRow7("Speed tier", "performance.speed", p.Speed, "fast", note),
-		s.pickRow7("Cache lifetime", "performance.cache_ttl", p.CacheTTL, []string{"default", "5m", "1h"}, note),
-		s.flagRow7("Stream tool arguments", "performance.tool_streaming", boolOf(p.ToolStreaming, true), note),
-		s.flagRow7("Send reasoning back", "performance.send_reasoning", boolOf(p.SendReasoning, false), note),
-		s.flagRow7("One tool at a time", "performance.disable_parallel_tool_use", boolOf(p.DisableParallelToolUse, false), note),
+	var rows []setRow
+	if provider == "anthropic" {
+		rows = append(rows, setRow{label: "Claude options", header: true, note: "sent with each Claude request"})
+		switch style {
+		case llm.ReasoningBudget:
+			rows = append(rows, s.pickRow7("Thinking", "performance.thinking", p.Thinking,
+				[]string{"default", "off", "enabled"}, "enabled uses the budget above"))
+		case llm.ReasoningAdaptive:
+			rows = append(rows, s.pickRow7("Thinking", "performance.thinking", p.Thinking,
+				[]string{"default", "off", "adaptive"}, "adaptive: the model decides how long to think"))
+			rows = append(rows, s.pickRow7("Effort", "performance.effort", p.Effort,
+				[]string{"default", "low", "medium", "high", "xhigh", "max"}, "the Effort row above wins when set"))
+		}
+		rows = append(rows, s.pickRow7("Cache lifetime", "performance.cache_ttl", p.CacheTTL,
+			[]string{"default", "5m", "1h"}, "1h keeps the prompt cached longer, at a higher write cost"))
 	}
+	if provider == "anthropic" || provider == "openai" {
+		rows = append(rows, s.flagRow7("One tool at a time", "performance.disable_parallel_tool_use",
+			config.Bool(p.DisableParallelToolUse, false), "the model calls one tool per turn"))
+	}
+	return rows
+}
+
+// editorIntegrationLabels names the eleven editor integration toggles in the
+// order the settings show them, with the note each one carries.
+var editorIntegrationLabels = map[string][2]string{
+	"diagnostics":    {"LSP diagnostics", "errors and warnings in the prompt"},
+	"symbols":        {"Document symbols", "outline of the open file"},
+	"hover":          {"Hover and type info", "types under the cursor"},
+	"references":     {"Find references", "who uses a symbol"},
+	"definition":     {"Go to definition", "jump to where a symbol is defined"},
+	"code_actions":   {"Code actions", "quick fixes the server offers"},
+	"rename":         {"LSP rename", "rename a symbol across files"},
+	"lsp_status":     {"LSP status", "which language servers are running"},
+	"format":         {"LSP format", "format with the language server"},
+	"editor_context": {"Editor context", "file, cursor and selection in the prompt"},
+	"sync_on_edit":   {"Sync on edit", "jump the editor to edited files; off refreshes the current one"},
+}
+
+// editorIntegrationRows are the per-feature editor toggles (/editor
+// settings). They are saved as the editor_integration object. Each row says
+// the value is saved, because the language-server tools do not read the
+// toggles yet.
+func (s *settings) editorIntegrationRows(c config.Config) []setRow {
+	rows := []setRow{{label: "Editor integrations", header: true,
+		note: "saved per feature; the language-server tools do not read them yet"}}
+	for _, name := range config.EditorIntegrationKeys {
+		lab := editorIntegrationLabels[name]
+		on := c.EditorIntegrationOn(name)
+		rows = append(rows, s.flagRow7(lab[0], "editor_integration."+name, on, lab[1]))
+	}
+	return rows
 }

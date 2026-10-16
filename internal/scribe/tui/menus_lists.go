@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -410,9 +411,10 @@ func (m *Model) clearAllSessions(t *tab, p *Picker) tea.Cmd {
 // the source and the text; a repeated fault shows how many times it happened.
 func (m *Model) errorItems() []PickItem {
 	var items []PickItem
+	now := time.Now()
 	for i := len(m.errLog) - 1; i >= 0; i-- {
 		e := m.errLog[i]
-		label := e.At.Format("15:04:05") + "  " + fmt.Sprintf("%-10s", e.Source) + " " + oneLine(e.Text)
+		label := fmt.Sprintf("%-10s", e.Source) + " " + oneLine(e.Text) + "  " + relAge(e.At, now)
 		desc := e.Tab
 		if e.Count > 1 {
 			desc += " ×" + strconv.Itoa(e.Count)
@@ -447,11 +449,17 @@ func (m *Model) openErrorLog() {
 		if !ok {
 			return nil
 		}
-		lines := []string{"When   " + e.At.Format("15:04:05"), "Source " + e.Source, "Tab    " + e.Tab}
+		lines := []string{"When   " + relAge(e.At, time.Now()) + " ago (" + e.At.Format("15:04:05") + ")", "Source " + e.Source, "Tab    " + e.Tab}
 		if e.Count > 1 {
 			lines = append(lines, fmt.Sprintf("Repeat %d times, the same fault, shown once", e.Count))
 		}
 		lines = append(lines, "")
+		if e.Args != "" {
+			lines = append(lines, "── Args ──")
+			lines = append(lines, strings.Split(render.Wrap(prettyArgs(e.Args), 40), "\n")...)
+			lines = append(lines, "")
+		}
+		lines = append(lines, "── Error ──")
 		return append(lines, strings.Split(render.Wrap(e.Text, 40), "\n")...)
 	}
 	p.OnKey = func(key string) (tea.Cmd, bool) {
@@ -466,7 +474,11 @@ func (m *Model) openErrorLog() {
 		if !ok {
 			return nil, true
 		}
-		copyToTerminal(e.Text)
+		text := e.Text
+		if e.Args != "" {
+			text = "Args:\n" + prettyArgs(e.Args) + "\n\n" + e.Text
+		}
+		copyToTerminal(text)
 		return flashCmd("ok", "Copied the error"), true
 	}
 	lp := newLivePicker(p, func(p *Picker) {

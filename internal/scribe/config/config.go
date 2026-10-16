@@ -193,6 +193,12 @@ type Config struct {
 	// Retry sets how many times a failed model call is retried. Zero keeps
 	// the agent's default.
 	Retry Retry `json:"retry,omitempty"`
+	// WatchdogTimeouts are the model stream thresholds (/watchdog). They are
+	// separate from ToolTimeout, which limits shell and project commands.
+	WatchdogTimeouts Watchdog `json:"watchdog_timeouts,omitempty"`
+	// EditorIntegrations are the per-feature editor toggles (/editor
+	// settings). A missing name takes its default; see EditorIntegrationOn.
+	EditorIntegrations map[string]bool `json:"editor_integrations,omitempty"`
 }
 
 // Reasoning is one provider's reasoning controls. Which fields apply depends
@@ -364,6 +370,8 @@ func Merge(base, o Config) Config {
 	r.Editor = mergeEditor(base.Editor, o.Editor)
 	r.Performance = mergePerformance(base.Performance, o.Performance)
 	r.Retry = mergeRetry(base.Retry, o.Retry)
+	r.WatchdogTimeouts = mergeWatchdog(base.WatchdogTimeouts, o.WatchdogTimeouts)
+	r.EditorIntegrations = mergeEditorIntegrations(base.EditorIntegrations, o.EditorIntegrations)
 	str(&rt.Default, o.Router.Default)
 	str(&rt.Desloppify, o.Router.Desloppify)
 	str(&rt.Verify, o.Router.Verify)

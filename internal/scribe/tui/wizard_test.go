@@ -93,8 +93,14 @@ func TestWizardEndToEnd(t *testing.T) {
 	}
 
 	drain(m, send(m, "enter")) // icons: keep the default (off) and move on
+	if !strings.Contains(screen(m), "Codebase Intelligence") {
+		t.Fatalf("expected the first tour page:\n%s", screen(m))
+	}
+	for i := 0; i < 7 && !strings.Contains(screen(m), "Pick your theme"); i++ {
+		send(m, "right") // intelligence .. shortcuts, then theme
+	}
 	if !strings.Contains(screen(m), "Pick your theme") {
-		t.Fatalf("expected the theme step:\n%s", screen(m))
+		t.Fatalf("expected the theme step after the tour:\n%s", screen(m))
 	}
 
 	names := theme.Names()

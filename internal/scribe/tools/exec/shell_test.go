@@ -66,13 +66,12 @@ func TestShellRunsInWorkdirAndStreams(t *testing.T) {
 func TestShellTimeoutKillsProcessGroup(t *testing.T) {
 	skipOnWindows(t)
 	dir := t.TempDir()
-	r, _ := newTestRegistry(t, Options{})
+	r, _ := newTestRegistry(t, Options{ToolTimeout: time.Second}) // timeout_ms is clamped to 30 s; the config timeout keeps the test fast
 	pidFile := filepath.Join(dir, "child.pid")
 
 	start := time.Now()
 	res := runTool(t, r, "shell", newTestEnv(dir, nil), map[string]any{
-		"command":    "sleep 60 & echo $! > child.pid; sleep 60",
-		"timeout_ms": 1000,
+		"command": "sleep 60 & echo $! > child.pid; sleep 60",
 	})
 	elapsed := time.Since(start)
 
@@ -127,7 +126,7 @@ func TestShellTimeoutIsClamped(t *testing.T) {
 	if got := clampTimeout(99_999_999, defaultShellTimeout); got != 30*time.Minute {
 		t.Errorf("huge timeout should clamp to max, got %s", got)
 	}
-	if got := clampTimeout(1, defaultShellTimeout); got != time.Second {
+	if got := clampTimeout(1, defaultShellTimeout); got != 30*time.Second {
 		t.Errorf("tiny timeout should clamp to 1s, got %s", got)
 	}
 }

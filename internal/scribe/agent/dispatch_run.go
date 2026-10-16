@@ -371,7 +371,18 @@ func (r *dispatchRun) launch(ctx context.Context, idx int, role string, purpose 
 		r.board.update(idx, func(a *AgentInfo) { a.Status, a.Error = "error", errBreakerOpen.Error() })
 		return attempt{err: errBreakerOpen}
 	}
+	hooks := r.d.Hooks
+	if hooks != nil {
+		hooks.SubagentStart(ctx, role, task)
+	}
 	res := r.attempt(ctx, idx, role, purpose, task)
+	if hooks != nil {
+		errText := ""
+		if res.err != nil {
+			errText = res.err.Error()
+		}
+		hooks.SubagentStop(ctx, role, task, errText)
+	}
 	r.mu.Lock()
 	r.total.Add(res.usage)
 	r.cost += res.cost

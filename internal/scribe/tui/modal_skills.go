@@ -147,6 +147,9 @@ func (b *skillBrowser) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 		case "ctrl+n":
 			b.askInstallSource()
 			return b, nil, false
+		case "ctrl+s":
+			// Ctrl+S opens the browser and closes it again (spec 02 1.3).
+			return b, nil, true
 		}
 	}
 	before := b.query

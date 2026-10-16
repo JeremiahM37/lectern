@@ -67,6 +67,13 @@ func chainIgnore(wd, dir string) *Ignore {
 // Symlinks are reported but not followed.
 func walkDir(ctx context.Context, wd, dir string, ig *Ignore, level, maxLevel int,
 	visit func(abs, rel string, fi fs.FileInfo) bool) bool {
+	return walkDirWith(ctx, wd, dir, ig, level, maxLevel, alwaysSkip, visit)
+}
+
+// walkDirWith is walkDir with its own rule for names that are never entered.
+// Dependency searches pass a rule that lets node_modules through.
+func walkDirWith(ctx context.Context, wd, dir string, ig *Ignore, level, maxLevel int,
+	skip func(name string) bool, visit func(abs, rel string, fi fs.FileInfo) bool) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return true
@@ -76,7 +83,7 @@ func walkDir(ctx context.Context, wd, dir string, ig *Ignore, level, maxLevel in
 			return false
 		}
 		name := de.Name()
-		if alwaysSkip(name) {
+		if skip(name) {
 			continue
 		}
 		abs := filepath.Join(dir, name)
@@ -93,7 +100,7 @@ func walkDir(ctx context.Context, wd, dir string, ig *Ignore, level, maxLevel in
 			return false
 		}
 		if isDir && (maxLevel < 0 || level < maxLevel) {
-			if !walkDir(ctx, wd, abs, loadIgnore(ig, rel, abs), level+1, maxLevel, visit) {
+			if !walkDirWith(ctx, wd, abs, loadIgnore(ig, rel, abs), level+1, maxLevel, skip, visit) {
 				return false
 			}
 		}
@@ -109,17 +116,15 @@ type treeWriter struct {
 	count  int
 	limit  int // entries this writer may show; the caller shares one budget
 	capped bool
+	// annot adds a note after a file's size, or "" for none. Nil adds none.
+	annot func(abs string) string
 }
 
-// renderTree lists root to depth levels (1 = its children). Directories come
-// first, then files, each sorted by name. Files show their size.
-func renderTree(ctx context.Context, wd, root string, depth int) (string, int, bool) {
-	return renderTreeLimit(ctx, wd, root, depth, maxListEntries)
-}
-
-// renderTreeLimit is renderTree with an entry budget of limit.
-func renderTreeLimit(ctx context.Context, wd, root string, depth, limit int) (string, int, bool) {
-	w := &treeWriter{ctx: ctx, wd: wd, limit: limit}
+// renderTreeAnnotated lists root to depth levels (1 = its children) with an
+// entry budget of limit. Directories come first, then files, each sorted by
+// name. Files show their size, then the note annot gives them (nil for none).
+func renderTreeAnnotated(ctx context.Context, wd, root string, depth, limit int, annot func(abs string) string) (string, int, bool) {
+	w := &treeWriter{ctx: ctx, wd: wd, limit: limit, annot: annot}
 	w.sb.WriteString(relSlash(wd, root) + "/\n")
 	w.dir(root, chainIgnore(wd, root), "  ", 1, depth)
 	return strings.TrimRight(w.sb.String(), "\n"), w.count, w.capped
@@ -161,6 +166,9 @@ func (w *treeWriter) dir(abs string, ig *Ignore, indent string, level, depth int
 			line += "/"
 		} else if fi, err := e.Info(); err == nil {
 			line += "  " + humanSize(fi.Size())
+			if w.annot != nil {
+				line += w.annot(childAbs)
+			}
 		}
 		w.sb.WriteString(line + "\n")
 		if isDir && level < depth {
@@ -249,7 +257,7 @@ func listOne(ctx context.Context, env *tools.Env, p string, depth, limit int) to
 	if !fi.IsDir() {
 		return tools.Errorf("%s is not a directory. Use read to view a file.", t.rel)
 	}
-	out, n, capped := renderTreeLimit(ctx, env.Workdir, t.abs, depth, limit)
+	out, n, capped := renderTreeAnnotated(ctx, env.Workdir, t.abs, depth, limit, fileAnnotator(env))
 	if capped {
 		out += fmt.Sprintf("\n(Output capped at %d entries. Narrow the path or reduce depth.)", limit)
 	}
@@ -373,9 +381,10 @@ func NewGlob() tools.Tool {
 			if len(shown) > maxGlobResults {
 				shown = shown[:maxGlobResults]
 			}
+			annot := fileAnnotator(env)
 			lines := make([]string, len(shown))
 			for i, h := range shown {
-				lines[i] = h.rel
+				lines[i] = h.rel + annot(filepath.Join(env.Workdir, filepath.FromSlash(h.rel)))
 			}
 			out := strings.Join(lines, "\n")
 			if len(hits) > len(shown) {

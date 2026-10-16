@@ -427,6 +427,13 @@ func metaInt(e agent.Event, key string) (int, bool) {
 	return 0, false
 }
 
+// compactModel is the model that did the compaction work, or "" when the
+// event carries none.
+func compactModel(e agent.Event) string {
+	m, _ := e.Meta["model"].(string)
+	return m
+}
+
 // compactMessage is the one-line summary of an entry.
 func compactMessage(e agent.Event) string {
 	switch e.Kind {
@@ -543,14 +550,15 @@ func (v *compactionLogView) View(w, h int) string {
 		return strings.Join(fitLines(out, w, h), "\n")
 	}
 	body := make([]string, 0, len(list))
+	now := time.Now()
 	for i, e := range list {
 		kind, icon := compactKind(e)
 		sel := i == v.cursor
 		marker := "  "
-		msg := fg(th.TextSecondary).Render(render.Truncate(compactMessage(e), max(10, w-40)))
+		msg := fg(th.TextSecondary).Render(render.Truncate(compactMessage(e), max(10, w-52)))
 		if sel {
 			marker = fgb(th.BrandSecondary).Render("› ")
-			msg = fgb(th.TextPrimary).Render(render.Truncate(compactMessage(e), max(10, w-40)))
+			msg = fgb(th.TextPrimary).Render(render.Truncate(compactMessage(e), max(10, w-52)))
 		}
 		kindCol := fg(th.Brand).Render(padRight(kind, 14))
 		switch kind {
@@ -561,8 +569,13 @@ func (v *compactionLogView) View(w, h int) string {
 		case "skipped":
 			kindCol = fg(th.TextMuted).Render(padRight(kind, 14))
 		}
-		line := marker + fg(th.TextMuted).Render(icon+" ") + kindCol + msg
-		body = append(body, line)
+		// model in brackets, then how long ago, on the right edge
+		right := fg(th.TextFaint).Render(relAge(e.At, now))
+		if m := compactModel(e); m != "" {
+			right = fg(th.Brand).Render("["+render.Truncate(m, 22)+"]") + " " + right
+		}
+		left := marker + fg(th.TextMuted).Render(icon+" ") + kindCol + msg
+		body = append(body, spaceBetween(left, right, w))
 	}
 	foot := []string{"", fg(th.TextFaint).Render(v.countLine(len(list))) + v.noteSuffix()}
 	avail := max(1, h-len(head)-len(foot))
@@ -612,7 +625,8 @@ func (v *compactionLogView) viewDetail(e agent.Event, w, h int) string {
 		}
 	}
 	add("Kind", kind)
-	add("Time", panelTime(e.At))
+	add("Time", panelTime(e.At)+" ("+relAge(e.At, time.Now())+" ago)")
+	add("Model", compactModel(e))
 	if e.Kind == agent.EvCompactStart {
 		add("Reason", e.Text)
 	}
@@ -639,7 +653,11 @@ func (v *compactionLogView) viewDetail(e agent.Event, w, h int) string {
 		lines = append(lines, "", fg(th.TextDim).Render("── Error ──"))
 		lines = append(lines, wrapLines(e.Text, max(10, w-4))...)
 	}
-	head := []string{fgb(th.Brand).Render(icon+" "+kind) + fg(th.TextFaint).Render("  "+panelTime(e.At)) + v.noteSuffix(), ""}
+	sub := panelTime(e.At)
+	if m := compactModel(e); m != "" {
+		sub = m + " · " + sub
+	}
+	head := []string{fgb(th.Brand).Render(icon+" "+kind) + fg(th.TextFaint).Render("  "+sub) + v.noteSuffix(), ""}
 	foot := []string{"", fg(th.TextFaint).Render("Esc back to the list")}
 	avail := max(1, h-len(head)-len(foot))
 	v.dscroll = clamp(v.dscroll, 0, max(0, len(lines)-avail))

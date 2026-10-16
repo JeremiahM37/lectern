@@ -22,6 +22,7 @@ func init() {
 			m.pushModal(NewConfirm(m.th, "Clear conversation?",
 				"The messages on screen are cleared. The saved session is kept.", true, func() tea.Cmd {
 					t.chat.Clear()
+					t.steerQ = nil // queued steering messages go with the view
 					return nil
 				}))
 			return nil
@@ -34,7 +35,7 @@ func init() {
 			Run: func(m *Model, args string) tea.Cmd {
 				f := strings.Fields(args)
 				if len(f) != 2 || (f[1] != "project" && f[1] != "global") {
-					return flashCmd("err", "Usage: /scope <setting> project|global")
+					return cmdErrText("Usage: /scope <setting> project|global")
 				}
 				return m.moveSetting(f[0], f[1] == "project")
 			}},
@@ -49,7 +50,7 @@ func init() {
 				case "global":
 					return m.moveSetting("model", false)
 				}
-				return flashCmd("err", "Usage: /model-scope project|global")
+				return cmdErrText("Usage: /model-scope project|global")
 			}},
 	)
 }
@@ -72,7 +73,7 @@ func (m *Model) planCommand(args string) tea.Cmd {
 func (m *Model) contextCommand(args string) tea.Cmd {
 	f := strings.Fields(args)
 	if len(f) == 0 || (f[0] != "clear" && f[0] != "reset") {
-		return flashCmd("err", "Usage: /context, or /context clear [skills|memory]")
+		return cmdErrText("Usage: /context, or /context clear [skills|memory]")
 	}
 	target := ""
 	if len(f) > 1 {
@@ -80,10 +81,10 @@ func (m *Model) contextCommand(args string) tea.Cmd {
 	}
 	cc, ok := m.cur().be.(ContextClearer)
 	if !ok {
-		return errFlash(errors.New("this backend cannot clear context"))
+		return cmdErr(errors.New("this backend cannot clear context"))
 	}
 	if err := cc.ClearContext(target); err != nil {
-		return errFlash(err)
+		return cmdErr(err)
 	}
 	return flashCmd("ok", "Skills unloaded from context")
 }
@@ -108,7 +109,7 @@ func (m *Model) commitCommand(args string) tea.Cmd {
 	msg, stagedOnly := parseCommitArgs(args)
 	switch {
 	case stagedOnly && msg == "":
-		return flashCmd("err", "Usage: /commit --staged <message>")
+		return cmdErrText("Usage: /commit --staged <message>")
 	case msg == "":
 		return m.commitPrompt()
 	case stagedOnly:
@@ -121,7 +122,7 @@ func (m *Model) commitCommand(args string) tea.Cmd {
 func (m *Model) gitCommitStaged(msg string) tea.Cmd {
 	sc, ok := m.cur().be.(StagingCommitter)
 	if !ok {
-		return errFlash(errors.New("this backend cannot commit only the staged changes"))
+		return cmdErr(errors.New("this backend cannot commit only the staged changes"))
 	}
 	return func() tea.Msg {
 		if err := sc.GitCommitWith(msg, false); err != nil {
@@ -167,7 +168,7 @@ func (m *Model) moveSetting(key string, toProject bool) tea.Cmd {
 	t := m.cur()
 	mover, ok := t.be.(ConfigMover)
 	if !ok {
-		return errFlash(errors.New("this backend cannot move settings between scopes"))
+		return cmdErr(errors.New("this backend cannot move settings between scopes"))
 	}
 	var val any
 	if key == "model" {
@@ -175,12 +176,12 @@ func (m *Model) moveSetting(key string, toProject bool) tea.Cmd {
 	} else {
 		v, known := t.be.Config()[key]
 		if !known {
-			return flashCmd("err", "No setting named "+key)
+			return cmdErrText("No setting named " + key)
 		}
 		val = v
 	}
 	if err := mover.MoveConfig(key, val, toProject, !toProject); err != nil {
-		return errFlash(err)
+		return cmdErr(err)
 	}
 	scope := "global"
 	if toProject {

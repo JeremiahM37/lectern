@@ -101,3 +101,29 @@ func shortHash(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])[:12]
 }
+
+// noteSpans is note for several spans of one file read in one call. It
+// reports whether every span was already in context at the same hash, and
+// records all of them either way.
+func (s *readState) noteSpans(abs, hash string, spans [][2]int, force bool) (unchanged bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fr := s.files[abs]
+	if fr == nil && len(s.files) >= maxReadEntries {
+		s.files = map[string]*fileReads{}
+	}
+	if fr == nil || fr.hash != hash {
+		fr = &fileReads{hash: hash}
+		s.files[abs] = fr
+	}
+	unchanged = !force && len(spans) > 0
+	for _, sp := range spans {
+		if !fr.covers(sp[0], sp[1]) {
+			unchanged = false
+		}
+	}
+	for _, sp := range spans {
+		fr.add(sp[0], sp[1])
+	}
+	return unchanged
+}

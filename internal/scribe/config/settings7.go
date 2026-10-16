@@ -20,6 +20,8 @@ const (
 	keySearchPrefix    = "search."
 	keyRetryPrefix     = "retry."
 	keyPerfPrefix      = "performance."
+	keyWatchdogPrefix  = "watchdog."
+	keyEditorIntPrefix = "editor_integration."
 )
 
 // settings7Keys lists the flat keys SetField accepts, for the settings
@@ -35,11 +37,13 @@ var settings7Keys = []string{
 	"performance.thinking", "performance.effort", "performance.speed",
 	"performance.cache_ttl", "performance.tool_streaming",
 	"performance.send_reasoning", "performance.disable_parallel_tool_use",
+	"compact_keep_recent", "watchdog.first_token", "watchdog.inter_token", "watchdog.step",
+	keyEditorIntPrefix,
 }
 
 // SettingKeyPrefixes are the prefixes of the map-style and nested keys.
 func SettingKeyPrefixes() []string {
-	return []string{keyFallbackByModel, keyContextWindow, keyAgentFeature, keyEditorPrefix, keySearchPrefix, keyRetryPrefix, keyPerfPrefix}
+	return []string{keyFallbackByModel, keyContextWindow, keyAgentFeature, keyEditorPrefix, keySearchPrefix, keyRetryPrefix, keyPerfPrefix, keyWatchdogPrefix, keyEditorIntPrefix}
 }
 
 // SetField sets one flat key from a settings value. It reports handled=false
@@ -122,6 +126,10 @@ func (c *Config) SetField(key string, v any) (bool, error) {
 		return true, nil
 	case strings.HasPrefix(key, keyPerfPrefix):
 		return true, c.setPerformance(strings.TrimPrefix(key, keyPerfPrefix), v)
+	case strings.HasPrefix(key, keyWatchdogPrefix):
+		return true, c.setWatchdog(strings.TrimPrefix(key, keyWatchdogPrefix), v)
+	case strings.HasPrefix(key, keyEditorIntPrefix):
+		return true, c.setEditorIntegration(strings.TrimPrefix(key, keyEditorIntPrefix), v)
 	}
 	return false, nil
 }
@@ -286,6 +294,19 @@ func (c *Config) ClearField(key string) bool {
 	case strings.HasPrefix(key, keyContextWindow):
 		delete(c.ContextWindowOverrides, strings.TrimPrefix(key, keyContextWindow))
 		return true
+	case strings.HasPrefix(key, keyWatchdogPrefix):
+		switch strings.TrimPrefix(key, keyWatchdogPrefix) {
+		case "first_token":
+			c.WatchdogTimeouts.FirstToken = 0
+		case "inter_token":
+			c.WatchdogTimeouts.InterToken = 0
+		case "step":
+			c.WatchdogTimeouts.Step = 0
+		}
+		return true
+	case strings.HasPrefix(key, keyEditorIntPrefix):
+		delete(c.EditorIntegrations, strings.TrimPrefix(key, keyEditorIntPrefix))
+		return true
 	case strings.HasPrefix(key, keyAgentFeature):
 		if c.AgentFeatures == nil {
 			return true
@@ -326,6 +347,8 @@ func (c *Config) ClearField(key string) bool {
 		c.Search.JinaKeyEnv = ""
 	case "search.jina_reader":
 		c.Search.JinaReader = nil
+	case "compact_keep_recent":
+		c.CompactKeepRecent = 0
 	case "retry.transient":
 		c.Retry.Transient = 0
 	case "retry.stall":

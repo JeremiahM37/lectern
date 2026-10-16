@@ -11,9 +11,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/redact"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/remote"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
@@ -22,11 +24,38 @@ import (
 const (
 	// maxMessage is Telegram's limit on message text, with some headroom.
 	maxMessage = 4000
+	// maxInput is the most characters one inbound message may carry.
+	maxInput = 4096
+	// maxCommandWords caps the words in one slash command.
+	maxCommandWords = 64
+	// maxAttachment caps a downloaded image (checked on the update, the
+	// getFile reply and the bytes actually read).
+	maxAttachment = 10 << 20
 	// staleAfter drops messages older than this, so a replayed or delayed
 	// update cannot answer a question that has moved on.
 	staleAfter = 60 * time.Second
 	// minSendGap is the least time between messages to one chat.
 	minSendGap = time.Second
+)
+
+// Note kinds decide which notify mode lets a message through. Approvals and
+// questions are not notes: mute and notify never hold them back.
+const (
+	kindProgress = "progress"
+	kindDone     = "done"
+	kindError    = "error"
+)
+
+// Notify modes for a chat (set by /notify).
+const (
+	notifyOn     = "on"
+	notifyOff    = "off"
+	notifyErrors = "errors"
+)
+
+// Messages the bot sends when a phone request cannot be answered.
+const (
+	unreachableText = "Telegram could not be reached, so the request was not answered."
 )
 
 // Options configures a Bot.
@@ -46,14 +75,27 @@ type Options struct {
 	SendGap time.Duration
 	// Logf receives poll and send problems. Nil discards them.
 	Logf func(format string, args ...any)
-	// Deliver takes a plain message from an allowed chat that is not an answer
-	// to a waiting question. It submits the message to Scribe (or steers the
-	// running turn) and returns the short reply for the chat, or "". Nil
-	// means messages are not taken.
-	Deliver func(text string) string
+	// Deliver takes a plain message (and any downloaded images) from an
+	// allowed chat that is not an answer to a waiting question. It submits
+	// the message to Scribe (or steers the running turn) and returns the
+	// short reply for the chat, or "". Nil means messages are not taken.
+	Deliver func(text string, images []llm.Part) string
 	// Stop aborts the running turn of the bound tab for /stop. It returns the
 	// reply for the chat. Nil means /stop is not taken.
 	Stop func() string
+}
+
+// outcome is how a phone request ended. An answer is the person's choice
+// ("approve", "session", "deny" or an option text), with the reason they
+// typed, if any. Failed is set when the request ended without an answer for
+// a reason the agent should hear (the phone was unreachable, the wait ran
+// out, the tab closed). NotAsked means no chat is paired, so nobody was
+// asked and the local host decides alone.
+type outcome struct {
+	answer   string
+	reason   string
+	failed   string
+	notAsked bool
 }
 
 // Bot is the Telegram surface. It long-polls for taps and replies, resolves
@@ -67,21 +109,34 @@ type Bot struct {
 	progress *remote.Throttle
 	done     *remote.Throttle
 	redact   *redact.Redactor
-	deliver  func(string) string
+	deliver  func(string, []llm.Part) string
 	stop     func() string
 	logf     func(string, ...any)
 	sendGap  time.Duration
 	now      func() time.Time
 
 	startOnce sync.Once
-	outbox    chan string
+	outbox    chan note
 
 	mu      sync.Mutex
 	seq     int
 	pending map[string]*request
+	prefs   map[string]*chatPrefs
 
 	sendMu   sync.Mutex
 	lastSend map[string]time.Time
+}
+
+// note is one message for the notes outbox.
+type note struct {
+	text string
+	kind string
+}
+
+// chatPrefs is what one chat asked for with /mute and /notify.
+type chatPrefs struct {
+	muted  bool
+	notify string // notifyOn (default), notifyOff or notifyErrors
 }
 
 // request is one approval or question waiting for a tap or a reply.
@@ -90,7 +145,8 @@ type request struct {
 	options   []string
 	allowFree bool
 	seq       int
-	reply     chan string
+	owner     any
+	reply     chan outcome
 }
 
 // NewBot validates opts and returns a Bot. It does not touch the network.
@@ -129,8 +185,9 @@ func NewBot(opts Options) (*Bot, error) {
 		logf:     logf,
 		sendGap:  gap,
 		now:      time.Now,
-		outbox:   make(chan string, 64),
+		outbox:   make(chan note, 64),
 		pending:  map[string]*request{},
+		prefs:    map[string]*chatPrefs{},
 		lastSend: map[string]time.Time{},
 	}, nil
 }
@@ -233,14 +290,25 @@ func (b *Bot) handle(ctx context.Context, u Update) {
 		return
 	}
 	text := strings.TrimSpace(m.Text)
+	if text == "" {
+		text = strings.TrimSpace(m.Caption)
+	}
 	chat := strconv.FormatInt(m.Chat.ID, 10)
 	if !b.allow.Allowed(chat) {
 		b.tryPair(ctx, m.Chat.ID, chat, text)
 		return
 	}
-	if text != "" {
-		b.answerText(ctx, m.Chat.ID, text)
+	if b.replyTo(ctx, m.Chat.ID, text) {
+		return
 	}
+	images, notes := b.attachments(ctx, m)
+	if len(notes) > 0 {
+		text = strings.TrimSpace(strings.Join(append([]string{text}, notes...), "\n"))
+	}
+	if text == "" && len(images) == 0 {
+		return
+	}
+	b.forward(ctx, m.Chat.ID, text, images)
 }
 
 // tryPair handles a message from a chat that is not allowed yet. "/pair
@@ -277,7 +345,7 @@ func (b *Bot) tryPair(ctx context.Context, chatID int64, chat, text string) {
 }
 
 // handleCallback resolves a tap on an approval or option button.
-// Data is "apr:<id>:a|d" for approvals and "cb:<id>:<index>" for options.
+// Data is "apr:<id>:a|s|d" for approvals and "cb:<id>:<index>" for options.
 func (b *Bot) handleCallback(ctx context.Context, cq *CallbackQuery) {
 	if cq.Message == nil {
 		return
@@ -303,6 +371,8 @@ func (b *Bot) handleCallback(ctx context.Context, cq *CallbackQuery) {
 		switch parts[2] {
 		case "a":
 			answer = "approve"
+		case "s":
+			answer = "session"
 		case "d":
 			answer = "deny"
 		}
@@ -315,16 +385,19 @@ func (b *Bot) handleCallback(ctx context.Context, cq *CallbackQuery) {
 		b.answerCallback(ctx, cq.ID, "Unknown button")
 		return
 	}
-	b.resolve(parts[1], answer)
+	b.resolve(parts[1], outcome{answer: answer})
 	b.answerCallback(ctx, cq.ID, "Recorded")
 }
 
-// answerText treats a plain message as an answer when a question is waiting.
-// Accepted forms: a number (1-based), "/ans <option or text>", or, for a
-// question that allows it, free text. When no question is waiting, a plain
-// message is a new message for Scribe (see forward). Other chat text while a
-// question waits is ignored.
-func (b *Bot) answerText(ctx context.Context, chatID int64, text string) {
+// replyTo handles a plain message while an approval or question waits. It
+// returns true when the message was taken as a reply, even a refused one.
+//
+// An approval takes "approve <reason>", "deny <reason>" or "session <reason>"
+// (the last approves for the rest of this tab's session). A question takes
+// a number (1-based), "/ans <option or text>", or, for a question that allows
+// it, free text. When no question is waiting, a plain message is a new
+// message for Scribe (see forward).
+func (b *Bot) replyTo(ctx context.Context, chatID int64, text string) bool {
 	isAns := false
 	arg := text
 	if low := strings.ToLower(text); low == "/ans" || strings.HasPrefix(low, "/ans ") {
@@ -332,71 +405,288 @@ func (b *Bot) answerText(ctx context.Context, chatID int64, text string) {
 		arg = strings.TrimSpace(text[len("/ans"):])
 	}
 	b.mu.Lock()
-	id, r := b.oldestQuestionLocked()
+	aid, ar := b.oldestApprovalLocked()
+	qid, q := b.oldestQuestionLocked()
 	b.mu.Unlock()
-	if r == nil {
+
+	if ar != nil {
+		if ans, reason, ok := parseApprovalReply(text); ok {
+			b.resolve(aid, outcome{answer: ans, reason: reason})
+			return true
+		}
+	}
+	if q == nil {
 		if isAns {
 			b.reply(ctx, chatID, "Nothing is waiting for an answer.")
-			return
+			return true
 		}
-		b.forward(ctx, chatID, text)
-		return
+		return false
 	}
 	n, numErr := strconv.Atoi(arg)
 	answer := ""
 	switch {
-	case numErr == nil && n >= 1 && n <= len(r.options):
-		answer = r.options[n-1]
-	case isAns && optionNamed(r.options, arg) != "":
-		answer = optionNamed(r.options, arg)
-	case r.allowFree && arg != "":
+	case numErr == nil && n >= 1 && n <= len(q.options):
+		answer = q.options[n-1]
+	case isAns && optionNamed(q.options, arg) != "":
+		answer = optionNamed(q.options, arg)
+	case q.allowFree && arg != "":
 		answer = arg
 	case isAns || numErr == nil:
 		b.reply(ctx, chatID, "Reply with an option number, or /ans followed by one of the options.")
-		return
+		return true
 	default:
-		return
+		return true
 	}
-	b.resolve(id, answer)
+	b.resolve(qid, outcome{answer: answer})
+	return true
+}
+
+// parseApprovalReply reads "approve|deny|session [reason]" (with an optional
+// leading slash). ok is false for any other text.
+func parseApprovalReply(text string) (answer, reason string, ok bool) {
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return "", "", false
+	}
+	switch strings.ToLower(strings.TrimPrefix(fields[0], "/")) {
+	case "approve":
+		answer = "approve"
+	case "deny":
+		answer = "deny"
+	case "session":
+		answer = "session"
+	default:
+		return "", "", false
+	}
+	reason = strings.TrimSpace(strings.TrimPrefix(text, fields[0]))
+	if len(reason) > 500 {
+		reason = reason[:500]
+	}
+	return answer, reason, true
 }
 
 // helpText is the reply to /start and /help from a paired chat.
 const helpText = "Send a message to give Scribe a task. If it is working, your message steers the turn. " +
 	"When Scribe asks a question, reply with the option number, or /ans followed by the answer. " +
-	"Approvals come with Approve and Deny buttons."
+	"Approvals come with Approve, Approve for session and Deny buttons; you can also type " +
+	"\"approve <reason>\" or \"deny <reason>\" and the reason goes to Scribe.\n\n" +
+	"Commands: /stop, /mute, /unmute, /notify on|off|errors, /say <text>, /unpair, /help."
 
-// forward hands a plain message from a paired chat to Scribe. Slash commands
-// are for the host, not the phone, except /start and /help, which get the
-// help text.
-func (b *Bot) forward(ctx context.Context, chatID int64, text string) {
-	if strings.HasPrefix(text, "/") {
-		cmd := strings.ToLower(strings.Fields(text)[0])
-		if cmd == "/start" || cmd == "/help" {
-			b.reply(ctx, chatID, helpText)
+// forward handles a message from a paired chat that is not an answer. Plain
+// text goes to Scribe. Slash commands are for the phone: /start, /help,
+// /stop, /mute, /unmute, /notify, /say and /unpair. Other slash commands
+// are host-only.
+func (b *Bot) forward(ctx context.Context, chatID int64, text string, images []llm.Part) {
+	chat := strconv.FormatInt(chatID, 10)
+	if strings.HasPrefix(text, "/") && len(images) == 0 {
+		fields := strings.Fields(text)
+		if len(fields) > maxCommandWords {
+			b.reply(ctx, chatID, fmt.Sprintf("That command has more than %d words. Shorten it.", maxCommandWords))
 			return
 		}
-		if cmd == "/stop" {
+		cmd := strings.ToLower(fields[0])
+		if i := strings.Index(cmd, "@"); i > 0 {
+			cmd = cmd[:i]
+		}
+		arg := strings.TrimSpace(strings.TrimPrefix(text, fields[0]))
+		switch cmd {
+		case "/start", "/help":
+			b.reply(ctx, chatID, helpText)
+			return
+		case "/stop":
 			if b.stop == nil {
 				b.reply(ctx, chatID, "Stopping from Telegram is not available right now.")
 				return
 			}
 			b.reply(ctx, chatID, b.stop())
 			return
+		case "/mute", "/unmute":
+			b.setPrefs(chat, func(p *chatPrefs) { p.muted = cmd == "/mute" })
+			if cmd == "/mute" {
+				b.reply(ctx, chatID, "Muted. Scribe will not post progress or turn notes to this chat. Approvals and questions still come here.")
+			} else {
+				b.reply(ctx, chatID, "Unmuted. Progress and turn notes come back, as the notify setting allows.")
+			}
+			return
+		case "/notify":
+			mode := strings.ToLower(arg)
+			switch mode {
+			case notifyOn, notifyOff, notifyErrors:
+				b.setPrefs(chat, func(p *chatPrefs) { p.notify = mode })
+				b.reply(ctx, chatID, "Notify is "+mode+" for this chat.")
+			default:
+				b.reply(ctx, chatID, "Usage: /notify on, /notify off or /notify errors. Now: "+b.notifyMode(chat)+".")
+			}
+			return
+		case "/say":
+			if arg == "" {
+				b.reply(ctx, chatID, "Usage: /say <text>. The text goes to Scribe as a message, even if it starts with a slash.")
+				return
+			}
+			text = arg
+		case "/unpair":
+			b.unpair(ctx, chatID, chat)
+			return
+		default:
+			b.reply(ctx, chatID, "Scribe's slash commands are not available from Telegram. Send plain text, or /help.")
+			return
 		}
-		b.reply(ctx, chatID, "Scribe's slash commands are not available from Telegram. Send plain text, or /help.")
-		return
 	}
-	if len(text) > maxMessage {
-		b.reply(ctx, chatID, "That message is too long for one turn. Send it in shorter parts.")
+	if len(text) > maxInput {
+		b.reply(ctx, chatID, fmt.Sprintf("That message is too long: over %d characters. Send it in shorter parts.", maxInput))
 		return
 	}
 	if b.deliver == nil {
 		b.reply(ctx, chatID, "Scribe is not taking messages from Telegram right now.")
 		return
 	}
-	if reply := b.deliver(text); reply != "" {
+	if reply := b.deliver(text, images); reply != "" {
 		b.reply(ctx, chatID, reply)
 	}
+}
+
+// unpair removes this chat from the paired chats. A chat listed in the
+// config stays paired, and the reply says so.
+func (b *Bot) unpair(ctx context.Context, chatID int64, chat string) {
+	ok, err := b.allow.Remove(chat)
+	switch {
+	case errors.Is(err, remote.ErrStaticChat):
+		b.reply(ctx, chatID, err.Error())
+	case err != nil:
+		b.logf("telegram: unpair not saved: %v", err)
+		b.reply(ctx, chatID, "Could not save the change. Check the host log.")
+	case !ok:
+		b.reply(ctx, chatID, "This chat is not paired.")
+	default:
+		b.reply(ctx, chatID, "Unpaired. This chat can no longer send Scribe messages. Send /pair with a new code to pair it again.")
+	}
+}
+
+func (b *Bot) setPrefs(chat string, f func(*chatPrefs)) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	p := b.prefs[chat]
+	if p == nil {
+		p = &chatPrefs{}
+		b.prefs[chat] = p
+	}
+	f(p)
+}
+
+func (b *Bot) notifyMode(chat string) string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if p := b.prefs[chat]; p != nil && p.notify != "" {
+		return p.notify
+	}
+	return notifyOn
+}
+
+// wantsNote reports whether a note of kind may reach chat under its mute and
+// notify settings.
+func (b *Bot) wantsNote(chat, kind string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	p := b.prefs[chat]
+	if p == nil {
+		return true
+	}
+	if p.muted {
+		return false
+	}
+	switch p.notify {
+	case notifyOff:
+		return false
+	case notifyErrors:
+		return kind == kindError
+	}
+	return true
+}
+
+// attachments downloads the images in an inbound message and describes the
+// other documents. Only paired chats reach this, so strangers cost nothing.
+func (b *Bot) attachments(ctx context.Context, m *Message) ([]llm.Part, []string) {
+	var images []llm.Part
+	var notes []string
+	if n := len(m.Photo); n > 0 {
+		largest := m.Photo[n-1]
+		if part, note := b.fetchImage(ctx, largest.FileID, largest.FileSize, "image/jpeg"); note != "" {
+			notes = append(notes, note)
+		} else {
+			images = append(images, part)
+		}
+	}
+	if d := m.Document; d != nil {
+		name := sanitizeName(d.FileName)
+		mime := d.MimeType
+		if mime == "" {
+			mime = "application/octet-stream"
+		}
+		if isImageType(mime) {
+			if part, note := b.fetchImage(ctx, d.FileID, d.FileSize, mime); note != "" {
+				notes = append(notes, note)
+			} else {
+				images = append(images, part)
+			}
+		} else {
+			notes = append(notes, fmt.Sprintf("[attachment: %s · %s · %d bytes — binary not loaded]", name, mime, d.FileSize))
+		}
+	}
+	return images, notes
+}
+
+// fetchImage downloads one image. On failure it returns a note for the
+// prompt instead of a part.
+func (b *Bot) fetchImage(ctx context.Context, fileID string, size int64, mime string) (llm.Part, string) {
+	const tooBig = "[image not loaded: larger than 10 MiB]"
+	if size > maxAttachment {
+		return llm.Part{}, tooBig
+	}
+	path, fsize, err := b.client.GetFile(ctx, fileID)
+	if err != nil {
+		b.logf("telegram: %v", err)
+		return llm.Part{}, "[image not loaded: Telegram did not return the file]"
+	}
+	if fsize > maxAttachment {
+		return llm.Part{}, tooBig
+	}
+	data, err := b.client.Download(ctx, path, maxAttachment)
+	if err != nil {
+		b.logf("telegram: %v", err)
+		if errors.Is(err, errTooLarge) {
+			return llm.Part{}, tooBig
+		}
+		return llm.Part{}, "[image not loaded: the download failed]"
+	}
+	return llm.Part{Type: llm.PartImage, MediaType: mime, Data: data}, ""
+}
+
+func isImageType(mime string) bool {
+	switch strings.ToLower(mime) {
+	case "image/jpeg", "image/png", "image/gif", "image/webp":
+		return true
+	}
+	return false
+}
+
+// sanitizeName drops control characters and caps the length of a filename
+// that comes from the phone.
+func sanitizeName(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	out := strings.TrimSpace(b.String())
+	if out == "" {
+		return "file"
+	}
+	if utf8.RuneCountInString(out) > 120 {
+		out = string([]rune(out)[:120])
+	}
+	return out
 }
 
 // Chats returns the ids of every chat allowed on this surface, sorted.
@@ -411,13 +701,23 @@ func optionNamed(options []string, name string) string {
 	return ""
 }
 
-// oldestQuestionLocked returns the earliest question still waiting. Approvals
-// are answered only by their buttons. The caller holds b.mu.
+// oldestApprovalLocked returns the earliest approval still waiting. The
+// caller holds b.mu.
+func (b *Bot) oldestApprovalLocked() (string, *request) {
+	return b.oldestLocked(func(r *request) bool { return r.approval })
+}
+
+// oldestQuestionLocked returns the earliest question still waiting. The
+// caller holds b.mu.
 func (b *Bot) oldestQuestionLocked() (string, *request) {
+	return b.oldestLocked(func(r *request) bool { return !r.approval })
+}
+
+func (b *Bot) oldestLocked(match func(*request) bool) (string, *request) {
 	var id string
 	var best *request
 	for pid, r := range b.pending {
-		if r.approval {
+		if !match(r) {
 			continue
 		}
 		if best == nil || r.seq < best.seq {
@@ -427,9 +727,9 @@ func (b *Bot) oldestQuestionLocked() (string, *request) {
 	return id, best
 }
 
-// resolve delivers an answer to a waiting request. Only the first answer
+// resolve delivers an outcome to a waiting request. Only the first outcome
 // counts, because the request leaves the pending set.
-func (b *Bot) resolve(id, answer string) bool {
+func (b *Bot) resolve(id string, o outcome) bool {
 	b.mu.Lock()
 	r := b.pending[id]
 	delete(b.pending, id)
@@ -437,24 +737,46 @@ func (b *Bot) resolve(id, answer string) bool {
 	if r == nil {
 		return false
 	}
-	r.reply <- answer
+	r.reply <- o
 	return true
 }
 
+// FailPending ends every waiting request that belongs to owner, or every
+// waiting request when owner is nil, without an answer. reason is what the
+// agent is told. It returns how many requests ended.
+func (b *Bot) FailPending(owner any, reason string) int {
+	b.mu.Lock()
+	var ended []*request
+	for id, r := range b.pending {
+		if owner == nil || r.owner == owner {
+			ended = append(ended, r)
+			delete(b.pending, id)
+		}
+	}
+	b.mu.Unlock()
+	for _, r := range ended {
+		r.reply <- outcome{failed: reason}
+	}
+	return len(ended)
+}
+
 // ask sends text (with buttons for approvals and options) to every paired
-// chat and waits for the first answer. ok is false when no chat is paired,
-// when ctx ends first, or when sending failed everywhere.
-func (b *Bot) ask(ctx context.Context, text string, r *request) (string, bool) {
+// chat and waits for the first answer. A request with no paired chat comes
+// back notAsked. A request the phone could not deliver, or that the wait or
+// FailPending ended, comes back failed. A request whose ctx was cancelled
+// (the local host answered first) comes back empty.
+func (b *Bot) ask(ctx context.Context, owner any, text string, r *request) outcome {
 	members := b.allow.Members()
 	if len(members) == 0 {
-		return "", false
+		return outcome{notAsked: true}
 	}
 	id, err := newID()
 	if err != nil {
 		b.logf("telegram: %v", err)
-		return "", false
+		return outcome{failed: unreachableText}
 	}
-	r.reply = make(chan string, 1)
+	r.reply = make(chan outcome, 1)
+	r.owner = owner
 	b.mu.Lock()
 	b.seq++
 	r.seq = b.seq
@@ -476,7 +798,7 @@ func (b *Bot) ask(ctx context.Context, text string, r *request) (string, bool) {
 		}
 		if err := b.send(ctx, chatID, text, kb); err != nil {
 			if ctx.Err() != nil {
-				return "", false
+				return outcome{}
 			}
 			b.logf("telegram: %v", err)
 			continue
@@ -484,22 +806,27 @@ func (b *Bot) ask(ctx context.Context, text string, r *request) (string, bool) {
 		sent++
 	}
 	if sent == 0 {
-		return "", false
+		return outcome{failed: unreachableText}
 	}
 	select {
-	case ans := <-r.reply:
-		return ans, true
+	case o := <-r.reply:
+		return o
 	case <-ctx.Done():
-		return "", false
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return outcome{failed: "No answer came on Telegram in time."}
+		}
+		return outcome{}
 	}
 }
 
-// keyboardFor builds the buttons: Approve and Deny, or one button per option.
-// A question that takes free text with no options gets no keyboard.
+// keyboardFor builds the buttons: Approve, Approve for session and Deny, or
+// one button per option. A question that takes free text with no options
+// gets no keyboard.
 func keyboardFor(id string, r *request) *InlineKeyboard {
 	if r.approval {
 		return &InlineKeyboard{Rows: [][]Button{{
 			{Text: "Approve", CallbackData: "apr:" + id + ":a"},
+			{Text: "Approve for session", CallbackData: "apr:" + id + ":s"},
 			{Text: "Deny", CallbackData: "apr:" + id + ":d"},
 		}}}
 	}
@@ -519,7 +846,7 @@ func (b *Bot) Progress(text string) {
 	if !b.progress.Allow("progress") {
 		return
 	}
-	b.enqueue(text)
+	b.enqueue(note{text: text, kind: kindProgress})
 }
 
 // OnEvent is an agent sink. It posts a note when a main-agent turn ends,
@@ -529,43 +856,48 @@ func (b *Bot) OnEvent(e agent.Event) {
 		return
 	}
 	if e.Stats != nil && e.Stats.Error != "" && !e.Stats.Aborted {
-		b.enqueueDone("Scribe stopped with an error: " + clip(e.Stats.Error, 500))
+		// Errors are never throttled: a quiet turn right before must not hide one.
+		b.enqueue(note{text: "Scribe stopped with an error: " + clip(e.Stats.Error, 500), kind: kindError})
 		return
 	}
 	text := "Scribe finished this turn."
 	if t := strings.TrimSpace(e.Text); t != "" {
 		text += "\n\n" + clip(t, 1500)
 	}
-	b.enqueueDone(text)
+	b.enqueueDone(note{text: text, kind: kindDone})
 }
 
-func (b *Bot) enqueueDone(text string) {
+func (b *Bot) enqueueDone(n note) {
 	if b.done.Allow("done") {
-		b.enqueue(text)
+		b.enqueue(n)
 	}
 }
 
-func (b *Bot) enqueue(text string) {
+func (b *Bot) enqueue(n note) {
 	select {
-	case b.outbox <- text:
+	case b.outbox <- n:
 	default:
 		// A full outbox drops the note rather than stalling the agent.
 	}
 }
 
-// drain sends queued notes to every paired chat until ctx ends.
+// drain sends queued notes to every paired chat that its mute and notify
+// settings allow, until ctx ends.
 func (b *Bot) drain(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case text := <-b.outbox:
+		case n := <-b.outbox:
 			for _, chat := range b.allow.Members() {
+				if !b.wantsNote(chat, n.kind) {
+					continue
+				}
 				chatID, err := strconv.ParseInt(chat, 10, 64)
 				if err != nil {
 					continue
 				}
-				if err := b.send(ctx, chatID, text, nil); err != nil && ctx.Err() == nil {
+				if err := b.send(ctx, chatID, n.text, nil); err != nil && ctx.Err() == nil {
 					b.logf("telegram: %v", err)
 				}
 			}
@@ -623,9 +955,8 @@ func (b *Bot) answerCallback(ctx context.Context, id, text string) {
 	}
 }
 
-// askApproval sends an approval and returns the decision. ok is false when
-// no answer arrived.
-func (b *Bot) askApproval(ctx context.Context, ap tools.Approval) (tools.Decision, bool) {
+// askApproval sends an approval and returns how it ended.
+func (b *Bot) askApproval(ctx context.Context, owner any, ap tools.Approval) outcome {
 	var text strings.Builder
 	text.WriteString("Scribe asks permission")
 	if ap.Danger {
@@ -639,19 +970,12 @@ func (b *Bot) askApproval(ctx context.Context, ap tools.Approval) (tools.Decisio
 	if ap.Detail != "" {
 		text.WriteString(clip(ap.Detail, 1500))
 	}
-	ans, ok := b.ask(ctx, text.String(), &request{approval: true})
-	if !ok {
-		return tools.Deny, false
-	}
-	if ans == "approve" {
-		return tools.AllowOnce, true
-	}
-	return tools.Deny, true
+	text.WriteString("\n\nTap a button, or type \"approve <reason>\" or \"deny <reason>\".")
+	return b.ask(ctx, owner, text.String(), &request{approval: true})
 }
 
-// askQuestion sends a question or plan review and returns the answer. ok is
-// false when no answer arrived.
-func (b *Bot) askQuestion(ctx context.Context, q tools.Question) (string, bool) {
+// askQuestion sends a question or plan review and returns how it ended.
+func (b *Bot) askQuestion(ctx context.Context, owner any, q tools.Question) outcome {
 	var text strings.Builder
 	if q.Kind == "plan_review" {
 		text.WriteString("Plan review: ")
@@ -670,7 +994,7 @@ func (b *Bot) askQuestion(ctx context.Context, q tools.Question) (string, bool) 
 	default:
 		text.WriteString("\n\nReply with your answer.")
 	}
-	return b.ask(ctx, text.String(), &request{options: q.Options, allowFree: allowFree})
+	return b.ask(ctx, owner, text.String(), &request{options: q.Options, allowFree: allowFree})
 }
 
 // sleepCtx waits d or until ctx ends. It reports whether the wait finished.

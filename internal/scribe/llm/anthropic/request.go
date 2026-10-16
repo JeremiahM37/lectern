@@ -130,7 +130,7 @@ func buildBody(req llm.Request) ([]byte, error) {
 	case llm.ReasoningBudget:
 		budget := req.ThinkingBudget
 		if budget <= 0 {
-			budget = thinkingBudgets[effort]
+			budget = thinkingBudgets[budgetEffort(effort)]
 		}
 		if budget > 0 {
 			if budget < minThinkingBudget {
@@ -155,11 +155,25 @@ func buildBody(req llm.Request) ([]byte, error) {
 	return json.Marshal(body)
 }
 
-// effortLevel returns r when it is a level the request type defines, else "".
+// effortLevel returns r when it is an effort level the Messages API takes,
+// else "". xhigh and max are adaptive-only levels (see budgetEffort for the
+// budget-style models, which take none of them).
 func effortLevel(r string) string {
 	switch r {
-	case "low", "medium", "high":
+	case "low", "medium", "high", "xhigh", "max":
 		return r
+	}
+	return ""
+}
+
+// budgetEffort maps an effort level onto the budget-style table. Levels the
+// table does not have (xhigh, max) use the largest budget rather than none.
+func budgetEffort(effort string) string {
+	if _, ok := thinkingBudgets[effort]; ok {
+		return effort
+	}
+	if effort == "xhigh" || effort == "max" {
+		return "high"
 	}
 	return ""
 }

@@ -164,13 +164,13 @@ func TestWizardIconsStepTogglesNerdFont(t *testing.T) {
 	if !icons.NerdEnabled() {
 		t.Fatal("the glyphs should switch at once")
 	}
-	if !strings.Contains(strings.Join(wizStepNames, " "), "Icons") {
-		t.Fatalf("the progress row should name the step: %v", wizStepNames)
+	if got := wizSections[wzIcons.section()].label; got != "setup" {
+		t.Fatalf("the icons step belongs to the setup entry of the sidebar, got %q", got)
 	}
 
 	w.onKey(tea.KeyMsg{Type: tea.KeyEnter})
-	if w.step != wzTheme {
-		t.Fatalf("enter should move on to the theme step, got %v", w.step)
+	if w.step != wzIntel {
+		t.Fatalf("enter should move on to the code intelligence step, got %v", w.step)
 	}
 	w.step = wzIcons
 	w.onKey(tea.KeyMsg{Type: tea.KeyLeft})

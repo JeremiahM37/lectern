@@ -28,15 +28,28 @@ import (
 
 // Event names, as used in both config and Claude settings files.
 const (
-	evPreTool      = "PreToolUse"
-	evPostTool     = "PostToolUse"
-	evPrompt       = "UserPromptSubmit"
-	evStop         = "Stop"
-	evSessionStart = "SessionStart"
-	evSessionEnd   = "SessionEnd"
-	evPreCompact   = "PreCompact"
-	evNotification = "Notification"
+	evPreTool         = "PreToolUse"
+	evPostTool        = "PostToolUse"
+	evPostToolFailure = "PostToolUseFailure"
+	evPrompt          = "UserPromptSubmit"
+	evStop            = "Stop"
+	evStopFailure     = "StopFailure"
+	evSessionStart    = "SessionStart"
+	evSessionEnd      = "SessionEnd"
+	evPreCompact      = "PreCompact"
+	evPostCompact     = "PostCompact"
+	evSubagentStart   = "SubagentStart"
+	evSubagentStop    = "SubagentStop"
+	evNotification    = "Notification"
 )
+
+// Events lists every hook event the runner fires, in Claude Code's names.
+// The settings files may name any event; these are the ones that run.
+var Events = []string{
+	evPreTool, evPostTool, evPostToolFailure, evPrompt, evStop, evStopFailure,
+	evSessionStart, evSessionEnd, evPreCompact, evPostCompact,
+	evSubagentStart, evSubagentStop, evNotification,
+}
 
 const (
 	defaultTimeout = 10 * time.Second
@@ -155,6 +168,29 @@ type Runner struct {
 	mu       sync.Mutex
 	warnings []string
 	fired    map[string]bool // once-hooks that have been taken
+	off      map[string]bool // events switched off for this session (SetEventOff)
+	status   func(string)    // shows a hook's statusMessage while it runs; nil shows nothing
+}
+
+// SetStatus sets where a hook's statusMessage goes while the hook runs. The
+// app shows it as a notice in the transcript. Nil turns it off.
+func (r *Runner) SetStatus(f func(string)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.status = f
+}
+
+// showStatus passes a hook's statusMessage to the status sink, if any.
+func (r *Runner) showStatus(e entry) {
+	if e.status == "" {
+		return
+	}
+	r.mu.Lock()
+	f := r.status
+	r.mu.Unlock()
+	if f != nil {
+		f(e.status)
+	}
 }
 
 var _ agent.Hooks = (*Runner)(nil)
@@ -330,6 +366,22 @@ func (r *Runner) PostTool(ctx context.Context, tool string, args json.RawMessage
 			extra = append(extra, o.context)
 		}
 	}
+	if res.IsError {
+		// A failed call also fires PostToolUseFailure, with the error text.
+		fin := r.input(evPostToolFailure)
+		fin["tool_name"] = displayName(tool)
+		fin["tool_input"] = rawObject(args)
+		fin["tool_use_id"] = ""
+		fin["error"] = res.Output
+		for _, e := range r.entries {
+			if e.event != evPostToolFailure || !e.matches(names) || !r.take(e) || !e.cond.ok(displayName(tool), args) {
+				continue
+			}
+			if o := r.exec(ctx, e, fin); o.context != "" {
+				extra = append(extra, o.context)
+			}
+		}
+	}
 	return strings.Join(extra, "\n")
 }
 
@@ -361,6 +413,34 @@ func (r *Runner) Stop(ctx context.Context, stats agent.TurnStats) {
 		"error": stats.Error, "aborted": stats.Aborted,
 	}
 	r.fireAll(ctx, evStop, in)
+	if stats.Error != "" && !stats.Aborted {
+		fin := r.input(evStopFailure)
+		fin["error"] = stats.Error
+		r.fireAll(ctx, evStopFailure, fin)
+	}
+}
+
+// PostCompact runs PostCompact hooks once the history has been compacted.
+func (r *Runner) PostCompact(ctx context.Context) {
+	r.fireAll(ctx, evPostCompact, r.input(evPostCompact))
+}
+
+// SubagentStart runs SubagentStart hooks as a subagent of role begins task.
+func (r *Runner) SubagentStart(ctx context.Context, role, task string) {
+	in := r.input(evSubagentStart)
+	in["agent_type"] = role
+	in["task"] = task
+	r.fireAll(ctx, evSubagentStart, in)
+}
+
+// SubagentStop runs SubagentStop hooks when that subagent ends. errText is
+// empty when it finished normally.
+func (r *Runner) SubagentStop(ctx context.Context, role, task, errText string) {
+	in := r.input(evSubagentStop)
+	in["agent_type"] = role
+	in["task"] = task
+	in["error"] = errText
+	r.fireAll(ctx, evSubagentStop, in)
 }
 
 // SessionStart runs SessionStart hooks.
@@ -395,12 +475,15 @@ func (r *Runner) fireAll(ctx context.Context, event string, in map[string]any) {
 // `if` is tested, so a hook whose condition fails has still used its shot
 // (spec 7.5). Ordinary hooks are always taken.
 func (r *Runner) take(e entry) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.off[e.event] {
+		return false
+	}
 	if !e.once {
 		return true
 	}
 	key := e.event + "\x00" + e.command
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.fired[key] {
 		return false
 	}
@@ -441,6 +524,7 @@ func (r *Runner) exec(ctx context.Context, e entry, in map[string]any) outcome {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	r.showStatus(e)
 	if e.async {
 		// Fire and forget: the run outlives the event, with its own timeout,
 		// and whatever it returns is discarded.
@@ -630,4 +714,48 @@ func firstNonEmpty(vs ...string) string {
 		}
 	}
 	return ""
+}
+
+// EventCount is one hook event in the configured hooks, with how many hooks
+// it runs and whether it is switched off for this session.
+type EventCount struct {
+	Event string
+	Hooks int
+	Off   bool
+}
+
+// SetEventOff switches every hook of one event off, or back on, for this
+// runner only. Nothing is written to any config file.
+func (r *Runner) SetEventOff(event string, off bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.off == nil {
+		r.off = map[string]bool{}
+	}
+	if off {
+		r.off[event] = true
+	} else {
+		delete(r.off, event)
+	}
+}
+
+// EventCounts lists the events the configured hooks use, in first-seen order.
+func (r *Runner) EventCounts() []EventCount {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []EventCount
+	idx := map[string]int{}
+	for _, e := range r.entries {
+		i, ok := idx[e.event]
+		if !ok {
+			i = len(out)
+			idx[e.event] = i
+			out = append(out, EventCount{Event: e.event})
+		}
+		out[i].Hooks++
+	}
+	for i := range out {
+		out[i].Off = r.off[out[i].Event]
+	}
+	return out
 }

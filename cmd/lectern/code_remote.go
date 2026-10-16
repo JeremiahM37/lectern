@@ -29,7 +29,7 @@ func telegramInConfig() bool { return telegram.TelegramEnabledInConfig() }
 // is the bound tab. bind turns the surface on and makes this tab the one that
 // takes phone messages. Later tabs start unbound; /remote here moves it.
 func attachRemote(a *app.App, be tui.Backend, bind bool) {
-	a.SetHost(telegram.Default.Host(a.Host()))
+	a.SetHost(telegram.Default.HostFor(be, a.Host()))
 	a.Subscribe(func(e agent.Event) { telegram.Default.Notify(be, e) })
 	if !bind {
 		return

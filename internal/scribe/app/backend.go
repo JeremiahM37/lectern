@@ -22,6 +22,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/registry"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/memory"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/remote/telegram"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/repomap"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/session"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
@@ -1470,6 +1471,8 @@ func (b *scribeBackend) Close() error {
 	b.queued = nil
 	a := b.app
 	b.mu.Unlock()
+	// Phone approvals waiting on this tab are denied before the app closes.
+	telegram.Default.CloseTab(b)
 	return a.Close()
 }
 

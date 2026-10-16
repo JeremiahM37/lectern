@@ -13,7 +13,7 @@ func (b *scribeBackend) StaleMemories() int {
 	if a.Memory == nil {
 		return 0
 	}
-	return a.Memory.StaleCount()
+	return a.Memory.CleanupHintCount()
 }
 
 // BackgroundErrors implements tui.Backend. It checks MCP and language servers

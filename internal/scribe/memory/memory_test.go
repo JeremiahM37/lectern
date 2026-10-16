@@ -425,8 +425,18 @@ func TestMemoryToolActions(t *testing.T) {
 		t.Fatalf("delete: %+v", res)
 	}
 	res = runTool(t, reg, `{"action":"delete","id":"`+id+`"}`)
-	if !res.IsError || !strings.Contains(res.Output, "no memory with id") {
+	if !res.IsError || !strings.Contains(res.Output, "already deleted") {
 		t.Fatalf("second delete should error with a hint: %+v", res)
+	}
+	// delete is soft: restore brings the record back into recall and list.
+	if res := runTool(t, reg, `{"action":"restore","id":"`+id+`"}`); res.IsError || !strings.Contains(res.Output, "Restored") {
+		t.Fatalf("restore: %+v", res)
+	}
+	if res := runTool(t, reg, `{"action":"forget","id":"`+id+`"}`); res.IsError || !strings.Contains(res.Output, "Deleted memory") {
+		t.Fatalf("near-miss action forget should delete: %+v", res)
+	}
+	if res := runTool(t, reg, `{"action":"restore","id":"`+id+`"}`); res.IsError {
+		t.Fatalf("restore after soft delete: %+v", res)
 	}
 
 	// Error paths tell the model what to do next.

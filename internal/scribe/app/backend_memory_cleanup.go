@@ -44,6 +44,14 @@ func (b *scribeBackend) MemoryCleanupCandidates() []tui.CleanupCandidate {
 				add(r, fmt.Sprintf("not used in %d days", int(memoryStaleAfter/(24*time.Hour))))
 			}
 		}
+		if groups, err := db.DuplicateGroups(memoryCleanupLimit); err == nil {
+			for _, g := range groups {
+				keeper := g[0] // the keeper: pinned or most recently used
+				for _, r := range g[1:] {
+					add(r, "duplicate of "+keeper.ID[:min(8, len(keeper.ID))])
+				}
+			}
+		}
 		if db.Scope() != memory.ScopeProject {
 			continue // file references are relative to this project only
 		}

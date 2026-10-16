@@ -19,24 +19,118 @@ type symbolSpan struct {
 	Start, End int // 1-based inclusive
 }
 
-// findSymbol locates the definition of name in one file. The code map answers
-// first when the session has one and it knows this file. Otherwise a regex
-// over common definition forms is used. name may be qualified as
-// "Type.Method"; the qualifier is matched against the code map's parent only.
-func findSymbol(env *tools.Env, t target, src []byte, name string) (symbolSpan, error) {
+// findSymbol locates the definition of name in one file, optionally only
+// those of kind (a word such as "function", "class" or "type"; see
+// kindGroup). The code map answers first when the session has one and it
+// knows this file. Otherwise a regex over common definition forms is used.
+// name may be qualified as "Type.Method"; the qualifier is matched against
+// the code map's parent only. t.abs is empty for a web source, which has no
+// map entry.
+func findSymbol(env *tools.Env, t target, src []byte, name, kind string) (symbolSpan, error) {
 	parent, base := splitQualified(name)
 	if base == "" {
 		return symbolSpan{}, fmt.Errorf("symbol must name a function, type or other definition")
 	}
-	if m, ok := tools.Service[*repomap.Map](env, "repomap"); ok && m != nil {
-		if syms, known := m.FileSymbols(t.abs); known {
-			if hits := matchMapSymbols(syms, parent, base); len(hits) > 0 {
+	if t.abs != "" {
+		if syms, known := mapSymbols(env, t.abs); known {
+			if hits := filterKind(matchMapSymbols(syms, parent, base), kind); len(hits) > 0 {
 				return pickSymbol(hits, name, t.rel)
 			}
 		}
 	}
 	lines := strings.Split(string(src), "\n")
-	return pickSymbol(regexSymbols(lines, base), name, t.rel)
+	all := regexSymbols(lines, base)
+	if parent != "" {
+		// Without a map, the qualifier can only be checked against the
+		// definition line itself: a method's receiver names its type.
+		all = keepOwned(all, lines, parent)
+	}
+	hits := filterKind(all, kind)
+	if len(hits) == 0 && kind != "" && len(all) > 0 {
+		return symbolSpan{}, kindMismatch(all, name, kind, t.rel)
+	}
+	return pickSymbol(hits, name, t.rel)
+}
+
+// keepOwned keeps the spans whose definition line names owner as a whole
+// word, such as "func (s *Server) Run" for owner Server.
+func keepOwned(hits []symbolSpan, lines []string, owner string) []symbolSpan {
+	re := regexp.MustCompile(`\b` + regexp.QuoteMeta(owner) + `\b`)
+	var out []symbolSpan
+	for _, h := range hits {
+		if h.Start-1 < len(lines) && re.MatchString(lines[h.Start-1]) {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// kindMismatch explains that name exists in the file, but not as kind.
+func kindMismatch(all []symbolSpan, name, kind, rel string) error {
+	seen := map[string]bool{}
+	var kinds []string
+	for _, h := range all {
+		if g := kindGroup(h.Kind); !seen[g] {
+			seen[g] = true
+			kinds = append(kinds, g)
+		}
+	}
+	return fmt.Errorf("%q in %s is not a %s. It is a %s. Retry with target set to one of those, or drop target.",
+		name, rel, kind, strings.Join(kinds, " or "))
+}
+
+// filterKind keeps the spans whose kind group is kind. An empty kind keeps all.
+func filterKind(hits []symbolSpan, kind string) []symbolSpan {
+	want := kindGroup(kind)
+	if want == "" {
+		return hits
+	}
+	var out []symbolSpan
+	for _, h := range hits {
+		if kindGroup(h.Kind) == want {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// kindGroup maps the words a model or the code map uses for a definition to
+// one group name. Methods are functions, and "struct" is a type, because a
+// Go struct is declared as "type X struct" and the regex fallback reports it
+// as a type. An unknown word maps to itself, so it matches only that word.
+func kindGroup(k string) string {
+	switch strings.ToLower(strings.TrimSpace(k)) {
+	case "":
+		return ""
+	case "func", "function", "fn", "def", "method", "methods", "constructor", "procedure", "callable", "arrow", "arrow_function", "arrowfunction":
+		return "function"
+	case "class":
+		return "class"
+	case "type", "struct", "typealias", "type_alias", "alias", "union":
+		return "type"
+	case "interface", "protocol":
+		return "interface"
+	case "enum":
+		return "enum"
+	case "trait":
+		return "trait"
+	case "var", "let", "const", "variable", "constant":
+		return "variable"
+	case "mod", "module", "namespace", "package":
+		return "module"
+	case "any", "symbol":
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(k))
+}
+
+// symbolKindWords are the words that may lead a symbol argument, as in
+// "function Run", so a model that merges kind and name still resolves.
+var symbolKindWords = map[string]bool{
+	"func": true, "function": true, "fn": true, "def": true, "method": true,
+	"class": true, "struct": true, "type": true, "interface": true, "enum": true,
+	"trait": true, "var": true, "let": true, "const": true, "module": true,
+	"namespace": true, "constructor": true,
 }
 
 // pickSymbol returns the only candidate, or explains why there is none or too
@@ -52,7 +146,7 @@ func pickSymbol(hits []symbolSpan, name, rel string) (symbolSpan, error) {
 	for i, h := range hits {
 		parts[i] = fmt.Sprintf("%s %s at lines %d-%d", h.Kind, h.Name, h.Start, h.End)
 	}
-	return symbolSpan{}, fmt.Errorf("%d definitions match %q in %s: %s. Read the one you need with lines=START-END.",
+	return symbolSpan{}, fmt.Errorf("%d definitions match %q in %s: %s. Read the one you need with lines=START-END, or add target (the kind) to pick one.",
 		len(hits), name, rel, strings.Join(parts, "; "))
 }
 

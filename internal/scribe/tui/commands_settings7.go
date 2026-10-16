@@ -29,10 +29,12 @@ func init() {
 			Run: func(m *Model, _ string) tea.Cmd { m.openAgentFeatures(); return nil }},
 		&command{Name: "instructions", Desc: "Choose the instruction files loaded", Group: "Settings",
 			Run: func(m *Model, _ string) tea.Cmd { m.openInstructions(); return nil }},
-		&command{Name: "timeouts", Aliases: []string{"watchdog"}, Desc: "Command timeout for shell commands", Group: "Settings",
+		&command{Name: "timeouts", Desc: "Command timeout for shell commands", Group: "Settings",
 			Run: func(m *Model, _ string) tea.Cmd { m.openTimeouts(); return nil }},
-		&command{Name: "hooks", Desc: "Hooks on agent events (read-only)", Group: "System",
-			Run: func(m *Model, _ string) tea.Cmd { m.openHooks(); return nil }},
+		&command{Name: "watchdog", Desc: "Stream watchdog: first token, gaps between chunks, whole model call", Group: "Settings",
+			Run: func(m *Model, _ string) tea.Cmd { m.openWatchdog(); return nil }},
+		&command{Name: "hooks", Args: "[on|off <event>]", Desc: "Hooks on agent events; switch one off for this session", Group: "System",
+			Run: func(m *Model, args string) tea.Cmd { return hookCommand(m, args) }},
 		&command{Name: "privacy", Args: "[add|remove <pattern>]", Desc: "Paths no tool may touch", Group: "System",
 			Run: func(m *Model, args string) tea.Cmd { return m.privacyCommand(strings.TrimSpace(args)) }},
 	)
@@ -86,15 +88,22 @@ func (m *Model) saveGlobalFlat(key string, value any) error {
 // picker, where Tab toggles collapsing.
 func (m *Model) diffStyleCommand(arg string) tea.Cmd {
 	if arg != "" {
-		style := arg
-		if style == "default" {
-			style = ""
+		// A direct argument saves where the key lives, or to the scope word
+		// given after it (spec 02 §1.2).
+		style, word := splitScopeArg(arg)
+		if style == "" {
+			return cmdErrText("Usage: /diff-style [default|sidebyside|compact] [project|global]")
 		}
-		if err := m.saveGlobalFlat("diff_style", style); err != nil {
-			return errFlash(err)
+		project := m.scopeIsProject(word, "diff_style")
+		value := style
+		if value == "default" {
+			value = ""
+		}
+		if err := m.saveFlatIn("diff_style", value, project); err != nil {
+			return cmdErr(err)
 		}
 		m.applyDiffSettings()
-		return flashCmd("ok", "Diff style: "+diffStyleName(arg))
+		return flashCmd("ok", "Diff style: "+diffStyleName(style)+" ("+scopeName(project)+")")
 	}
 	p := NewPicker(m.th, "Diff Style", "diff")
 	p.KeepOpen = true
@@ -125,7 +134,7 @@ func (m *Model) diffStyleCommand(arg string) tea.Cmd {
 			err = m.saveGlobalFlat("diff_style", style)
 		}
 		if err != nil {
-			return errFlash(err)
+			return cmdErr(err)
 		}
 		m.applyDiffSettings()
 		rebuild()
@@ -137,7 +146,7 @@ func (m *Model) diffStyleCommand(arg string) tea.Cmd {
 		}
 		c := fields7(m.cur().be)
 		if err := m.saveGlobalFlat("collapse_diffs", !config.Bool(c.CollapseDiffs, false)); err != nil {
-			return errFlash(err), true
+			return cmdErr(err), true
 		}
 		m.applyDiffSettings()
 		rebuild()
@@ -155,13 +164,13 @@ func (m *Model) chatStyleCommand(arg string) tea.Cmd {
 	switch arg {
 	case "accent", "bubble":
 		if err := t.be.SetConfig("chat_style", arg, true); err != nil {
-			return errFlash(err)
+			return cmdErr(err)
 		}
 		m.applyChatStyleSetting()
 		return flashCmd("ok", "Chat style: "+arg+" (saved to the project)")
 	case "":
 	default:
-		return flashCmd("err", "Usage: /chat-style [accent|bubble]")
+		return cmdErrText("Usage: /chat-style [accent|bubble]")
 	}
 	cur := fmt.Sprint(t.be.Config()["chat_style"])
 	p := NewPicker(m.th, "Chat Style", "chat")
@@ -172,7 +181,7 @@ func (m *Model) chatStyleCommand(arg string) tea.Cmd {
 	p.refilter()
 	p.OnSelect = func(it PickItem) tea.Cmd {
 		if err := t.be.SetConfig("chat_style", it.Value, false); err != nil {
-			return errFlash(err)
+			return cmdErr(err)
 		}
 		m.applyChatStyleSetting()
 		return flashCmd("ok", "Chat style: "+it.Value)
@@ -186,15 +195,16 @@ func (m *Model) chatStyleCommand(arg string) tea.Cmd {
 func (m *Model) vimCommand(arg string) tea.Cmd {
 	t := m.cur()
 	on, _ := t.be.Config()["vim"].(bool)
-	switch arg {
-	case "on", "off":
-		if err := t.be.SetConfig("vim", arg == "on", false); err != nil {
-			return errFlash(err)
+	if arg != "" {
+		word, scope := splitScopeArg(arg)
+		if word != "on" && word != "off" {
+			return cmdErrText("Usage: /vim-hints [on|off] [project|global]")
 		}
-		return flashCmd("ok", "Vim keys "+onOff(arg == "on"))
-	case "":
-	default:
-		return flashCmd("err", "Usage: /vim-hints [on|off]")
+		project := m.scopeIsProject(scope, "vim")
+		if err := t.be.SetConfig("vim", word == "on", project); err != nil {
+			return cmdErr(err)
+		}
+		return flashCmd("ok", "Vim keys "+onOff(word == "on")+" ("+scopeName(project)+")")
 	}
 	p := NewPicker(m.th, "Vim Hints", "keys")
 	p.Items = []PickItem{
@@ -204,7 +214,7 @@ func (m *Model) vimCommand(arg string) tea.Cmd {
 	p.refilter()
 	p.OnSelect = func(it PickItem) tea.Cmd {
 		if err := t.be.SetConfig("vim", it.Value == "on", false); err != nil {
-			return errFlash(err)
+			return cmdErr(err)
 		}
 		return flashCmd("ok", "Vim keys "+onOff(it.Value == "on"))
 	}
@@ -229,7 +239,7 @@ func (m *Model) openAgentFeatures() {
 	p.OnSelect = func(it PickItem) tea.Cmd {
 		c := fields7(m.cur().be)
 		if err := m.saveGlobalFlat("agent_features."+it.Value, !c.AgentFeatures.Enabled(it.Value)); err != nil {
-			return errFlash(err)
+			return cmdErr(err)
 		}
 		rebuild()
 		return flashCmd("info", it.Label+" saved; applies to the next session")
@@ -261,10 +271,10 @@ func (m *Model) openInstructions() {
 		c := fields7(m.cur().be)
 		next, err := nextInstructions(c.Instructions, it.Value)
 		if err != nil {
-			return errFlash(err)
+			return cmdErr(err)
 		}
 		if err := m.cur().be.SetConfig("instructions", next, false); err != nil {
-			return errFlash(err)
+			return cmdErr(err)
 		}
 		rebuild()
 		return flashCmd("info", "Instruction files saved; applies to the next session")
@@ -301,7 +311,7 @@ func (m *Model) openTimeouts() {
 		if it.Value == "custom" {
 			m.pushModal(NewTextPrompt(m.th, "Command timeout", "minutes, 0.5 to 30; 0 for no limit", false, func(v string) tea.Cmd {
 				if err := m.saveGlobalFlat("tool_timeout", strings.TrimSpace(v)); err != nil {
-					return errFlash(err)
+					return cmdErr(err)
 				}
 				return flashCmd("ok", "Command timeout saved: "+strings.TrimSpace(v)+" min")
 			}))
@@ -309,44 +319,14 @@ func (m *Model) openTimeouts() {
 		}
 		f, err := strconv.ParseFloat(it.Value, 64)
 		if err != nil {
-			return errFlash(err)
+			return cmdErr(err)
 		}
 		if err := m.saveGlobalFlat("tool_timeout", f); err != nil {
-			return errFlash(err)
+			return cmdErr(err)
 		}
 		return flashCmd("ok", "Command timeout: "+it.Label)
 	}
 	m.pushModal(p)
-}
-
-// openHooks shows the configured hooks. Enabling or disabling them per session
-// is not built yet; the list is the read-only part.
-func (m *Model) openHooks() {
-	c := fields7(m.cur().be)
-	if len(c.Hooks) == 0 {
-		m.openInfo("Hooks", "bolt", []string{"No hooks are configured.", "Add them under \"hooks\" in config.json."})
-		return
-	}
-	var lines []string
-	for _, h := range c.Hooks {
-		matcher := h.Matcher
-		if matcher == "" {
-			matcher = "all tools"
-		}
-		lines = append(lines, h.Event+"  ("+matcher+")")
-		extra := ""
-		if h.If != "" {
-			extra += " if " + h.If
-		}
-		if h.Once {
-			extra += " once"
-		}
-		if h.Async {
-			extra += " async"
-		}
-		lines = append(lines, "    "+h.Command+extra)
-	}
-	m.openInfo("Hooks", "bolt", lines)
 }
 
 // privacyCommand lists, adds or removes forbidden path patterns. Patterns are
@@ -355,6 +335,9 @@ func (m *Model) privacyCommand(args string) tea.Cmd {
 	c := fields7(m.cur().be)
 	verb, pat, _ := strings.Cut(args, " ")
 	pat = strings.TrimSpace(pat)
+	if verb == "session" {
+		return privacySessionCommand(m, strings.TrimSpace(strings.TrimPrefix(args, verb)))
+	}
 	switch verb {
 	case "":
 		lines := []string{"Paths no file or shell tool may touch. Add with /privacy add <pattern>."}
@@ -368,7 +351,7 @@ func (m *Model) privacyCommand(args string) tea.Cmd {
 		return nil
 	case "add", "remove":
 		if pat == "" {
-			return flashCmd("err", "Usage: /privacy "+verb+" <pattern>")
+			return cmdErrText("Usage: /privacy " + verb + " <pattern>")
 		}
 		var next []string
 		if verb == "add" {
@@ -378,7 +361,7 @@ func (m *Model) privacyCommand(args string) tea.Cmd {
 			next = append(append([]string(nil), c.Forbidden...), pat)
 		} else {
 			if listIndex(c.Forbidden, pat) < 0 {
-				return flashCmd("err", pat+" is not in the list")
+				return cmdErrText(pat + " is not in the list")
 			}
 			for _, f := range c.Forbidden {
 				if f != pat {
@@ -388,14 +371,14 @@ func (m *Model) privacyCommand(args string) tea.Cmd {
 		}
 		w, err := m.flatWriter()
 		if err != nil {
-			return errFlash(err)
+			return cmdErr(err)
 		}
 		if err := w.SetField7("forbidden", next, true); err != nil {
-			return errFlash(err)
+			return cmdErr(err)
 		}
 		return flashCmd("ok", "Forbidden paths: "+verb+" "+pat+" (project)")
 	}
-	return flashCmd("err", "Usage: /privacy, /privacy add <pattern>, /privacy remove <pattern>")
+	return cmdErrText("Usage: /privacy, /privacy add <pattern>, /privacy remove <pattern>")
 }
 
 // openCompactStrategy is the picker behind `/compact settings`.
@@ -421,7 +404,7 @@ func (m *Model) openCompactStrategy() {
 			v = ""
 		}
 		if err := m.saveGlobalFlat("compact_strategy", v); err != nil {
-			return errFlash(err)
+			return cmdErr(err)
 		}
 		rebuild()
 		return flashCmd("ok", "Compaction: "+it.Label+"; applies to the next session")

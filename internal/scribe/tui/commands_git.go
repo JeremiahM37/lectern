@@ -20,7 +20,7 @@ func init() {
 	overrideCommands(&command{Name: "git", Desc: "Git menu: status, diff, commit, stash, log, push", Group: "Git",
 		Run: func(m *Model, args string) tea.Cmd {
 			if strings.TrimSpace(args) != "" {
-				return flashCmd("err", "Unknown git command: "+args+". Try /git status, diff, commit, stash, log, push, init, branch or pull")
+				return cmdErrText("Unknown git command: " + args + ". Try /git status, diff, commit, stash, log, push, init, branch or pull")
 			}
 			m.openGitMenu()
 			return nil
@@ -61,7 +61,7 @@ func init() {
 					return m.runShell(m.cur(), "git branch")
 				}
 				if !gitBranchName.MatchString(args) {
-					return flashCmd("err", "Branch names may only use letters, digits, '.', '_', '/' and '-'")
+					return cmdErrText("Branch names may only use letters, digits, '.', '_', '/' and '-'")
 				}
 				return m.gitRepoCommand("git branch "+args, func(g GitRepoOps) (string, error) {
 					if err := g.GitBranch(args); err != nil {

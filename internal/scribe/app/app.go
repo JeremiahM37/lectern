@@ -26,6 +26,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/session"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/skills"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
+	toolexec "github.com/JeremiahM37/lectern/v2/internal/scribe/tools/exec"
 )
 
 // Options configures Open.
@@ -97,6 +98,9 @@ type App struct {
 	pendKind  agent.EventKind
 	pendAgent string
 	closed    bool
+	// closeHooks run once when the app closes, before the agent is aborted.
+	// They let surfaces such as the Lectern bridge deny what is still waiting.
+	closeHooks []func()
 }
 
 // FindRoot returns the git repository root containing dir, or dir.
@@ -240,6 +244,9 @@ func Open(ctx context.Context, o Options) (*App, error) {
 	a.Planner = &agent.Planner{Dir: a.Workdir, Sink: a.emit}
 	a.Planner.Register(a.Tools)
 	a.Dispatch = &agent.Dispatcher{New: a.newSubagent, MaxConcurrent: cfg.Router.MaxAgents, Sink: a.emit}
+	if a.ext.hookR != nil {
+		a.Dispatch.Hooks = a.ext.hookR // SubagentStart and SubagentStop
+	}
 	a.Dispatch.Register(a.Tools)
 	a.Dispatch.Features = a.dispatchFeatures()
 	if config.Bool(cfg.DeferredTools, true) {
@@ -248,6 +255,9 @@ func Open(ctx context.Context, o Options) (*App, error) {
 	}
 
 	a.Agent = agent.New(a.agentOptions(model, mode))
+	if a.Checks != nil {
+		a.Checks.SetHistory(a.Agent) // undo and redo keep the messages in step with the files
+	}
 	a.Planner.Agent = a.Agent
 	if len(history) > 0 {
 		a.Agent.SetMessages(history)
@@ -363,6 +373,12 @@ func (a *App) systemPrompt(sub string) func(string) string {
 			Instructions: a.instr, CodeMap: a.codeMap, Extra: a.opts.System, Subagent: sub,
 		}
 		a.mu.Unlock()
+		// Both lookups are cached briefly inside the exec package.
+		in.Commands = toolexec.ProjectCommandsLine(in.Workdir)
+		if a.Memory != nil {
+			in.MemoryIndex = a.Memory.Index() // counts only; recall does the searching
+		}
+		in.GitContext = toolexec.GitContextBlock(in.Workdir)
 		if a.Agent != nil {
 			in.ModelRef = a.Agent.CurrentModel().Ref
 		}
@@ -436,6 +452,7 @@ func (a *App) agentOptions(model agent.Model, mode string) agent.Options {
 		Guard: a.Dispatch,
 	}
 	o.RequestDump = a.requestDump()
+	applyWatchdog(&o, a.Cfg.WatchdogTimeouts)
 	if config.Bool(a.Cfg.AutoCheck, true) {
 		o.Verify = autoVerify(a.Workdir)
 	}
@@ -632,7 +649,7 @@ func (a *App) newSubagent(spec agent.SubagentSpec, sink agent.Sink) *agent.Agent
 		CompactAt:       -1,
 		RetryBase:       2 * time.Second, // subagents back off from 2 s (spec 03 §10)
 		Budget:          budget,
-		Hooks:           a.claimHooks(a.ext.hooks),
+		Hooks:           a.subagentClaimHooks(a.ext.hooks),
 	})
 }
 
@@ -773,6 +790,7 @@ func (a *App) Run(ctx context.Context, prompt string, images []llm.Part) (agent.
 		_ = a.Checks.End()
 	}
 	a.ext.afterTurn(a, stats)
+	a.extractMemories(prompt, stats) // opt-in; runs in the background
 	a.saveMeta(prompt, stats)
 	return stats, err
 }
@@ -821,7 +839,11 @@ func (a *App) Close() error {
 		return nil
 	}
 	a.closed = true
+	hooks := a.closeHooks
 	a.mu.Unlock()
+	for _, f := range hooks {
+		f()
+	}
 	a.Agent.Abort()
 	fileClaims.release(a.claimOwner)
 	a.ext.close(a)
@@ -829,6 +851,14 @@ func (a *App) Close() error {
 		_ = a.Memory.Close()
 	}
 	return nil
+}
+
+// OnClose registers f to run once when the app closes. It runs before the
+// agent is aborted, so approvals still waiting can be denied with a reason.
+func (a *App) OnClose(f func()) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.closeHooks = append(a.closeHooks, f)
 }
 
 // SessionID returns the session id ("" for ephemeral).

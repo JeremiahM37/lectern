@@ -111,6 +111,32 @@ func sanitizeLabel(s string) string {
 	return b.String()
 }
 
+// projectShape is the project tool's output: the first projectHeadBytes and
+// the last projectTailBytes, cut on line breaks, with the full text in a tee
+// file when anything was dropped.
+func projectShape(text, label string) (string, int) {
+	if len(text) <= projectHeadBytes+projectTailBytes {
+		return text, 0
+	}
+	h := projectHeadBytes
+	if i := strings.LastIndexByte(text[:h], '\n'); i >= 0 {
+		h = i + 1
+	}
+	t := len(text) - projectTailBytes
+	if i := strings.IndexByte(text[t:], '\n'); i >= 0 {
+		t += i + 1
+	}
+	dropped := strings.Count(text[h:t], "\n")
+	body := text[:h] + fmt.Sprintf("\n… %d lines omitted …\n", dropped) + text[t:]
+	body = strings.TrimRight(body, "\n")
+	if path, err := writeTee(label, text); err == nil {
+		body += "\n[full output: " + path + "]"
+	} else {
+		body += "\n[full output could not be saved: " + err.Error() + "]"
+	}
+	return body, dropped
+}
+
 // spill caps text at limit bytes for the model. When it had to cut, the full
 // text is kept in a tee file and the returned body names that file. omitted
 // is the number of lines dropped, as truncateTo reports it.

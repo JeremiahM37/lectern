@@ -73,7 +73,7 @@ func (t *gitTool) Spec() llm.ToolSpec {
 			"tag (create, delete), push and pull (remote and name), cherry_pick and rebase (non-interactive; sub_action abort, continue or skip resumes one in progress), " +
 			"reset (soft, mixed or hard, or paths), restore (files, from the index or ref). " +
 			"Destructive forms ask the user first: hard reset, force push, pull or rebase that rewrites history, rebase, and restore of files with uncommitted edits. " +
-			"Hooks run on commit unless no_verify is true, which needs the user's explicit request.",
+			"Hooks run on commit unless no_verify is true, which needs the user's explicit request. The project's native checks (lint, vet, build) run before a commit and block it on failure.",
 		Schema: tools.Schema(map[string]any{
 			"action":     tools.Enum("What to do.", gitActions...),
 			"sub_action": tools.Str("branch: list, create, switch, delete. stash: push (default), pop, list, show, drop. tag: list, create, delete. cherry_pick and rebase: start (default), abort, continue, skip."),
@@ -267,6 +267,12 @@ func (t *gitTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessage) 
 		}
 	}
 
+	if action == "commit" && !a.NoVerify {
+		// The same pre-commit gate the shell tool applies to git commit -m.
+		if res, blocked := runPreCommit(ctx, env, env.Workdir); blocked {
+			return res
+		}
+	}
 	if err := requireGit(); err != nil {
 		return tools.Errorf("%v", err)
 	}

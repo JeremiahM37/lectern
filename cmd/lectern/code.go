@@ -112,7 +112,20 @@ func runScribeTUI(ctx context.Context, opts app.Options, args []string) int {
 	oldState, _ := term.GetState(fd)
 
 	done := make(chan error, 1)
-	go func() { done <- tui.Run(sigCtx, newBackend, topts) }()
+	go func() {
+		// A panic in the UI must not lose the sessions: write them out at
+		// once, then report it as an error so the normal exit path runs.
+		defer func() {
+			if r := recover(); r != nil {
+				mu.Lock()
+				list := append([]tui.Backend(nil), backends...)
+				mu.Unlock()
+				tui.EmergencySaveAll(list)
+				done <- fmt.Errorf("the UI crashed (%v); the sessions were saved as they were", r)
+			}
+		}()
+		done <- tui.Run(sigCtx, newBackend, topts)
+	}()
 	var err error
 	select {
 	case err = <-done:

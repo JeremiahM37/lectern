@@ -2,7 +2,10 @@ package tui
 
 // The first-run setup wizard. It opens on start when the backend reports
 // that no model can be used (setupChecker), and any time with /setup.
-// Steps: Welcome, Provider, Key, Model, Theme, Ready.
+// The eleven steps (wizSections) run in a sidebar: welcome, setup (provider,
+// key, model, icons), four tour pages, shortcuts, theme and ready. The tour
+// pages are copy only. Below wizSidebarMin columns the sidebar gives way to a
+// one-line step count.
 
 import (
 	"context"
@@ -54,11 +57,60 @@ const (
 	wzKey
 	wzModel
 	wzIcons
+	wzIntel
+	wzEdit
+	wzModes
+	wzWorkflow
+	wzAuto
+	wzRemote
+	wzShortcuts
 	wzTheme
 	wzDone
 )
 
-var wizStepNames = []string{"Welcome", "Provider", "Key", "Model", "Icons", "Theme", "Ready"}
+// wizSection is one sidebar entry: its label, the title and blurb shown on the
+// active row, and where it sits in the step order.
+type wizSection struct {
+	label, title, blurb string
+}
+
+// wizSections are the eleven sidebar entries, in order. The setup entry
+// covers the four steps from wzProvider to wzIcons.
+var wizSections = []wizSection{
+	{"welcome", "Welcome", "meet Scribe"},
+	{"setup", "Provider", "pick a provider, then its key"},
+	{"intelligence", "Code Intel", "how Scribe reads code"},
+	{"editing", "Editing", "edits by symbol, not by text"},
+	{"modes", "Modes", "auto, plan, architect"},
+	{"workflow", "Tabs & Git", "tabs, sessions, git"},
+	{"automation", "Automation", "subagents & compaction"},
+	{"remote", "Remote", "MCP, skills, remote chat"},
+	{"shortcuts", "Shortcuts", "keys & commands"},
+	{"theme", "Theme", "make it yours"},
+	{"ready", "Ready", "start working"},
+}
+
+// wizSidebarMin is the narrowest content width that still fits the sidebar.
+const (
+	wizSidebarMin = 60
+	wizSidebarW   = 18
+	wizSidebarSep = 3
+)
+
+// section maps a step to its sidebar entry.
+func (s wizStep) section() int {
+	switch {
+	case s == wzWelcome:
+		return 0
+	case s <= wzIcons:
+		return 1
+	case s == wzDone:
+		return len(wizSections) - 1
+	case s == wzTheme:
+		return 9
+	}
+	return int(s) - int(wzIntel) + 2
+}
 
 // wizardProviders are the providers offered in the wizard, in order. The
 // rest stay on the Providers tab of /settings.
@@ -112,11 +164,16 @@ type wizard struct {
 	note    string         // last problem, shown on the current step
 
 	nerd bool // the icons step: Nerd Font glyphs on or off
+
+	// style is the theme option set the theme step edits (transparency,
+	// message and diff background opacity, border strength). It is applied
+	// live; saving it waits for the theme config object.
+	style theme.Style
 }
 
 func newWizard(m *Model) *wizard {
 	be := m.cur().be
-	w := &wizard{m: m, be: be, detect: map[string]int{}, origTheme: m.themeName, prereqs: checkPrereqs()}
+	w := &wizard{m: m, be: be, detect: map[string]int{}, origTheme: m.themeName, prereqs: checkPrereqs(), style: theme.DefaultStyle()}
 	all := be.Providers()
 	for _, id := range wizardProviders {
 		for _, p := range all {
@@ -157,6 +214,9 @@ func (w *wizard) Icon() string { return "smithy" }
 // Size implements Sized.
 func (w *wizard) Size(cols, rows int) (int, int) { return min(78, cols-4), min(rows-4, 24) }
 
+// Busy implements busyModal: a key being checked holds the wizard.
+func (w *wizard) Busy() bool { return w.checking }
+
 // Footer implements Footered.
 func (w *wizard) Footer() string {
 	switch w.step {
@@ -174,9 +234,11 @@ func (w *wizard) Footer() string {
 	case wzIcons:
 		return "Space toggle · Enter next · ← back"
 	case wzTheme:
-		return "↑↓ preview · Enter keep · ← back"
+		return "↑↓ preview · Enter keep · Tab/m/d/b options · ← back"
+	case wzDone:
+		return "Enter start · ← back"
 	}
-	return "Enter start · ← back"
+	return "← back · → next · Esc skip"
 }
 
 // Update implements Modal.
@@ -287,7 +349,21 @@ func (w *wizard) onKey(km tea.KeyMsg) (Modal, tea.Cmd, bool) {
 		case " ", "space":
 			w.setNerd(!w.nerd)
 		case "enter", "right", "l", "tab":
-			w.enterTheme()
+			w.step = wzIntel
+		}
+	case wzIntel, wzEdit, wzModes, wzWorkflow, wzAuto, wzRemote, wzShortcuts:
+		// Tour pages: copy only. Enter and right go on, left goes back, Esc skips.
+		switch k {
+		case "esc":
+			return w, nil, true
+		case "left", "h":
+			w.step--
+		case "enter", "right", "l", "tab":
+			if w.step == wzShortcuts {
+				w.enterTheme()
+			} else {
+				w.step++
+			}
 		}
 	case wzTheme:
 		switch k {
@@ -295,13 +371,29 @@ func (w *wizard) onKey(km tea.KeyMsg) (Modal, tea.Cmd, bool) {
 			w.moveTheme(-1)
 		case "down", "j":
 			w.moveTheme(1)
-		case "esc", "left", "h":
+		case "esc":
 			w.revertTheme()
-			w.step = wzIcons
-		case "enter", "right", "l", "tab":
+			return w, nil, true
+		case "left", "h":
+			w.revertTheme()
+			w.step = wzShortcuts
+		case "tab":
+			w.style.Transparent = !w.style.Transparent
+			w.previewTheme()
+		case "m":
+			w.style.UserMessageOpacity = nextOpacity(w.style.UserMessageOpacity)
+			w.previewTheme()
+		case "d":
+			w.style.DiffOpacity = nextOpacity(w.style.DiffOpacity)
+			w.previewTheme()
+		case "b":
+			w.style.BorderStrength = nextBorder(w.style.BorderStrength)
+			w.previewTheme()
+		case "enter", "right", "l":
 			name := w.themes[w.themeCur]
 			w.be.SetTheme(name)
 			w.origTheme = name
+			w.previewTheme()
 			w.step = wzDone
 		}
 	case wzDone:
@@ -385,6 +477,32 @@ func (w *wizard) enterTheme() {
 	w.step = wzTheme
 }
 
+// nextOpacity steps a background opacity through theme.OpacitySteps.
+func nextOpacity(cur int) int {
+	for i, v := range theme.OpacitySteps {
+		if v == cur {
+			return theme.OpacitySteps[(i+1)%len(theme.OpacitySteps)]
+		}
+	}
+	return theme.OpacitySteps[len(theme.OpacitySteps)-1]
+}
+
+// borderStrengths is the order the Borders option cycles through.
+var borderStrengths = []string{"default", "strong", "op"}
+
+// nextBorder steps the border strength; "" counts as default.
+func nextBorder(cur string) string {
+	if cur == "" {
+		cur = "default"
+	}
+	for i, v := range borderStrengths {
+		if v == cur {
+			return borderStrengths[(i+1)%len(borderStrengths)]
+		}
+	}
+	return borderStrengths[0]
+}
+
 // setNerd saves the Nerd Font choice and applies it to the glyphs at once.
 func (w *wizard) setNerd(on bool) {
 	if err := w.be.SetConfig("nerd_font", on, false); err != nil {
@@ -455,63 +573,213 @@ func (w *wizard) moveTheme(d int) {
 	w.previewTheme()
 }
 
+// previewTheme applies the highlighted theme with the chosen options.
 func (w *wizard) previewTheme() {
+	if len(w.themes) == 0 {
+		return
+	}
 	name := w.themes[w.themeCur]
 	if th, ok := theme.Lookup(name); ok {
-		w.m.setTheme(name, th)
+		w.m.setTheme(name, theme.Adjust(th, w.style))
 	}
 }
 
+// revertTheme puts back the theme the wizard started with, keeping the options.
 func (w *wizard) revertTheme() {
-	if th, ok := theme.Lookup(w.origTheme); ok && w.m.themeName != w.origTheme {
-		w.m.setTheme(w.origTheme, th)
+	if th, ok := theme.Lookup(w.origTheme); ok {
+		w.m.setTheme(w.origTheme, theme.Adjust(th, w.style))
 	}
 }
 
-// View implements Modal.
+// View implements Modal. Wide enough, the sidebar sits left of the step; if
+// not, a one-line count stands in for it.
 func (w *wizard) View(width, height int) string {
 	th := w.m.th
+	side := width >= wizSidebarMin
+	cw := width
+	var head []string
+	if side {
+		cw = width - wizSidebarW - wizSidebarSep
+	} else {
+		head = []string{w.progress(th), ""}
+	}
 	var out []string
-	out = append(out, w.progress(th), "")
 	switch w.step {
 	case wzWelcome:
-		out = append(out, w.welcome(width)...)
+		out = append(out, w.welcome(cw)...)
 	case wzProvider:
-		out = append(out, w.providerList(th, width)...)
+		out = append(out, w.providerList(th, cw)...)
 	case wzKey:
-		out = append(out, w.keyView(th, width)...)
+		out = append(out, w.keyView(th, cw)...)
 	case wzModel:
 		out = append(out, fgb(th.TextPrimary).Render("Pick a model from "+w.chosen.Name), "")
 		if w.chooser != nil {
-			out = append(out, strings.Split(w.chooser.View(width, max(3, height-6)), "\n")...)
+			out = append(out, strings.Split(w.chooser.View(cw, max(3, height-6)), "\n")...)
 		}
 	case wzIcons:
-		out = append(out, w.iconsView(th, width)...)
+		out = append(out, w.iconsView(th, cw)...)
 	case wzTheme:
-		out = append(out, w.themeList(th, height-4)...)
+		out = append(out, w.themeView(th, cw, height-4)...)
 	case wzDone:
-		out = append(out, w.done(th, width)...)
+		out = append(out, w.done(th, cw)...)
+	default:
+		out = append(out, w.tourView(th, cw)...)
 	}
 	if w.note != "" {
-		out = append(out, "", fg(th.Warning).Render(render.Wrap(w.note, width)))
+		out = append(out, "", fg(th.Warning).Render(render.Wrap(w.note, cw)))
 	}
-	return strings.Join(out, "\n")
+	// Some step helpers return a wrapped block as one string. The sidebar
+	// merges row by row, so every entry must be exactly one line.
+	out = oneLineEach(out)
+	if !side {
+		return strings.Join(append(head, out...), "\n")
+	}
+	left := w.sidebar(th, height)
+	sep := fg(th.Border).Render(" │ ")
+	n := max(len(left), len(out))
+	rows := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		l := ""
+		if i < len(left) {
+			l = left[i]
+		}
+		r := ""
+		if i < len(out) {
+			r = out[i]
+		}
+		rows = append(rows, padRight(l, wizSidebarW)+sep+r)
+	}
+	return strings.Join(rows, "\n")
 }
 
-// progress is the row of step names; the current one is highlighted.
+// oneLineEach splits every entry on newlines, so each element is one row.
+func oneLineEach(lines []string) []string {
+	var out []string
+	for _, l := range lines {
+		out = append(out, strings.Split(l, "\n")...)
+	}
+	return out
+}
+
+// progress is the narrow-terminal stand-in for the sidebar: the step count
+// and its title.
 func (w *wizard) progress(th theme.Theme) string {
-	parts := make([]string, 0, len(wizStepNames))
-	for i, name := range wizStepNames {
+	sec := w.step.section()
+	return fgb(th.Brand).Render(fmt.Sprintf("Step %d of %d", sec+1, len(wizSections))) +
+		fg(th.TextFaint).Render("  "+wizSections[sec].title)
+}
+
+// sidebar lists the eleven sections. The active one shows its blurb under
+// it; earlier ones are ticked, later ones are idle.
+func (w *wizard) sidebar(th theme.Theme, height int) []string {
+	cur := w.step.section()
+	var out []string
+	for i, sec := range wizSections {
+		var mark string
+		var label lipgloss.Style
 		switch {
-		case i == int(w.step):
-			parts = append(parts, lipgloss.NewStyle().Bold(true).Foreground(th.Brand).Render("● "+name))
-		case i < int(w.step):
-			parts = append(parts, fg(th.Success).Render("✓ "+name))
+		case i == cur:
+			mark = "● "
+			label = lipgloss.NewStyle().Bold(true).Foreground(th.Warning)
+		case i < cur:
+			mark = "✓ "
+			label = lipgloss.NewStyle().Foreground(th.Success)
 		default:
-			parts = append(parts, fg(th.TextFaint).Render("○ "+name))
+			mark = "○ "
+			label = lipgloss.NewStyle().Foreground(th.TextFaint)
+		}
+		out = append(out, label.Render(padRight(mark+sec.label, wizSidebarW)))
+		if i == cur {
+			for _, l := range strings.Split(render.Wrap(sec.blurb, wizSidebarW-2), "\n") {
+				out = append(out, fg(th.TextSecondary).Render("  "+l))
+			}
 		}
 	}
-	return strings.Join(parts, "  ")
+	return out
+}
+
+// tourView is the copy for the tour pages. Each page is a heading and a short
+// body; the modes page lists what each mode does.
+func (w *wizard) tourView(th theme.Theme, width int) []string {
+	heading := func(t string) string { return fgb(th.TextPrimary).Render(t) }
+	body := func(t string) []string {
+		var out []string
+		for _, l := range strings.Split(render.Wrap(t, width), "\n") {
+			out = append(out, fg(th.TextSecondary).Render(l))
+		}
+		return out
+	}
+	var out []string
+	switch w.step {
+	case wzIntel:
+		out = append([]string{heading("Codebase Intelligence"), ""},
+			body("Scribe reads your repo as a graph: symbols, imports and call sites, not a pile of text.")...)
+	case wzEdit:
+		out = append([]string{heading("Editing: by symbol, not by string"), ""},
+			body("Scribe edits a function or type by its name, not by matching text. A post-edit check runs after each change, so a broken edit shows up at once.")...)
+	case wzModes:
+		out = append([]string{heading("Modes: how Scribe approaches work"), ""},
+			body("Cycle with Ctrl+D. Auto runs hands-free. Plan is research only.")...)
+		out = append(out, "")
+		for _, l := range modeHelpLines() {
+			out = append(out, fg(th.TextSecondary).Render(l))
+		}
+	case wzWorkflow:
+		out = append([]string{heading("Tabs, Sessions & Git"), ""},
+			body(fmt.Sprintf("Up to %d tabs, as many sessions as you like, and a checkpoint after every turn. Rewind anything.", MaxTabs))...)
+	case wzAuto:
+		out = append([]string{heading("Automation: scale without friction"), ""},
+			body("Subagents take focused jobs in parallel. A long session compacts its history when the context fills up; /compact does it now.")...)
+	case wzRemote:
+		out = append([]string{heading("MCP, Skills & Remote"), ""},
+			body("Add MCP servers with /mcp. Ctrl+S browses and installs skills. Remote chat lets you talk to Scribe from another device.")...)
+	case wzShortcuts:
+		out = []string{heading("Keyboard & Commands"), ""}
+		for _, k := range [][2]string{
+			{"Ctrl+K", "command palette"},
+			{"Ctrl+L", "switch model"},
+			{"Ctrl+P", "sessions"},
+			{"Ctrl+G", "git menu"},
+			{"Ctrl+S", "skills"},
+			{"Ctrl+T/W", "open or close a tab"},
+			{"Ctrl+D", "cycle the mode"},
+			{"Ctrl+X", "stop the running turn"},
+			{"Ctrl+B/F", "step through checkpoints"},
+		} {
+			out = append(out, fg(th.Brand).Render(padRight(k[0], 10))+" "+fg(th.TextSecondary).Render(k[1]))
+		}
+		out = append(out, "")
+		out = append(out, body("Type / for commands, or ? on an empty input for every key.")...)
+	}
+	return out
+}
+
+// themeView is the theme page: the four options, then the theme list.
+func (w *wizard) themeView(th theme.Theme, width, rows int) []string {
+	out := []string{fgb(th.TextPrimary).Render("Pick your theme"),
+		fg(th.TextFaint).Render("Moving the cursor previews the theme. Enter keeps it."), ""}
+	out = append(out, w.styleRows(th)...)
+	out = append(out, "")
+	return append(out, w.themeList(th, rows-len(out))...)
+}
+
+// styleRows draws the four theme options with their keys.
+func (w *wizard) styleRows(th theme.Theme) []string {
+	pct := func(n int) string { return fmt.Sprintf("%d%%", n) }
+	border := w.style.BorderStrength
+	if border == "" {
+		border = "default"
+	}
+	border = map[string]string{"default": "Default", "strong": "Strong", "op": "OP"}[border]
+	row := func(name, value, key string) string {
+		return fg(th.TextSecondary).Render(padRight(name, 14)) + fgb(th.TextPrimary).Render(padRight(value, 10)) + fg(th.TextFaint).Render(key)
+	}
+	return []string{
+		fg(th.TextSecondary).Render(padRight("Transparent", 14)) + Toggle(th, w.style.Transparent, true) + "  " + fg(th.TextFaint).Render("Tab"),
+		row("Message BG", pct(w.style.UserMessageOpacity), "m cycles"),
+		row("Diff BG", pct(w.style.DiffOpacity), "d cycles"),
+		row("Borders", border, "b cycles"),
+	}
 }
 
 func (w *wizard) welcome(width int) []string {
@@ -613,11 +881,10 @@ func (w *wizard) iconsView(th theme.Theme, width int) []string {
 
 // themeList draws the themes with the highlighted one applied live.
 func (w *wizard) themeList(th theme.Theme, rows int) []string {
-	out := []string{fgb(th.TextPrimary).Render("Pick your theme"),
-		fg(th.TextFaint).Render("Moving the cursor previews the theme. Enter keeps it."), ""}
 	if rows < 1 {
 		rows = 1
 	}
+	var out []string
 	start := keepInView(w.themeCur, 0, rows)
 	end := min(len(w.themes), start+rows)
 	for i := start; i < end; i++ {

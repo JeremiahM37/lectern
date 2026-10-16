@@ -25,6 +25,10 @@ type command struct {
 	Desc    string
 	Group   string
 	Run     func(m *Model, args string) tea.Cmd
+	// Match is an optional prefix matcher for lines that no name covers. It
+	// runs after the name lookup finds nothing, in registration order, and
+	// returns the argument text when the line is its own.
+	Match func(line string) (args string, ok bool)
 }
 
 // Palette groups, in display order (spec 02 section 2).
@@ -112,7 +116,18 @@ func findCommand(line string) (*command, string) {
 			}
 		}
 	}
-	return best, bestArgs
+	if best != nil {
+		return best, bestArgs
+	}
+	for _, c := range commandTable {
+		if c.Match == nil {
+			continue
+		}
+		if args, ok := c.Match(line); ok {
+			return c, strings.TrimSpace(args)
+		}
+	}
+	return nil, ""
 }
 
 // runCommand executes a "/..." line. A handler that panics is reported in
@@ -130,11 +145,19 @@ func (m *Model) runCommand(line string) (cmd tea.Cmd) {
 		m.cur().chat.AddSystem("info", "Unknown command: "+first+". Type /help for available commands.")
 		return nil
 	}
+	t := m.cur()
+	before := t.chat.Len()
 	defer func() {
 		if r := recover(); r != nil {
 			m.enterChat()
 			m.cur().chat.AddSystem("error", fmt.Sprintf("Command error: /%s: %v", c.Name, r))
 			cmd = nil
+			return
+		}
+		// A command that printed into the chat (a /claim list, a /storage
+		// report) must not leave its output hidden behind the landing page.
+		if t == m.cur() && t.chat.Len() > before {
+			m.enterChat()
 		}
 	}()
 	return c.Run(m, args)
@@ -159,6 +182,9 @@ func flashCmd(kind string, text string) tea.Cmd {
 
 func errFlash(err error) tea.Cmd { return flashCmd("err", err.Error()) }
 
+// cmdErr reports a command's returned error in the chat, as "Command error: ...".
+func cmdErr(err error) tea.Cmd { return cmdErrText(err.Error()) }
+
 func init() {
 	registerCommands(
 		// ---- Session
@@ -181,7 +207,7 @@ func init() {
 				t := m.cur()
 				id, err := t.be.Fork()
 				if err != nil {
-					return errFlash(err)
+					return cmdErr(err)
 				}
 				t.chat.AddSystem("info", "Forked into session "+short(id))
 				return flashCmd("ok", "Forked into "+short(id))
@@ -211,7 +237,7 @@ func init() {
 				}
 				path, err := m.cur().be.Export(format)
 				if err != nil {
-					return errFlash(err)
+					return cmdErr(err)
 				}
 				return flashCmd("ok", "Exported to "+path)
 			}},
@@ -226,13 +252,13 @@ func init() {
 					return flashMsg{kind: "ok", text: "Context compacted"}
 				}
 			}},
-		&command{Name: "undo", Desc: "Undo the last turn and restore its files", Group: "Session",
-			Run: func(m *Model, _ string) tea.Cmd { m.confirmUndo(); return nil }},
+		&command{Name: "undo", Args: "[n]", Desc: "Undo the last turn and restore its files; /undo n undoes n turns", Group: "Session",
+			Run: func(m *Model, args string) tea.Cmd { return undoCommand(m, args) }},
 		&command{Name: "redo", Desc: "Redo the last undone turn", Group: "Session",
 			Run: func(m *Model, _ string) tea.Cmd {
 				cp, err := m.cur().be.Redo()
 				if err != nil {
-					return errFlash(err)
+					return cmdErr(err)
 				}
 				return flashCmd("ok", fmt.Sprintf("Redid turn %d", cp.Turn))
 			}},
@@ -284,7 +310,7 @@ func init() {
 					t.be.SetReasoning(args)
 					return flashCmd("ok", "Reasoning: "+args)
 				}
-				return flashCmd("err", "Use /reasoning off, low, medium or high")
+				return cmdErrText("Use /reasoning off, low, medium or high")
 			}},
 		&command{Name: "keys", Aliases: []string{"api-keys"}, Desc: "Add or change a provider API key", Group: "Models",
 			Run: func(m *Model, _ string) tea.Cmd { m.openKeyPicker(); return nil }},
@@ -489,7 +515,7 @@ func (m *Model) resumeSession(id string) tea.Cmd {
 	t := m.cur()
 	if err := t.be.Resume(id); err != nil {
 		m.logError(t, err.Error())
-		return errFlash(err)
+		return cmdErr(err)
 	}
 	m.replayTranscript(t)
 	m.setFlash("ok", "Resumed "+t.be.SessionTitle())
@@ -500,7 +526,7 @@ func (m *Model) resumeSession(id string) tea.Cmd {
 func (m *Model) renameCurrent(title string) tea.Cmd {
 	t := m.cur()
 	if err := t.be.Rename(title); err != nil {
-		return errFlash(err)
+		return cmdErr(err)
 	}
 	t.chat.AddSystem("info", "Renamed session to: "+title)
 	return flashCmd("ok", "Renamed")
@@ -510,7 +536,7 @@ func (m *Model) renameCurrent(title string) tea.Cmd {
 func (m *Model) setModel(ref string) tea.Cmd {
 	t := m.cur()
 	if err := t.be.SetModel(ref); err != nil {
-		return errFlash(err)
+		return cmdErr(err)
 	}
 	t.model = t.be.Model()
 	t.local = isLocalModel(t.model)
@@ -521,7 +547,7 @@ func (m *Model) setModel(ref string) tea.Cmd {
 func (m *Model) applyTheme(name string) tea.Cmd {
 	th, ok := theme.Lookup(name)
 	if !ok {
-		return flashCmd("err", "No theme named "+name)
+		return cmdErrText("No theme named " + name)
 	}
 	m.setTheme(name, th)
 	m.cur().be.SetTheme(name)

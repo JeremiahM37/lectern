@@ -19,6 +19,7 @@ type fakeSink struct {
 	steerOK   bool
 	submitted []string
 	steered   []string
+	images    []llm.Part
 	aborts    int
 }
 
@@ -28,10 +29,18 @@ func (f *fakeSink) Abort() {
 	f.aborts++
 }
 
-func (f *fakeSink) Submit(prompt string, _ []llm.Part) {
+func (f *fakeSink) Submit(prompt string, images []llm.Part) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.submitted = append(f.submitted, prompt)
+	f.images = append(f.images, images...)
+}
+
+// imageParts returns the images submitted so far.
+func (f *fakeSink) imageParts() []llm.Part {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]llm.Part(nil), f.images...)
 }
 
 func (f *fakeSink) Steer(msg string) bool {
@@ -142,7 +151,7 @@ func TestOverlongMessageIsRefused(t *testing.T) {
 	sink := &fakeSink{}
 	s.Bind(sink)
 
-	tg.push(message(ownerChat, strings.Repeat("x", maxMessage+1)))
+	tg.push(message(ownerChat, strings.Repeat("x", maxInput+1)))
 	if m := tg.next(t); !strings.Contains(m.Text, "too long") {
 		t.Fatalf("reply = %q", m.Text)
 	}
