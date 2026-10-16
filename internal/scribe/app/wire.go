@@ -38,6 +38,8 @@ type extensions struct {
 	cmap     *repomap.Map
 	// reindex batches file changes into one code map update (reindex10.go).
 	reindex *reindexer
+	// stopWarm cancels the language-server warm-up started at boot.
+	stopWarm context.CancelFunc
 	// stopWatch ends the code map's file watcher; nil until it starts.
 	stopWatch context.CancelFunc
 	mapOK     chan struct{} // closed when the first code map build finishes
@@ -56,9 +58,10 @@ func (a *App) wire(ctx context.Context) error {
 	// Start the language servers for the project's languages in the background,
 	// each bounded, so the first symbol or diagnostic request does not wait for a
 	// cold start. Startup itself does not wait on them.
+	wctx, stopWarm := context.WithTimeout(context.Background(), 10*time.Second)
+	a.ext.stopWarm = stopWarm // close cancels it, so no server starts after shutdown
 	go func(m *lsp.Manager, root string) {
-		wctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+		defer stopWarm()
 		m.Warm(wctx, lsp.DetectLanguages(root)) // the walk stays off the startup path
 	}(a.ext.lsp, a.Workdir)
 	a.ext.reindex = newReindexer(reindexDelay, a.reindexCodeMap)
@@ -264,6 +267,9 @@ func (e *extensions) close(a *App) {
 	}
 	if e.jobs != nil {
 		e.jobs.KillAll()
+	}
+	if e.stopWarm != nil {
+		e.stopWarm()
 	}
 	if e.lsp != nil {
 		e.lsp.Shutdown()
