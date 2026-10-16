@@ -41,6 +41,10 @@ type sessionView struct {
 	CanRestore    bool   `json:"can_restore"`
 	// Favorite mirrors FavoriteAt for clients that only need the flag.
 	Favorite bool `json:"favorite"`
+	// RemoteControlAvailable says whether Remote Control can be turned on for
+	// this session, and why not when it cannot (docs/remote-control.md).
+	// Absent for ended sessions and ones that already have it.
+	RemoteControlAvailable *sessions.CapabilityState `json:"remote_control_available,omitempty"`
 	// SavedConversations says Lectern can list this session's saved
 	// conversations: Claude and Codex, and catalog agents with a sessions
 	// source.
@@ -149,6 +153,12 @@ func (s *Server) sessionViewWith(row *store.Session, overlap *awarenessOverlapVi
 		UptimeSeconds:   store.Now() - row.CreatedAt,
 		HandoffInFlight: s.Sessions.InFlight(row.ID),
 		Favorite:        row.FavoriteAt != nil,
+	}
+	if !row.RemoteControl && row.EndedAt == nil && row.Status != sessions.StatusDead {
+		if config, err := s.Sessions.SessionLaunchConfiguration(row); err == nil {
+			why := sessions.RemoteControlUnavailable(config.Spec, config.Spec.Env, config.Isolation)
+			v.RemoteControlAvailable = &sessions.CapabilityState{Available: why == "", Reason: why}
+		}
 	}
 	v.State, v.StateReason = vocab.SessionState(vocab.SessionFacts{
 		Status: row.Status, AgentState: row.AgentState, SetupState: row.SetupState,
@@ -285,6 +295,31 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.sessionViews(keep))
 }
 
+// enableRemoteControl is POST /api/sessions/{id}/remote-control: connect a
+// running claude session to claude.ai/code and the Claude app
+// (docs/remote-control.md). 409 when the agent is busy, cannot use it, or
+// Claude Code wants its one-time consent first; the detail says which.
+func (s *Server) enableRemoteControl(w http.ResponseWriter, r *http.Request) {
+	row, ok := s.sessionParam(w, r)
+	if !ok {
+		return
+	}
+	fresh, err := s.Sessions.EnableRemoteControl(r.Context(), row.ID)
+	switch {
+	case errors.Is(err, sessions.ErrRemoteControlConsent):
+		writeJSON(w, 409, map[string]any{"detail": err.Error(), "code": "remote_control_consent"})
+		return
+	case errors.Is(err, sessions.ErrRemoteControlBusy):
+		writeJSON(w, 409, map[string]any{"detail": err.Error(), "code": "busy"})
+		return
+	case err != nil:
+		httpError(w, 409, "%s", err.Error())
+		return
+	}
+	s.Bus.Publish("board", "session", fresh)
+	writeJSON(w, 200, s.sessionView(fresh))
+}
+
 // setSessionFavorite is PUT /api/sessions/{id}/favorite with {"favorite":
 // true|false}. It is the same kind of session edit as PATCH, so it takes the
 // same route-level auth; the star lives on the row, so it survives the
@@ -407,6 +442,10 @@ type sessionIn struct {
 	// the default"; {"mode":""} explicitly launches unsandboxed even when
 	// the project's default is not.
 	Isolation *isolation.Config `json:"isolation"`
+	// RemoteControl also connects the session to claude.ai/code and the
+	// Claude app (docs/remote-control.md). Claude only; refused with the
+	// reason when the agent or its environment cannot use it.
+	RemoteControl bool `json:"remote_control"`
 }
 
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
@@ -516,7 +555,8 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		Agent: in.Agent, Model: in.Model, Workdir: in.Workdir,
 		Resume: in.Resume, Prime: prime, Scratch: in.Scratch, Yolo: yolo, PermissionMode: mode,
 		// The manager layers project defaults before the selected launch profile.
-		Isolation: in.Isolation,
+		Isolation:     in.Isolation,
+		RemoteControl: in.RemoteControl,
 	})
 	var missing *sessions.AgentNotInstalled
 	if errors.As(err, &missing) {

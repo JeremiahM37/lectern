@@ -59,6 +59,9 @@ type agentQuickOpts struct {
 	Attach bool
 	Model  string
 	Resume bool
+	// RemoteControl also opens the session in claude.ai/code and the Claude
+	// app (docs/remote-control.md); an existing session is switched on.
+	RemoteControl bool
 	// RegisterProject adds the folder's git repository as a project when no
 	// project holds it yet. Only for the private local runtime: a remote
 	// server cannot see this machine's folders.
@@ -75,6 +78,8 @@ func parseAgentQuickArgs(agentName string, args []string) (agentQuickOpts, error
 			o.Attach = true
 		case "--resume":
 			o.Resume = true
+		case "--remote-control", "--rc":
+			o.RemoteControl = true
 		case "--model":
 			if i+1 >= len(args) {
 				return o, fmt.Errorf("--model needs a value")
@@ -82,7 +87,7 @@ func parseAgentQuickArgs(agentName string, args []string) (agentQuickOpts, error
 			i++
 			o.Model = args[i]
 		default:
-			return o, fmt.Errorf("lectern %s: unsupported argument %q (supported: --new, --attach, --model NAME, --resume)", agentName, args[i])
+			return o, fmt.Errorf("lectern %s: unsupported argument %q (supported: --new, --attach, --model NAME, --resume, --remote-control)", agentName, args[i])
 		}
 	}
 	if o.New && o.Attach {
@@ -235,6 +240,11 @@ func resolveAgentSession(c *console.Client, agentName, workdir string, opts agen
 		}
 	}
 	if reuse {
+		if opts.RemoteControl {
+			if _, err := c.JSON("POST", fmt.Sprintf("/sessions/%d/remote-control", existing.ID), map[string]any{}); err != nil {
+				return nil, fmt.Errorf("turn on Remote Control for %s: %w", existing.Name, err)
+			}
+		}
 		return existing, nil
 	}
 	if err := checkAgentInstalled(c, agentName); err != nil {
@@ -269,6 +279,9 @@ func resolveAgentSession(c *console.Client, agentName, workdir string, opts agen
 	}
 	if opts.Resume {
 		body["resume"] = true
+	}
+	if opts.RemoteControl {
+		body["remote_control"] = true
 	}
 	data, err := c.JSON("POST", "/sessions", body)
 	if err != nil {

@@ -268,6 +268,7 @@ func (m *dashboard) newSessionForm() tea.Cmd {
 		adv(field{Key: "worktree_branch", Label: "New branch (blank = unique name)"}),
 		adv(boolField("resume", "Resume the latest conversation", false)),
 		adv(boolField("brief", "Include the project brief", true)),
+		adv(boolField("remote_control", "Also open in the Claude app (Remote Control, claude only)", false)),
 		adv(field{Key: "group_path", Label: "Group path (optional, e.g. Work/Client)"}),
 	}
 	cmd := m.openForm("New session", fields, func(body map[string]any) tea.Cmd {
@@ -327,6 +328,9 @@ func (m *dashboard) submitNewSession(body map[string]any) tea.Cmd {
 	if body["isolated"] == true {
 		body["background"] = true
 		body["worktree"] = map[string]any{"base": body["worktree_base"], "branch": body["worktree_branch"]}
+	}
+	if body["remote_control"] != true {
+		delete(body, "remote_control")
 	}
 	delete(body, "isolated")
 	delete(body, "worktree_base")

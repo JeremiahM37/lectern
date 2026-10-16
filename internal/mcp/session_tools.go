@@ -355,6 +355,9 @@ func startSessionResult(sess map[string]any, files []attached, notePath, grimoir
 		"id": sess["id"], "name": sess["name"], "status": sess["status"],
 		"attach_hint": attachHint(int64(id)),
 	}
+	if sess["remote_control"] == true {
+		out["remote_control"] = true
+	}
 	if len(files) > 0 {
 		paths := make([]string, 0, len(files))
 		for _, f := range files {

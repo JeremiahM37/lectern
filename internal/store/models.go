@@ -258,7 +258,12 @@ type Session struct {
 	ArchivedAt           *float64 `json:"archived_at"`
 	// FavoriteAt is when the person starred this session; nil when it is not
 	// a favorite. It survives the session ending (docs/terminal-client.md).
-	FavoriteAt        *float64 `json:"favorite_at"`
+	FavoriteAt *float64 `json:"favorite_at"`
+	// RemoteControl says this session is also reachable from claude.ai/code and
+	// the Claude app (docs/remote-control.md); RemoteControlURL is the session
+	// link claude printed, empty until Lectern has seen it.
+	RemoteControl     bool     `json:"remote_control"`
+	RemoteControlURL  string   `json:"remote_control_url,omitempty"`
 	ResumeID          string   `json:"resume_id,omitempty"`
 	NativeRecoveryCID string   `json:"-"`
 	BootID            string   `json:"-"`

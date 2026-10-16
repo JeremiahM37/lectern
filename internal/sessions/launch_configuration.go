@@ -38,6 +38,11 @@ type LaunchConfiguration struct {
 	// Lectern rather than by a person (terminal_mouse.go), so a continuation
 	// re-decides it from the current setting instead of keeping it.
 	TerminalMouse bool `json:"terminal_mouse,omitempty"`
+	// RemoteControl keeps Claude Remote Control on for every continuation of
+	// this session — restore, fork, switch and account swap
+	// (docs/remote-control.md). A continuation that cannot use it (another
+	// agent, a non-Anthropic endpoint) drops it without failing.
+	RemoteControl bool `json:"remote_control,omitempty"`
 }
 
 // profileBriefing renders a captured profile's instructions as a labelled,

@@ -74,7 +74,7 @@ func (s *Server) readSession(args map[string]any) (any, error) {
 
 	ended := sess["ended_at"] != nil || sess["status"] == "dead"
 	out := map[string]any{
-		"session_id": id, "name": sess["name"], "agent": sess["agent"],
+		"session_id": id, "name": sess["name"], "agent": sess["agent"], "remote_control": sess["remote_control"] == true,
 		"project_id": sess["project_id"], "workdir": sess["workdir"],
 	}
 	if g, err := s.object(fmt.Sprintf("/sessions/%d/git", id)); err == nil && g != nil {
@@ -90,6 +90,9 @@ func (s *Server) readSession(args map[string]any) (any, error) {
 		screen = t
 	}
 	screenTail := ciloop.Redact(lastLines(screen, readScreenLines))
+	if url, _ := sess["remote_control_url"].(string); url != "" {
+		out["remote_control_url"] = url
+	}
 	out["status"] = sessionStatus(sess, ended, screenTail)
 	if ended {
 		out["note"] = "session has ended; showing its saved conversation if any"

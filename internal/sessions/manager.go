@@ -212,6 +212,11 @@ type LaunchOpts struct {
 	// runs under; nil leaves the row's account as it is. The caller puts the
 	// account's directory in the environment.
 	AccountID *int64
+	// RemoteControl asks for Claude Remote Control on this launch
+	// (docs/remote-control.md). The launch fails when the agent or its
+	// environment cannot use it. A continuation instead inherits it through
+	// Configuration, and drops it quietly when it no longer applies.
+	RemoteControl bool
 	// Isolation overrides the project's (or the built-in) default sandbox
 	// tier for this one launch — nil defers to that default entirely. See
 	// internal/isolation. Ignored for a continuation (o.Configuration != nil
@@ -497,6 +502,23 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	if err := m.checkAgentInstalled(ctx, ex, target, config, preIsolation, o.Env); err != nil {
 		return nil, err
 	}
+	remoteControl := o.RemoteControl || config.RemoteControl
+	if remoteControl {
+		rcEnv := map[string]string{}
+		for k, v := range config.Spec.Env {
+			rcEnv[k] = v
+		}
+		for k, v := range o.Env {
+			rcEnv[k] = v
+		}
+		if why := RemoteControlUnavailable(config.Spec, rcEnv, preIsolation); why != "" {
+			if o.RemoteControl {
+				return nil, fmt.Errorf("%s", why)
+			}
+			m.Log.Info("remote control not carried over", "agent", agent, "reason", why)
+			remoteControl = false
+		}
+	}
 	// lecternWorkspace is true when this launch created workdir itself; see
 	// the Gemini MCP branch below, the only thing that writes into a workspace.
 	lecternWorkspace := false
@@ -721,7 +743,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 			}
 		}
 	}
-	config.Spec, config.Yolo = spec, o.Yolo
+	config.Spec, config.Yolo, config.RemoteControl = spec, o.Yolo, remoteControl
 	if askPermission {
 		config.PermissionMode = "ask"
 	} else {
@@ -729,6 +751,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	}
 	if err := m.DB.Update("sessions", sess.ID, map[string]any{
 		"launch_config_json": store.J(config), "permission_mode": config.PermissionMode,
+		"remote_control": remoteControl,
 	}); err != nil {
 		m.end(sess.ID, StatusDead)
 		return nil, err
@@ -1094,7 +1117,8 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		Workdir:    workdir, TmuxName: tmuxName, Model: o.Model, Resume: o.Resume, ResumeID: resumeID, ForkID: forkID,
 		SessionID: assignedID,
 		Prompt:    argPrompt, EnvFile: envFile, Yolo: o.Yolo, ToolArgs: toolArgs,
-		Isolation: config.Isolation, IsolationOpts: isolationOpts, Backend: backend.For(ex)})
+		Isolation: config.Isolation, IsolationOpts: isolationOpts, Backend: backend.For(ex),
+		RemoteControl: remoteControlName(remoteControl, sess.Name)})
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 60})
 	if err != nil {
 		m.end(sess.ID, "dead")

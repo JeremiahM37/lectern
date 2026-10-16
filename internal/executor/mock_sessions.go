@@ -38,6 +38,27 @@ type mockPane struct {
 	limit string
 	// agentExited models an agent that quit and left its pane at a shell.
 	agentExited bool
+	// consentOpen is the Remote Control consent question on screen.
+	consentOpen bool
+}
+
+// remoteControlConnected prints what claude shows once Remote Control is on.
+func (m *Mock) remoteControlConnected(sess string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if pane, ok := m.panes[sess]; ok {
+		pane.lines = append(pane.lines, "  /remote-control is active · Continue here, on your phone, or at https://claude.ai/code/session_mock"+mockSessionToken(sess), "", "❯ ")
+	}
+}
+
+func mockSessionToken(sess string) string {
+	var b strings.Builder
+	for _, r := range sess {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // SetPaneLimit scripts a usage limit for an interactive session: the message
@@ -146,6 +167,22 @@ func (m *Mock) handleSendText(cmd string) Result {
 		return Result{1, "", "no such session"}
 	}
 
+	if strings.HasPrefix(strings.TrimSpace(text), "/remote-control") {
+		m.mu.Lock()
+		consent := m.RemoteControlConsent
+		pane.lines = append(pane.lines, "❯ "+firstLine(text))
+		if consent {
+			pane.consentOpen = true
+			pane.lines = append(pane.lines, " Remote Control",
+				"   ❯ 1. Enable Remote Control  Opens a secure connection to claude.ai.",
+				"     2. Never mind             You can always enable it later with /remote-control.")
+		}
+		m.mu.Unlock()
+		if !consent {
+			m.remoteControlConnected(strings.TrimSuffix(strings.TrimPrefix(target[1], "="), ":"))
+		}
+		return Result{0, "", ""}
+	}
 	m.mu.Lock()
 	if pane.limit != "" {
 		// Limited: the CLI takes the message and refuses it at once.
@@ -203,6 +240,11 @@ func (m *Mock) handleSendKey(cmd string) Result {
 	pane, ok := m.panes[strings.TrimSuffix(strings.TrimPrefix(match[1], "="), ":")]
 	if !ok {
 		return Result{1, "", "no such session"}
+	}
+	if match[2] == "Escape" && pane.consentOpen {
+		pane.consentOpen = false
+		pane.lines = append(pane.lines[:len(pane.lines)-3], "", "❯ ")
+		return Result{0, "", ""}
 	}
 	if match[2] == "Escape" || match[2] == "C-c" {
 		pane.busy = false

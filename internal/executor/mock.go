@@ -67,6 +67,10 @@ type Mock struct {
 	// on a specific command to deterministically create the overlap a
 	// coalescing test needs — and is never set in production code.
 	Intercept func(cmd string)
+	// RemoteControlConsent makes /remote-control in a scripted pane show
+	// Claude Code's one-time "Enable Remote Control" question instead of
+	// connecting, the way a login that never accepted it behaves.
+	RemoteControlConsent bool
 }
 
 type mockAgent struct {
@@ -228,6 +232,9 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 		}
 		if interactiveSession(cmd) {
 			m.startPane(sess, strings.Trim(wt, "'"))
+			if strings.Contains(cmd, "--remote-control=") {
+				m.remoteControlConnected(sess)
+			}
 		} else {
 			m.startAgent(sess, wt)
 		}

@@ -1138,4 +1138,10 @@ var migrations = []string{
 	// Favorites tab). NULL means not a favorite. It is kept across the session
 	// ending so an ended favorite can be brought back from the list.
 	"ALTER TABLE sessions ADD COLUMN favorite_at REAL",
+	// remote_control says the session is also reachable from claude.ai/code and
+	// the Claude app (docs/remote-control.md): launched with it, or turned on
+	// later. remote_control_url is the session link claude printed, when Lectern
+	// saw it; empty until then.
+	"ALTER TABLE sessions ADD COLUMN remote_control INTEGER NOT NULL DEFAULT 0",
+	"ALTER TABLE sessions ADD COLUMN remote_control_url TEXT NOT NULL DEFAULT ''",
 }

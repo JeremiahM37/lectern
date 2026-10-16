@@ -34,20 +34,21 @@ var toolScope = map[string]string{
 	// move a task/build forward. decide_approval is deliberately absent from
 	// this map — it is excluded from the web connector unconditionally, not
 	// gated by scope, because an approval decision must come from the human.
-	"start_session":   oauth.ScopeWrite,
-	"send_to_session": oauth.ScopeWrite,
-	"end_session":     oauth.ScopeWrite,
-	"create_project":  oauth.ScopeWrite,
-	"restore_session": oauth.ScopeWrite,
-	"create_task":     oauth.ScopeWrite,
-	"delegate_build":  oauth.ScopeWrite,
-	"complete_task":   oauth.ScopeWrite,
-	"request_changes": oauth.ScopeWrite,
-	"accept_build":    oauth.ScopeWrite,
-	"claim_work":      oauth.ScopeWrite,
-	"release_work":    oauth.ScopeWrite,
-	"post_media":      oauth.ScopeWrite,
-	"open_live_view":  oauth.ScopeWrite,
+	"start_session":         oauth.ScopeWrite,
+	"send_to_session":       oauth.ScopeWrite,
+	"enable_remote_control": oauth.ScopeWrite,
+	"end_session":           oauth.ScopeWrite,
+	"create_project":        oauth.ScopeWrite,
+	"restore_session":       oauth.ScopeWrite,
+	"create_task":           oauth.ScopeWrite,
+	"delegate_build":        oauth.ScopeWrite,
+	"complete_task":         oauth.ScopeWrite,
+	"request_changes":       oauth.ScopeWrite,
+	"accept_build":          oauth.ScopeWrite,
+	"claim_work":            oauth.ScopeWrite,
+	"release_work":          oauth.ScopeWrite,
+	"post_media":            oauth.ScopeWrite,
+	"open_live_view":        oauth.ScopeWrite,
 }
 
 // webExcluded are tools never exposed over the web connector transport, in

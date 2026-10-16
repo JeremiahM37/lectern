@@ -333,6 +333,7 @@ func (m *Manager) applyPane(s *store.Session, pane string, missing bool) {
 		if hash != s.PaneHash {
 			fields["pane_hash"] = hash
 			fields["pane_tail"] = Preview(pane, 8)
+			m.noteRemoteControlURL(s, pane, fields)
 			// The FIRST time we see a pane we cannot know it just changed — an
 			// adopted session may have been sitting there for days. Moving the
 			// activity clock here would reset every adopted session to "quiet

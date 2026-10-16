@@ -412,6 +412,14 @@ func (m *dashboard) rowActions() []dashboardAction {
 		if r["project_id"] == nil && (str(r["agent"]) == "shell" || str(r["agent"]) == "claude" || str(r["agent"]) == "codex") {
 			actions = append(actions, op("Promote conversation", "promote-conversation"))
 		}
+		// Claude Remote Control (docs/remote-control.md): the server refuses
+		// with the reason when this session cannot use it.
+		if str(r["agent"]) == "claude" && r["remote_control"] != true {
+			rc := post("Enable Remote Control (open in the Claude app)", "/remote-control")
+			rc.Keywords = "phone mobile claude.ai rc remote"
+			rc.Notice = "Remote Control is on: open the session in the Claude app or at claude.ai/code"
+			actions = append(actions, rc)
+		}
 		actions = append(actions, workspaceActions(r, path)...)
 		actions = append(actions, archive)
 		actions = append(actions, dashboardAction{Label: "Interrupt agent", Method: "POST", Path: path + "/send", Body: map[string]any{"key": "C-c"}, Warning: "Send Ctrl-c to this session's current command?"})
@@ -780,7 +788,7 @@ func formBody(fields []field) (map[string]any, error) {
 				return nil, fmt.Errorf("Choose a project")
 			}
 			out[f.Key] = []int64{n}
-		case f.Key == "multi_repo" || f.Key == "isolated" || f.Key == "resume" || f.Key == "brief" || f.Key == "yolo" || f.Key == "enabled" || f.Key == "dispatch" || f.Key == "strict_mcp" || f.Key == "prompt_arg" || f.Key == "task_enabled":
+		case f.Key == "multi_repo" || f.Key == "isolated" || f.Key == "resume" || f.Key == "brief" || f.Key == "yolo" || f.Key == "enabled" || f.Key == "dispatch" || f.Key == "strict_mcp" || f.Key == "prompt_arg" || f.Key == "task_enabled" || f.Key == "remote_control":
 			out[f.Key] = v == "true"
 		default:
 			out[f.Key] = v

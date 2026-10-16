@@ -292,6 +292,11 @@ func (m *Manager) handoffLaunch(sess *store.Session, o HandoffOpts) (LaunchOpts,
 			next.Configuration.Yolo = next.Yolo
 		}
 	}
+	if err == nil && next.Configuration != nil {
+		// A switch keeps the phone window open: the successor connects too,
+		// when its agent and endpoint allow it.
+		next.Configuration.RemoteControl = cfg.RemoteControl || sess.RemoteControl
+	}
 	return next, err
 }
 

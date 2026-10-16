@@ -551,6 +551,10 @@ type Start struct {
 	IsolationOpts isolation.WrapOpts
 	// Backend keeps the session's terminal; nil means tmux.
 	Backend backend.Backend
+	// RemoteControl, when set, is the Remote Control session name: the agent
+	// also connects to claude.ai/code and the Claude app (docs/remote-control.md).
+	// Only a spec with SupportsRemoteControl uses it.
+	RemoteControl string
 }
 
 // invocation is the agent's own command line — environment, binary and
@@ -582,6 +586,11 @@ func (s Spec) invocation(o Start) string {
 	}
 	if o.Model != "" && s.ModelFlag != "" {
 		parts = append(parts, s.ModelFlag, o.Model)
+	}
+	if o.RemoteControl != "" && s.SupportsRemoteControl() {
+		// The = form: a bare --remote-control takes an optional name, so a
+		// separate word could swallow the opening prompt as the title.
+		parts = append(parts, shellq.Quote("--remote-control="+o.RemoteControl))
 	}
 	if o.Prompt != "" && len(s.PromptArgs) > 0 {
 		for _, arg := range s.PromptArgs {
@@ -870,6 +879,9 @@ const (
 	// built-ins by process evidence, catalog agents by an id named at launch
 	// or read from where the CLI lists its sessions.
 	CapExact Capability = "exact"
+	// CapRemoteControl is Claude Remote Control (docs/remote-control.md):
+	// the session is also reachable from claude.ai/code and the Claude app.
+	CapRemoteControl Capability = "remote_control"
 )
 
 // CapabilityState is whether one Capability is available for a Spec, and —
@@ -884,14 +896,15 @@ type CapabilityState struct {
 // capabilityLabels are the human-readable feature names capabilityReason
 // substitutes into "<Feature> isn't available for <Agent>".
 var capabilityLabels = map[Capability]string{
-	CapResume:     "Resume",
-	CapForkTo:     "Fork",
-	CapModel:      "Model selection",
-	CapModelsList: "Listing models",
-	CapYolo:       "Yolo / auto-approve",
-	CapACP:        "The Agent Client Protocol",
-	CapTask:       "Background tasks",
-	CapExact:      "Exact resume",
+	CapResume:        "Resume",
+	CapForkTo:        "Fork",
+	CapModel:         "Model selection",
+	CapModelsList:    "Listing models",
+	CapYolo:          "Yolo / auto-approve",
+	CapACP:           "The Agent Client Protocol",
+	CapTask:          "Background tasks",
+	CapExact:         "Exact resume",
+	CapRemoteControl: "Remote Control",
 }
 
 func (s Spec) displayName() string {
@@ -933,14 +946,15 @@ func (s Spec) Capabilities() map[Capability]CapabilityState {
 		return CapabilityState{Reason: capabilityReason(feature, name)}
 	}
 	return map[Capability]CapabilityState{
-		CapResume:     state(len(s.ResumeArgs) > 0 || len(s.ResumeIDArgs) > 0, CapResume),
-		CapForkTo:     state(len(s.ForkArgs) > 0, CapForkTo),
-		CapModel:      state(s.ModelFlag != "", CapModel),
-		CapModelsList: state(s.ModelsCommand != "", CapModelsList),
-		CapYolo:       state(len(s.YoloArgs) > 0 || len(s.YoloEnv) > 0, CapYolo),
-		CapACP:        state(s.ACP != nil, CapACP),
-		CapTask:       state(s.Builtin || s.Task != nil || s.ACP != nil, CapTask),
-		CapExact:      state(s.ExactConversations() && len(s.ResumeIDArgs) > 0, CapExact),
+		CapResume:        state(len(s.ResumeArgs) > 0 || len(s.ResumeIDArgs) > 0, CapResume),
+		CapForkTo:        state(len(s.ForkArgs) > 0, CapForkTo),
+		CapModel:         state(s.ModelFlag != "", CapModel),
+		CapModelsList:    state(s.ModelsCommand != "", CapModelsList),
+		CapYolo:          state(len(s.YoloArgs) > 0 || len(s.YoloEnv) > 0, CapYolo),
+		CapACP:           state(s.ACP != nil, CapACP),
+		CapTask:          state(s.Builtin || s.Task != nil || s.ACP != nil, CapTask),
+		CapExact:         state(s.ExactConversations() && len(s.ResumeIDArgs) > 0, CapExact),
+		CapRemoteControl: state(s.SupportsRemoteControl(), CapRemoteControl),
 	}
 }
 

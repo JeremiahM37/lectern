@@ -49,7 +49,7 @@ picks up agents you have installed since, and signs in another browser.
 	{
 		Name: "claude", Aliases: []string{"codex", "gemini"}, Group: groupStart, Synopsis: "claude | codex | gemini",
 		Summary: "Start an agent in this folder and talk to it right here",
-		Usage:   []string{"lectern claude [--new | --attach] [--model NAME] [--resume]", "lectern codex  [--new | --attach] [--model NAME] [--resume]"},
+		Usage:   []string{"lectern claude [--new | --attach] [--model NAME] [--resume] [--remote-control]", "lectern codex  [--new | --attach] [--model NAME] [--resume]"},
 		About: `Starts a session for this folder (or reuses the one already running) and
 connects this terminal to it. A git folder becomes a project the first time.
 The session keeps running when you leave; it is on the web page and your
@@ -59,6 +59,8 @@ phone too. Leave with Ctrl+] d, come back with the same command.
   --attach       Only reuse a running one (fails if there is none)
   --model NAME   Pick the model, for example opus or sonnet
   --resume       Continue the agent's last conversation in this folder
+  --remote-control  claude only: also open it in claude.ai/code and the
+                 Claude app (Remote Control); turns it on for a reused one
 
 Any agent added under Settings → Agents works the same way: lectern NAME.`,
 		Examples: []string{"cd ~/myapp && lectern claude", "lectern codex --resume", "lectern claude --model opus --new"},

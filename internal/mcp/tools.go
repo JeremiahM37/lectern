@@ -672,7 +672,11 @@ var tools = []tool{
 					"project": project, "workdir": workdir,
 					"updated_at": r["updated_at"], "last_activity_at": r["last_activity_at"],
 					"waiting_for_input": status == "waiting",
+					"remote_control":    r["remote_control"] == true,
 				}})
+				if url, _ := r["remote_control_url"].(string); url != "" {
+					matches[len(matches)-1].row["remote_control_url"] = url
+				}
 			}
 			sort.Slice(matches, func(i, j int) bool { return matches[i].updated > matches[j].updated })
 			out := make([]map[string]any, 0, len(matches))
@@ -718,6 +722,7 @@ var tools = []tool{
 			"model":                    str("model ID or alias to run, e.g. one named by the user; passed to the agent verbatim, never substituted (see list_agents for known IDs; an unlisted one is still passed, and a bad one shows as the agent CLI's own error in read_session)"),
 			"yolo":                     flag("run without approval prompts (default true, matching the UI default)"),
 			"brief":                    flag("prepend the project's Grimoire memory briefing (default true)"),
+			"remote_control":           flag("claude only: also open the session in claude.ai/code and the Claude mobile app (Remote Control; default false)"),
 		}, "prompt"),
 		Run: func(s *Server, args map[string]any) (any, error) {
 			prompt := strings.TrimSpace(argStr(args, "prompt"))
@@ -746,6 +751,9 @@ var tools = []tool{
 				"model": argStr(args, "model"),
 				"yolo":  argBool(args, "yolo", true),
 				"brief": argBool(args, "brief", true),
+			}
+			if argBool(args, "remote_control", false) {
+				body["remote_control"] = true
 			}
 			switch {
 			case projectName != "":
