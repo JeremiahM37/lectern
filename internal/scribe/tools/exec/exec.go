@@ -45,8 +45,8 @@ func gate(ctx context.Context, env *tools.Env, opts Options, tool, command, desc
 	if rule, denied := opts.denied(command); denied {
 		return tools.Errorf("Denied by config: the command matches the deny rule %q. Do not retry it; use another approach.", rule), true
 	}
-	desc, destructive := classifyDestructive(command, env.Workdir)
-	if !destructive || env.Mode == "auto" || opts.allowed(command) {
+	desc, destructive, severe := classifySeverity(command, env.Workdir)
+	if !destructive || opts.allowed(command) || (env.Mode == "auto" && !severe) {
 		return tools.Result{}, false
 	}
 	if env.Host == nil {

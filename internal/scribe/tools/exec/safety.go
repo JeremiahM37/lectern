@@ -48,25 +48,26 @@ var hardRefusals = []refusal{
 // destructive rules, checked in order; the first match gives the description
 // shown in the approval prompt. rm is special-cased in classifyDestructive.
 var destructiveRules = []struct {
-	re   *regexp.Regexp
-	desc string
+	re     *regexp.Regexp
+	desc   string
+	severe bool // asked even in auto mode; see classifyDestructive
 }{
 	{regexp.MustCompile(`\bgit\s+push\b[^;&|]*(\s--force(\s|=|$|-with-lease)|\s-f(\s|$))`),
-		"force push (may overwrite remote history)"},
-	{regexp.MustCompile(`\bgit\s+reset\b[^;&|]*--hard\b`), "hard reset (discards uncommitted changes)"},
-	{regexp.MustCompile(`\bgit\s+clean\b[^;&|]*(\s-[a-zA-Z]*f|\s--force)`), "git clean (deletes untracked files)"},
-	{regexp.MustCompile(`\bgit\s+checkout\s+--(\s|$)`), "discard working-tree changes (git checkout --)"},
-	{regexp.MustCompile(`\bgit\s+branch\b[^;&|]*\s-D\b`), "force-delete a branch"},
-	{regexp.MustCompile(`\bgit\s+rebase\b`), "rebase (rewrites history)"},
-	{regexp.MustCompile(`(?i)\bdrop\s+(table|database|schema)\b`), "drop database objects"},
-	{regexp.MustCompile(`(?i)\btruncate\s+table\b`), "truncate a table"},
-	{regexp.MustCompile(`\bmkfs(\.\w+)?\b`), "format a filesystem"},
-	{regexp.MustCompile(`\bdd\s+if=`), "raw disk write (dd)"},
-	{regexp.MustCompile(`>\s*/dev/sd`), "write to a block device"},
-	{regexp.MustCompile(`\bkill\s+-(9|KILL)\b`), "force-kill processes (kill -9)"},
-	{regexp.MustCompile(`\bchmod\s+(-[A-Za-z]+\s+)*0?777\b`), "chmod 777 (world-writable)"},
-	{regexp.MustCompile(`(^|[;&|(\s])(shutdown|reboot|poweroff|halt)\b`), "shut down or reboot the machine"},
-	{regexp.MustCompile(`\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z|da|k)?sh\b`), "pipe remote script to shell"},
+		"force push (may overwrite remote history)", true},
+	{regexp.MustCompile(`\bgit\s+reset\b[^;&|]*--hard\b`), "hard reset (discards uncommitted changes)", false},
+	{regexp.MustCompile(`\bgit\s+clean\b[^;&|]*(\s-[a-zA-Z]*f|\s--force)`), "git clean (deletes untracked files)", false},
+	{regexp.MustCompile(`\bgit\s+checkout\s+--(\s|$)`), "discard working-tree changes (git checkout --)", false},
+	{regexp.MustCompile(`\bgit\s+branch\b[^;&|]*\s-D\b`), "force-delete a branch", false},
+	{regexp.MustCompile(`\bgit\s+rebase\b`), "rebase (rewrites history)", false},
+	{regexp.MustCompile(`(?i)\bdrop\s+(table|database|schema)\b`), "drop database objects", true},
+	{regexp.MustCompile(`(?i)\btruncate\s+table\b`), "truncate a table", true},
+	{regexp.MustCompile(`\bmkfs(\.\w+)?\b`), "format a filesystem", true},
+	{regexp.MustCompile(`\bdd\s+if=`), "raw disk write (dd)", true},
+	{regexp.MustCompile(`>\s*/dev/sd`), "write to a block device", true},
+	{regexp.MustCompile(`\bkill\s+-(9|KILL)\b`), "force-kill processes (kill -9)", false},
+	{regexp.MustCompile(`\bchmod\s+(-[A-Za-z]+\s+)*0?777\b`), "chmod 777 (world-writable)", false},
+	{regexp.MustCompile(`(^|[;&|(\s])(shutdown|reboot|poweroff|halt)\b`), "shut down or reboot the machine", true},
+	{regexp.MustCompile(`\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z|da|k)?sh\b`), "pipe remote script to shell", true},
 }
 
 var rmRule = regexp.MustCompile(`(^|[;&|(\s])rm\s+((-[a-zA-Z]*[rRf][a-zA-Z]*|--recursive|--force)\s+)+(.*)$`)
@@ -85,16 +86,30 @@ func refusalFor(command string) (string, bool) {
 // operation in command, or ok=false when the command is not destructive.
 // workdir decides whether rm targets are inside the project.
 func classifyDestructive(command, workdir string) (desc string, ok bool) {
+	desc, ok, _ = classifySeverity(command, workdir)
+	return desc, ok
+}
+
+// classifySeverity is classifyDestructive plus severe: the operation cannot be
+// undone from the project (remote history, databases, disks, the machine, or
+// files outside the project). Auto mode runs routine destructive commands such
+// as rm -rf dist or git reset --hard without asking, but still asks for a
+// severe one.
+func classifySeverity(command, workdir string) (desc string, ok, severe bool) {
 	if m := rmRule.FindStringSubmatch(command); m != nil {
-		return rmDescription(strings.Fields(m[len(m)-1]), workdir), true
+		d := rmDescription(strings.Fields(m[len(m)-1]), workdir)
+		return d, true, d != rmInProject
 	}
 	for _, r := range destructiveRules {
 		if r.re.MatchString(command) {
-			return r.desc, true
+			return r.desc, true, r.severe
 		}
 	}
-	return "", false
+	return "", false, false
 }
+
+// rmInProject is the description of an rm that stays inside the project.
+const rmInProject = "delete files or directories"
 
 // rmDescription names what a recursive or forced rm reaches.
 func rmDescription(targets []string, workdir string) string {
@@ -120,7 +135,7 @@ func rmDescription(targets []string, workdir string) string {
 			return "delete files outside the project (" + t + ")"
 		}
 	}
-	return "delete files or directories"
+	return rmInProject
 }
 
 // within reports whether path lies inside root (lexical, no symlink resolution).
