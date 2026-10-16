@@ -164,9 +164,11 @@ func TestReadWebSourceRefusesPrivateAddressesAndDenial(t *testing.T) {
 	// Loopback is refused by the fetch guard before any approval is asked.
 	mustErr(t, call(t, NewRead(), env, map[string]any{"path": "http://127.0.0.1:9/x"}), "private")
 	// A public address with the user declining: refused, and the reason says so.
+	// A literal public IP keeps the test off DNS, so it runs without a network:
+	// the guard passes it and the approval is asked before anything is dialled.
 	host.decision = tools.Deny
-	mustErr(t, call(t, NewRead(), env, map[string]any{"path": "https://example.com/"}), "denied")
-	mustErr(t, call(t, NewRead(), env, map[string]any{"path": "https://example.com/a.png"}), "not fetch")
+	mustErr(t, call(t, NewRead(), env, map[string]any{"path": "https://93.184.215.14/"}), "denied")
+	mustErr(t, call(t, NewRead(), env, map[string]any{"path": "https://93.184.215.14/a.png"}), "not fetch")
 }
 
 func TestReadSmartTruncationOutlinesBeyondCut(t *testing.T) {
