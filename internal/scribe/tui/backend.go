@@ -18,6 +18,10 @@ type ProviderStatus struct {
 	HasKey   bool
 	Local    bool // runs locally, no key needed (ollama, lmstudio)
 	Icon     string
+	// KeySource is "env:NAME", "store" or "" when no key resolves.
+	KeySource string
+	// DefaultModel is the model the provider suggests; the wizard preselects it.
+	DefaultModel string
 }
 
 // SessionInfo is one saved session.

@@ -322,6 +322,7 @@ func (p *Provider) httpError(resp *http.Response) error {
 	if ra := resp.Header.Get("Retry-After"); ra != "" {
 		if n, err := strconv.Atoi(ra); err == nil {
 			ae.RetryAfter = time.Duration(n) * time.Second
+			ae.RetryAfterSet = true
 		}
 	}
 	return ae

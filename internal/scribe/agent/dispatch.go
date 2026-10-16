@@ -40,14 +40,14 @@ func (dispatchTool) Spec() llm.ToolSpec {
 	return llm.ToolSpec{
 		Name: "dispatch",
 		Description: "Run up to 8 subagents in parallel and get their reports. Use explore agents for independent investigations " +
-			"(each answers one question), code agents for independent, fully specified edits in different files. " +
+			"(each answers one question), code agents for independent, fully specified edits in different files, web agents for research outside the repository. " +
 			"Each task must be self-contained: the subagent sees only the task text, not this conversation.",
 		Schema: tools.Schema(map[string]any{
 			"tasks": tools.Arr("Tasks to run in parallel", map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"task":  tools.Str("Complete instructions for the subagent"),
-					"role":  tools.Enum("explore = read-only investigation, code = make edits", "explore", "code"),
+					"role":  tools.Enum("explore = read-only investigation of the code, code = make edits, web = research on the internet (web search and page fetch only)", "explore", "code", "web"),
 					"files": tools.Arr("Files the task is about (code tasks: files it may edit)", map[string]any{"type": "string"}),
 				},
 				"required": []string{"task", "role"},
@@ -76,7 +76,7 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 		return tools.Errorf("dispatch takes at most 8 tasks per call; got %d", len(in.Tasks))
 	}
 	for i, st := range in.Tasks {
-		if st.Role != "explore" && st.Role != "code" {
+		if st.Role != "explore" && st.Role != "code" && st.Role != "web" {
 			in.Tasks[i].Role = "explore"
 		}
 		if RestrictedModes[env.Mode] && in.Tasks[i].Role == "code" {

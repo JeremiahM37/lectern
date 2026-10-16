@@ -23,15 +23,20 @@ type builder struct {
 }
 
 type hitRec struct {
-	line int
-	call *Call
-	seg  *Segment
+	line    int
+	call    *Call
+	seg     *Segment
+	summary bool // the turn's thought summary row
 }
 
 func (b *builder) add(lines ...string) { b.lines = append(b.lines, lines...) }
 
 func (b *builder) mark(c *Call, s *Segment) {
 	b.hits = append(b.hits, hitRec{line: len(b.lines), call: c, seg: s})
+}
+
+func (b *builder) markSummary() {
+	b.hits = append(b.hits, hitRec{line: len(b.lines), summary: true})
 }
 
 // block appends sub, separated from earlier content by a blank line.

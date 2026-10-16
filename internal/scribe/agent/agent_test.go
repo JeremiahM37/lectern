@@ -348,7 +348,8 @@ func TestRetriesRateLimitThenSucceeds(t *testing.T) {
 		t.Fatalf("stats=%+v requests=%d", stats, f.count())
 	}
 	retries := log.of(EvRetry)
-	if len(retries) != 1 || retries[0].Category != llm.CatRateLimited || retries[0].Attempt != 1 || retries[0].Delay <= 0 {
+	// Retry-After: 0 means "retry now", so the delay is zero, not the default backoff.
+	if len(retries) != 1 || retries[0].Category != llm.CatRateLimited || retries[0].Attempt != 1 || retries[0].Delay != 0 {
 		t.Fatalf("retry events = %+v", retries)
 	}
 }

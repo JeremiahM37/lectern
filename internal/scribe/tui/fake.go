@@ -43,6 +43,10 @@ type FakeBackend struct {
 	workdir   string
 	cfg       map[string]any
 	toolOn    map[string]bool
+	// writes records every SetConfig call, for tests of the settings screen.
+	writes []ConfigWrite
+	// NeedSetup is what NeedsSetup reports (first-run wizard).
+	NeedSetup bool
 
 	usage     llm.Usage
 	cost      float64
@@ -70,7 +74,7 @@ func NewFakeBackend() *FakeBackend {
 		sessionID: "7f3c9a21b0e44d6f",
 		title:     "Refactor the parser",
 		workdir:   "/home/admin/projects/example",
-		cfg:       map[string]any{"verbose": false, "show_reasoning": true, "max_steps": 40, "theme": "scribe"},
+		cfg:       map[string]any{"verbose": false, "show_reasoning": true, "max_steps": 40, "theme": "scribe", "model": "anthropic/claude-sonnet-5", "mode": "default", "reasoning": "medium", "checkpoints": true, "memory": true, "repo_map": true, "auto_compact": true, "compact_at": 0.8, "chat_style": "accent", "router.fallback": []string{"openai/gpt-6"}, "router.max_agents": 3, "allow": []string{"go test", "git status"}, "deny": []string{"rm -rf"}},
 		toolOn:    map[string]bool{"read": true, "grep": true, "shell": true, "edit_file": true},
 		ctxWindow: 200000,
 		abort:     make(chan struct{}),
@@ -308,9 +312,9 @@ func (f *FakeBackend) Providers() []ProviderStatus {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return []ProviderStatus{
-		{ID: "anthropic", Name: "Anthropic", HasKey: f.keys["anthropic"] != "", Icon: "A"},
-		{ID: "openai", Name: "OpenAI", HasKey: f.keys["openai"] != "", Icon: "O"},
-		{ID: "ollama", Name: "Ollama", Local: true, HasKey: true, Icon: "◆"},
+		{ID: "anthropic", Name: "Anthropic", HasKey: f.keys["anthropic"] != "", KeySource: storedSource(f.keys["anthropic"]), Icon: "A", DefaultModel: "claude-sonnet-5"},
+		{ID: "openai", Name: "OpenAI", HasKey: f.keys["openai"] != "", KeySource: storedSource(f.keys["openai"]), Icon: "O", DefaultModel: "gpt-6"},
+		{ID: "ollama", Name: "Ollama", Local: true, HasKey: true, Icon: "◆", DefaultModel: "qwen3.6:35b-a3b"},
 	}
 }
 
@@ -610,12 +614,37 @@ func (f *FakeBackend) Config() map[string]any {
 	return out
 }
 
+// ConfigWrite is one recorded SetConfig call.
+type ConfigWrite struct {
+	Key     string
+	Value   any
+	Project bool
+}
+
+// ConfigWrites returns the SetConfig calls made so far, oldest first.
+func (f *FakeBackend) ConfigWrites() []ConfigWrite {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]ConfigWrite(nil), f.writes...)
+}
+
+// NeedsSetup implements the optional setup check the TUI runs on start.
+func (f *FakeBackend) NeedsSetup() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.NeedSetup }
+
 // SetConfig implements Backend.
 func (f *FakeBackend) SetConfig(key string, value any, project bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.writes = append(f.writes, ConfigWrite{Key: key, Value: value, Project: project})
 	f.cfg[key] = value
 	return nil
+}
+
+func storedSource(key string) string {
+	if key == "" {
+		return ""
+	}
+	return "store"
 }
 
 // Theme implements Backend.
@@ -626,6 +655,17 @@ func (f *FakeBackend) SetTheme(name string) { f.mu.Lock(); defer f.mu.Unlock(); 
 
 // Shell implements Backend. It does not run anything; it echoes the command.
 func (f *FakeBackend) Shell(ctx context.Context, command string) (string, int, error) {
+	// The git commands the git menu and commit modal run get realistic output.
+	switch {
+	case strings.HasPrefix(command, "git status --porcelain"):
+		return " M internal/parser/parse.go\n M internal/parser/parse_test.go\nA  docs/parser.md\n?? notes/scratch.txt\n", 0, nil
+	case strings.HasPrefix(command, "git log"):
+		return "3f2a1c0 (HEAD -> feature/parser) parser: skip empty list items\n9b1e7d4 lexer: keep line numbers after a comment\n51c0f2a docs: describe the parser entry points\n", 0, nil
+	case strings.Contains(command, "@{u}"):
+		return "origin/feature/parser\n", 0, nil
+	case strings.HasPrefix(command, "git push"):
+		return "To github.com:example/parser.git\n   3f2a1c0..7a8d2e1  feature/parser -> feature/parser\n", 0, nil
+	}
 	return "(fake shell) " + command, 0, nil
 }
 

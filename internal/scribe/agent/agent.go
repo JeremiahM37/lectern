@@ -70,6 +70,15 @@ type Options struct {
 	Compactor Compactor
 	CompactAt float64 // fraction of the context window, default 0.8; <0 disables
 
+	// Deferred, when set, offers only the core tools plus those the model
+	// activated with request_tools. Nil offers every tool (subagents).
+	Deferred *Deferred
+
+	// Verify runs the project's quick check (typecheck, else build) when a
+	// turn edited files and ended without running one. label names the
+	// command ("" = nothing to check), report is its output on failure.
+	Verify func(ctx context.Context) (label string, ok bool, report string)
+
 	// Recall returns context to attach to a new user prompt (memories,
 	// mentioned files). May be nil.
 	Recall func(ctx context.Context, prompt string) string
@@ -103,7 +112,15 @@ type Agent struct {
 	running  bool
 	stopTurn bool
 	cancel   context.CancelFunc
+
+	editedSinceCheck bool // files changed since the last project/test-like call
+	checkRounds      int  // auto-fix rounds used this turn
+	autoSeq          int
 }
+
+// maxAutoFixRounds bounds how many times a failed automatic check is fed
+// back to the model in one turn.
+const maxAutoFixRounds = 2
 
 // New creates an agent.
 func New(o Options) *Agent {
@@ -185,6 +202,15 @@ func (a *Agent) active() map[string]bool {
 	return a.opts.Active
 }
 
+// offeredNames returns the tool names sent to the model (nil = all).
+func (a *Agent) offeredNames() map[string]bool {
+	base := a.active()
+	if a.opts.Deferred == nil {
+		return base
+	}
+	return a.opts.Deferred.offered(base)
+}
+
 // Steer queues a message for the running turn; it is delivered at the
 // next step boundary. Returns false when the queue is full (5).
 func (a *Agent) Steer(msg string) bool {
@@ -246,6 +272,7 @@ func (a *Agent) Run(ctx context.Context, prompt string, images []llm.Part) (Turn
 		return TurnStats{}, errors.New("agent is already running")
 	}
 	a.running, a.cancel, a.stopTurn = true, cancel, false
+	a.checkRounds = 0
 	mode := a.mode
 	a.mu.Unlock()
 	defer func() {
@@ -340,6 +367,9 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 				a.appendUser(q)
 				continue
 			}
+			if a.autoCheck(ctx) {
+				continue
+			}
 			return final, nil
 		}
 		results := a.runTools(ctx, calls, stats)
@@ -366,6 +396,74 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 			return msg.Text(), nil
 		}
 	}
+}
+
+// autoCheck runs Verify once the turn has edited files without a check after
+// them. A failure is fed back as a reminder so the model can fix it; it
+// returns true when a reminder was queued and the loop should go on.
+func (a *Agent) autoCheck(ctx context.Context) bool {
+	a.mu.Lock()
+	if !a.editedSinceCheck || a.opts.Verify == nil || ctx.Err() != nil {
+		a.mu.Unlock()
+		return false
+	}
+	a.editedSinceCheck = false
+	a.autoSeq++
+	id := fmt.Sprintf("auto_check_%d", a.autoSeq)
+	a.mu.Unlock()
+
+	label, ok, report := a.opts.Verify(ctx)
+	if ctx.Err() != nil || label == "" {
+		return false
+	}
+	a.emit(Event{Kind: EvToolRun, CallID: id, Tool: "auto_check", Args: json.RawMessage(fmt.Sprintf(`{"command":%q}`, label))})
+	if ok {
+		r := tools.Result{Output: "passed", Summary: "passed"}
+		a.emit(Event{Kind: EvToolResult, CallID: id, Tool: "auto_check", Args: json.RawMessage(fmt.Sprintf(`{"command":%q}`, label)), Result: &r})
+		return false
+	}
+	r := tools.Result{Output: report, IsError: true, Summary: "failed"}
+	a.emit(Event{Kind: EvToolResult, CallID: id, Tool: "auto_check", Args: json.RawMessage(fmt.Sprintf(`{"command":%q}`, label)), Result: &r})
+	a.mu.Lock()
+	if a.checkRounds >= maxAutoFixRounds {
+		a.mu.Unlock()
+		a.emit(Event{Kind: EvWarning, Text: fmt.Sprintf("%s still fails after %d automatic fix rounds; reporting it instead", label, maxAutoFixRounds)})
+		return false
+	}
+	a.checkRounds++
+	a.mu.Unlock()
+	a.appendUser("<system-reminder>The automatic check `" + label + "` failed after your edits. Fix the errors below, then finish. Output:\n\n" + report + "\n</system-reminder>")
+	return true
+}
+
+// setEdited records whether files changed since the last check.
+func (a *Agent) setEdited(v bool) {
+	a.mu.Lock()
+	a.editedSinceCheck = v
+	a.mu.Unlock()
+}
+
+// isCheckCall reports whether a call runs the project's checks: the project
+// tool, or a shell command that runs tests, builds or linters.
+func isCheckCall(c llm.Part) bool {
+	switch c.ToolName {
+	case "project":
+		return true
+	case "shell":
+		var in struct {
+			Command string `json:"command"`
+		}
+		if json.Unmarshal(c.Args, &in) != nil {
+			return false
+		}
+		cmd := strings.ToLower(in.Command)
+		for _, k := range []string{"test", "build", "vet", "lint", "tsc", "pytest", "cargo"} {
+			if strings.Contains(cmd, k) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (a *Agent) appendUser(text string) {
@@ -416,13 +514,14 @@ func (a *Agent) request() llm.Request {
 	if a.opts.System != nil {
 		sys = a.opts.System(a.Mode())
 	}
+	offered := a.offeredNames() // takes the lock itself, so call it first
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return llm.Request{
 		Model:       a.model.ID,
 		System:      sys,
 		Messages:    append([]llm.Message(nil), a.msgs...),
-		Tools:       a.opts.Tools.Specs(a.opts.Active),
+		Tools:       a.opts.Tools.Specs(offered),
 		MaxTokens:   a.opts.MaxTokens,
 		Reasoning:   a.opts.Reasoning,
 		CacheSystem: true,
@@ -483,7 +582,8 @@ func errText(err error) string {
 
 func backoff(attempt int, err error) time.Duration {
 	var ae *llm.APIError
-	if errors.As(err, &ae) && ae.RetryAfter > 0 && ae.RetryAfter < 2*time.Minute {
+	// An explicit Retry-After: 0 means retry immediately.
+	if errors.As(err, &ae) && ae.RetryAfterSet && ae.RetryAfter < 2*time.Minute {
 		return ae.RetryAfter
 	}
 	base := time.Duration(1<<attempt) * 2 * time.Second
@@ -644,9 +744,13 @@ func (a *Agent) runTools(ctx context.Context, calls []llm.Part, stats *TurnStats
 	}
 	for k, c := range calls {
 		stats.ToolCalls = append(stats.ToolCalls, c.ToolName)
+		if isCheckCall(c) {
+			a.setEdited(false)
+		}
 		if !out[k].IsError {
 			if files := a.lastFiles(c.ToolCallID); len(files) > 0 {
 				stats.FilesEdited = appendUnique(stats.FilesEdited, files...)
+				a.setEdited(true)
 			}
 		}
 	}
@@ -716,7 +820,11 @@ func (a *Agent) execTool(ctx context.Context, call llm.Part) (res tools.Result) 
 		}
 	}()
 	t, ok := a.opts.Tools.Get(call.ToolName)
-	if active := a.active(); !ok || (active != nil && !active[call.ToolName]) {
+	offered := a.offeredNames()
+	if !ok || (offered != nil && !offered[call.ToolName]) {
+		if ok && a.opts.Deferred != nil && (a.active() == nil || a.active()[call.ToolName]) {
+			return tools.Errorf("tool %q is deferred and not loaded. Call request_tools with [%q] first, then call it.", call.ToolName, call.ToolName)
+		}
 		return tools.Errorf("unknown tool %q. Available tools: %s", call.ToolName, strings.Join(a.toolNames(), ", "))
 	}
 	mode := a.Mode()
@@ -742,7 +850,7 @@ func (a *Agent) execTool(ctx context.Context, call llm.Part) (res tools.Result) 
 
 func (a *Agent) toolNames() []string {
 	var n []string
-	active := a.active()
+	active := a.offeredNames()
 	for _, name := range a.opts.Tools.Names() {
 		if active == nil || active[name] {
 			n = append(n, name)
@@ -783,4 +891,17 @@ func (a *Agent) Compact(ctx context.Context, reason string) error {
 	a.persist(true)
 	a.emit(Event{Kind: EvCompactDone, Text: summary, Meta: map[string]any{"messages_before": len(before), "messages_after": len(kept)}})
 	return nil
+}
+
+// OfferedForTest reports which tool names the next request would carry.
+// It exists for tests in other packages that check deferred loading.
+func (a *Agent) OfferedForTest() map[string]bool {
+	names := a.offeredNames()
+	if names == nil {
+		names = map[string]bool{}
+		for _, n := range a.opts.Tools.Names() {
+			names[n] = true
+		}
+	}
+	return names
 }

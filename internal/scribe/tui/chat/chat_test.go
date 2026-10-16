@@ -288,20 +288,181 @@ func TestMouseClickTogglesReasoning(t *testing.T) {
 	lines := strings.Split(plain(v), "\n")
 	row := -1
 	for i, l := range lines {
-		if strings.Contains(l, "(2 lines)") {
+		if strings.Contains(l, "Thought") {
 			row = i
 			break
 		}
 	}
 	if row < 0 {
-		t.Fatalf("no reasoning row")
+		t.Fatalf("no thought row:\n%s", plain(v))
 	}
-	if !strings.Contains(lines[row], "(2 lines)") && !strings.Contains(lines[row+1], "(2 lines)") {
-		t.Errorf("collapsed reasoning missing line count: %q", lines[row])
+	if strings.Contains(plain(v), "first thought") {
+		t.Errorf("collapsed thought shows its text:\n%s", plain(v))
 	}
 	v.HandleMouse(tea.MouseMsg{X: 1, Y: row, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
-	if !strings.Contains(plain(v), "▼") {
-		t.Errorf("click did not expand reasoning:\n%s", plain(v))
+	if !strings.Contains(plain(v), "▼") || !strings.Contains(plain(v), "first thought") {
+		t.Errorf("click did not expand the thought row:\n%s", plain(v))
+	}
+	v.HandleMouse(tea.MouseMsg{X: 1, Y: row, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	if strings.Contains(plain(v), "first thought") {
+		t.Errorf("second click did not collapse the thought row")
+	}
+}
+
+// thinkStep is one model step: a reasoning stream that runs two seconds.
+func thinkStep(v *View, c *clock, step int, reasoning string) {
+	v.Apply(agent.Event{Kind: agent.EvStepStart, Step: step, At: at(c)})
+	v.Apply(agent.Event{Kind: agent.EvReasoning, Text: reasoning, At: at(c)})
+	c.advance(2 * time.Second)
+	v.Apply(agent.Event{Kind: agent.EvReasoning, Text: " (more)", At: at(c)})
+}
+
+// runSteps plays n steps: reasoning, a line of narration, then one read.
+func runSteps(v *View, c *clock, n int) {
+	for i := 1; i <= n; i++ {
+		thinkStep(v, c, i, fmt.Sprintf("reasoning for step %d", i))
+		text(v, fmt.Sprintf("narration %d", i), c)
+		id := fmt.Sprintf("c%d", i)
+		tool(v, id, "read", map[string]any{"path": fmt.Sprintf("f%d.go", i)}, c)
+		result(v, id, "read", tools.Result{Output: "x", Summary: "1 line"}, time.Second, c)
+		c.advance(time.Second)
+	}
+}
+
+func rowOf(out, sub string) int {
+	for i, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, sub) {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestMultiStepReasoningCollapsesToOneRow(t *testing.T) {
+	v, c := newView(t, Options{ShowReasoning: true})
+	v.AddUser("go", 0, at(c), false)
+	v.Apply(agent.Event{Kind: agent.EvTurnStart, At: at(c)})
+	runSteps(v, c, 5)
+	text(v, "final answer.", c)
+	finish(v, c, 20*time.Second)
+	out := plain(v)
+	if n := strings.Count(out, "Thought"); n != 1 {
+		t.Fatalf("want one thought row, got %d:\n%s", n, out)
+	}
+	if !strings.Contains(out, "Thought for 10s · 5 steps") {
+		t.Errorf("summary wrong (5 steps x 2s):\n%s", out)
+	}
+	if strings.Contains(out, "reasoning for step") {
+		t.Errorf("collapsed summary shows step text:\n%s", out)
+	}
+	if thought, rail := rowOf(out, "Thought"), rowOf(out, "5 tool calls"); thought < 0 || rail < 0 || thought > rail {
+		t.Errorf("thought row must sit above the rail (thought %d, rail %d):\n%s", thought, rail, out)
+	}
+}
+
+func TestDuplicateOfAnswerReasoningIsHidden(t *testing.T) {
+	v, c := newView(t, Options{ShowReasoning: true})
+	v.Apply(agent.Event{Kind: agent.EvTurnStart, At: at(c)})
+	v.Apply(agent.Event{Kind: agent.EvStepStart, Step: 1, At: at(c)})
+	v.Apply(agent.Event{Kind: agent.EvReasoning, Text: "The answer is 42.", At: at(c)})
+	text(v, "The answer is 42. Here is why.", c)
+	finish(v, c, time.Second)
+	out := plain(v)
+	if strings.Contains(out, "Thought") {
+		t.Errorf("reasoning that repeats the answer was rendered:\n%s", out)
+	}
+	if n := strings.Count(out, "The answer is 42."); n != 1 {
+		t.Errorf("answer text appears %d times, want 1", n)
+	}
+	v.ToggleExpand()
+	if strings.Contains(plain(v), "step 1") {
+		t.Errorf("expanded view shows the hidden reasoning")
+	}
+}
+
+func TestLiveRowShowsLatestReasoningTail(t *testing.T) {
+	v, c := newView(t, Options{ShowReasoning: true})
+	v.Apply(agent.Event{Kind: agent.EvTurnStart, At: at(c)})
+	thinkStep(v, c, 1, "first thought")
+	text(v, "narration 1", c)
+	tool(v, "a", "read", map[string]any{"path": "a.go"}, c)
+	c.advance(3 * time.Second)
+	v.Apply(agent.Event{Kind: agent.EvStepStart, Step: 2, At: at(c)})
+	v.Apply(agent.Event{Kind: agent.EvReasoning, Text: "alpha\nomega tail", At: at(c)})
+	c.advance(time.Second)
+	v.Tick(c.now())
+	out := plain(v)
+	if !strings.Contains(out, "Thinking · omega tail") {
+		t.Errorf("live row does not show the latest reasoning tail:\n%s", out)
+	}
+	if strings.Contains(out, "first thought") || strings.Contains(out, "alpha") {
+		t.Errorf("older reasoning is rendered while running:\n%s", out)
+	}
+	if !strings.Contains(out, "step 2 ·") {
+		t.Errorf("rail header lacks the step count:\n%s", out)
+	}
+	if !strings.Contains(out, "narration 1") {
+		t.Errorf("last intermediate line not shown above the rail:\n%s", out)
+	}
+}
+
+func TestExpandedThoughtShowsStepDividers(t *testing.T) {
+	v, c := newView(t, Options{ShowReasoning: true})
+	v.Apply(agent.Event{Kind: agent.EvTurnStart, At: at(c)})
+	runSteps(v, c, 3)
+	text(v, "final answer.", c)
+	finish(v, c, 10*time.Second)
+	v.ToggleExpand()
+	out := plain(v)
+	for i := 1; i <= 3; i++ {
+		div := fmt.Sprintf("─ step %d ", i)
+		if !strings.Contains(out, div) {
+			t.Errorf("missing divider %q:\n%s", div, out)
+		}
+		if !strings.Contains(out, fmt.Sprintf("reasoning for step %d", i)) {
+			t.Errorf("missing reasoning for step %d", i)
+		}
+	}
+	// The rail keeps five rows, so the narration in the window shows up.
+	if !strings.Contains(out, "narration 2") {
+		t.Errorf("expanded rail does not carry the intermediate text:\n%s", out)
+	}
+	if n := strings.Count(out, "final answer."); n != 1 {
+		t.Errorf("final answer appears %d times, want 1", n)
+	}
+}
+
+func TestIntermediateTextLeavesTheTranscriptWhenDone(t *testing.T) {
+	v, c := newView(t, Options{})
+	v.Apply(agent.Event{Kind: agent.EvTurnStart, At: at(c)})
+	runSteps(v, c, 2)
+	if out := plain(v); !strings.Contains(out, "narration 2") || strings.Contains(out, "narration 1") {
+		t.Errorf("running: want only the last intermediate line:\n%s", out)
+	}
+	text(v, "final answer.", c)
+	finish(v, c, 5*time.Second)
+	out := plain(v)
+	if strings.Contains(out, "narration") {
+		t.Errorf("done: intermediate text still in the transcript:\n%s", out)
+	}
+	if !strings.Contains(out, "final answer.") {
+		t.Errorf("done: final answer missing:\n%s", out)
+	}
+}
+
+func TestMultiStepWidthsAreExact(t *testing.T) {
+	for _, w := range []int{40, 80, 140} {
+		v, c := newView(t, Options{ShowReasoning: true})
+		v.SetSize(w, 40)
+		v.AddUser("go", 0, at(c), false)
+		v.Apply(agent.Event{Kind: agent.EvTurnStart, At: at(c)})
+		runSteps(v, c, 4)
+		checkShape(t, v) // live
+		text(v, "final answer, long enough to wrap at the narrow widths used here.", c)
+		finish(v, c, 9*time.Second)
+		checkShape(t, v)
+		v.ToggleExpand()
+		checkShape(t, v)
 	}
 }
 

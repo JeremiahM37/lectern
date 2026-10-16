@@ -85,6 +85,7 @@ func (a *App) wire(ctx context.Context) error {
 		close(a.ext.mapOK)
 	}
 	a.Subscribe(a.onFilesChanged)
+	a.Subscribe(a.onFileClaims)
 	return nil
 }
 

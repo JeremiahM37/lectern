@@ -64,6 +64,12 @@ type App struct {
 	ext      extensions // code map, lsp, jobs, mcp, hooks (see wire.go)
 	services map[string]any
 	host     tools.Host
+	deferred *agent.Deferred // nil when deferred_tools is off
+
+	// claimOwner identifies this App in the process-wide file claims;
+	// claimLabel is how other sessions name it (see claims.go).
+	claimOwner string
+	claimLabel string
 
 	mu        sync.Mutex
 	listeners []agent.Sink
@@ -135,6 +141,7 @@ func Open(ctx context.Context, o Options) (*App, error) {
 		return nil, fmt.Errorf("config: %w", err)
 	}
 	a := &App{opts: o, Workdir: root, Cfg: cfg, date: time.Now().Format("2006-01-02")}
+	excludeScribeDir(root)
 	a.Registry = registry.New(cfg)
 	a.Store = session.NewStore(root)
 
@@ -194,6 +201,7 @@ func Open(ctx context.Context, o Options) (*App, error) {
 	a.instr = agent.LoadInstructions(a.Workdir, config.Home(), cfg.Instructions)
 	a.branch = gitBranch(a.Workdir)
 
+	a.claimOwner, a.claimLabel = newClaimOwner(), claimLabelFor(a.Meta.ID)
 	a.host = o.Host
 	if a.host == nil {
 		a.host = headlessHost{}
@@ -207,6 +215,10 @@ func Open(ctx context.Context, o Options) (*App, error) {
 	a.Planner.Register(a.Tools)
 	a.Dispatch = &agent.Dispatcher{New: a.newSubagent, MaxConcurrent: cfg.Router.MaxAgents, Sink: a.emit}
 	a.Dispatch.Register(a.Tools)
+	if config.Bool(cfg.DeferredTools, true) {
+		a.deferred = agent.NewDeferred(coreToolNames)
+		agent.RegisterDeferred(a.Tools, a.deferred)
+	}
 
 	a.Agent = agent.New(a.agentOptions(model, mode))
 	a.Planner.Agent = a.Agent
@@ -244,6 +256,42 @@ func firstNonEmpty(s ...string) string {
 	return ""
 }
 
+// excludeScribeDir adds .scribe/ to the repository's info/exclude so Scribe's
+// own state never shows up as untracked files. It works for linked worktrees
+// too (git resolves the shared exclude path) and leaves .gitignore alone.
+// It does nothing outside a git repository and is idempotent.
+func excludeScribeDir(root string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rel, err := gitRun(ctx, root, "rev-parse", "--git-path", "info/exclude")
+	if err != nil || strings.TrimSpace(rel) == "" {
+		return
+	}
+	path := strings.TrimSpace(rel)
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(root, path)
+	}
+	existing, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return
+	}
+	for _, line := range strings.Split(string(existing), "\n") {
+		if t := strings.TrimSpace(line); t == ".scribe/" || t == "/.scribe/" || t == ".scribe" {
+			return
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	var b strings.Builder
+	b.Write(existing)
+	if len(existing) > 0 && !strings.HasSuffix(string(existing), "\n") {
+		b.WriteString("\n")
+	}
+	b.WriteString("# Scribe session state\n.scribe/\n")
+	_ = os.WriteFile(path, []byte(b.String()), 0o644)
+}
+
 func gitBranch(dir string) string {
 	out, err := exec.Command("git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD").Output()
 	if err != nil {
@@ -269,6 +317,14 @@ func (a *App) resolve(ref string) (agent.Model, error) {
 	return agent.Model{Ref: prov + "/" + id, ID: id, Provider: p, Info: info}, nil
 }
 
+// coreToolNames are always offered to the model. Every other registered tool
+// is deferred (request_tools) when deferred_tools is on.
+var coreToolNames = []string{
+	"read", "edit_file", "multi_edit", "write_file", "grep", "glob", "shell", "project",
+	"find_symbol", "code_map", "memory", "dispatch", "task_list", "plan", "update_plan_step",
+	"ask_user", "ast_edit",
+}
+
 func (a *App) systemPrompt(sub string) func(string) string {
 	return func(mode string) string {
 		a.mu.Lock()
@@ -282,6 +338,11 @@ func (a *App) systemPrompt(sub string) func(string) string {
 		}
 		if a.Skills != nil {
 			in.Skills = a.Skills.Catalog()
+		}
+		// Subagents get every tool they can use, so only the lead lists the
+		// deferred ones.
+		if a.deferred != nil && sub == "" {
+			in.Deferred = agent.DeferredCatalog(a.Tools, a.deferred.IsCore)
 		}
 		return agent.BuildSystem(in, mode)
 	}
@@ -326,8 +387,12 @@ func (a *App) agentOptions(model agent.Model, mode string) agent.Options {
 		Reasoning: a.Cfg.Reasoning,
 		Sink:      a.emit,
 		MaxSteps:  a.opts.MaxSteps,
-		Hooks:     a.ext.hooks,
+		Hooks:     a.claimHooks(a.ext.hooks),
 		Headers:   map[string]string{"X-Session-Id": a.Meta.ID},
+		Deferred:  a.deferred,
+	}
+	if config.Bool(a.Cfg.AutoCheck, true) {
+		o.Verify = autoVerify(a.Workdir)
 	}
 	for _, ref := range a.Cfg.Router.Fallback {
 		if m, err := a.resolve(ref); err == nil {
@@ -355,18 +420,10 @@ func (a *App) agentOptions(model agent.Model, mode string) agent.Options {
 	return o
 }
 
-// newSubagent builds an explore or code subagent.
-func (a *App) newSubagent(role, id string, sink agent.Sink) *agent.Agent {
-	ref := a.Cfg.Router.Explore
-	if role == "code" {
-		ref = a.Cfg.Router.Code
-	}
-	model := a.Agent.CurrentModel()
-	if ref != "" {
-		if m, err := a.resolve(ref); err == nil {
-			model = m
-		}
-	}
+// subagentTools is the tool set a subagent of role gets: explore agents
+// read only, web agents search and fetch only, code agents everything but
+// the lead's planning and dispatch tools.
+func (a *App) subagentTools(role string) *tools.Registry {
 	reg := tools.NewRegistry()
 	for _, n := range a.Tools.Names() {
 		t, _ := a.Tools.Get(n)
@@ -377,8 +434,30 @@ func (a *App) newSubagent(role, id string, sink agent.Sink) *agent.Agent {
 		if role == "explore" && !t.ReadOnly() {
 			continue
 		}
+		if role == "web" && n != "web_search" && n != "fetch_page" {
+			continue
+		}
 		reg.Register(t)
 	}
+	return reg
+}
+
+// newSubagent builds an explore, code or web subagent.
+func (a *App) newSubagent(role, id string, sink agent.Sink) *agent.Agent {
+	ref := a.Cfg.Router.Explore
+	switch role {
+	case "code":
+		ref = a.Cfg.Router.Code
+	case "web":
+		ref = a.Cfg.Router.WebSearch
+	}
+	model := a.Agent.CurrentModel()
+	if ref != "" {
+		if m, err := a.resolve(ref); err == nil {
+			model = m
+		}
+	}
+	reg := a.subagentTools(role)
 	steps := 30
 	if role == "code" {
 		steps = 50
@@ -402,7 +481,7 @@ func (a *App) newSubagent(role, id string, sink agent.Sink) *agent.Agent {
 		},
 		MaxSteps:  steps,
 		CompactAt: -1,
-		Hooks:     a.ext.hooks,
+		Hooks:     a.claimHooks(a.ext.hooks),
 	})
 }
 
@@ -560,6 +639,7 @@ func (a *App) Close() error {
 	a.closed = true
 	a.mu.Unlock()
 	a.Agent.Abort()
+	fileClaims.release(a.claimOwner)
 	a.ext.close(a)
 	if a.Memory != nil {
 		_ = a.Memory.Close()

@@ -18,6 +18,7 @@ type PromptInput struct {
 	ModelRef     string
 	Instructions []Instruction
 	Skills       string // skills catalog, one line per skill
+	Deferred     string // deferred tool catalog, one line per tool (may be empty)
 	CodeMap      string // rendered code map (may be empty)
 	Extra        string // --system text
 	Subagent     string // "" main agent, else "explore" / "code"
@@ -82,6 +83,9 @@ func BuildSystem(in PromptInput, mode string) string {
 		if in.Subagent == "explore" {
 			b.WriteString("\nYou are an explore agent: read-only. Do not edit files.")
 		}
+		if in.Subagent == "web" {
+			b.WriteString("\nYou are a web research agent: search, fetch the pages that matter, and report the answer with source URLs. Do not edit files.")
+		}
 	}
 	if o := modeOverlays[mode]; o != "" {
 		b.WriteString("\n\n")
@@ -101,6 +105,11 @@ func BuildSystem(in PromptInput, mode string) string {
 	}
 	for _, ins := range in.Instructions {
 		fmt.Fprintf(&b, "\n# Instructions from %s\n%s\n", ins.Path, strings.TrimSpace(ins.Text))
+	}
+	if in.Deferred != "" {
+		b.WriteString("\n# Deferred tools\nThese tools are not loaded yet. Call request_tools with their names to load them; they can be called from the next step. Load only what the task needs.\n")
+		b.WriteString(in.Deferred)
+		b.WriteString("\n")
 	}
 	if in.Skills != "" {
 		b.WriteString("\n# Skills\nLoad a skill with the skills tool when the task matches it:\n")

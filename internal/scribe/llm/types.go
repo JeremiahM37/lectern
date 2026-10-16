@@ -128,9 +128,9 @@ type Request struct {
 type EventType string
 
 const (
-	EvText          EventType = "text"           // Text delta
-	EvReasoning     EventType = "reasoning"      // Text delta of reasoning
-	EvReasoningSig  EventType = "reasoning_sig"  // Signature for the current reasoning block
+	EvText          EventType = "text"            // Text delta
+	EvReasoning     EventType = "reasoning"       // Text delta of reasoning
+	EvReasoningSig  EventType = "reasoning_sig"   // Signature for the current reasoning block
 	EvToolCallStart EventType = "tool_call_start" // ToolCallID, ToolName known
 	EvToolCallDelta EventType = "tool_call_delta" // ToolCallID, ArgsDelta (partial JSON)
 	EvToolCallEnd   EventType = "tool_call_end"   // ToolCallID, ToolName, Args complete
@@ -195,17 +195,17 @@ type Provider interface {
 
 // ModelInfo is metadata about one model.
 type ModelInfo struct {
-	ID            string  `json:"id"`   // provider-local id
-	Name          string  `json:"name"` // display name
-	ContextWindow int     `json:"context_window,omitempty"`
-	MaxOutput     int     `json:"max_output,omitempty"`
-	InputPerMTok  float64 `json:"input_per_mtok,omitempty"`  // USD
-	OutputPerMTok float64 `json:"output_per_mtok,omitempty"` // USD
+	ID                string  `json:"id"`   // provider-local id
+	Name              string  `json:"name"` // display name
+	ContextWindow     int     `json:"context_window,omitempty"`
+	MaxOutput         int     `json:"max_output,omitempty"`
+	InputPerMTok      float64 `json:"input_per_mtok,omitempty"`  // USD
+	OutputPerMTok     float64 `json:"output_per_mtok,omitempty"` // USD
 	CacheReadPerMTok  float64 `json:"cache_read_per_mtok,omitempty"`
 	CacheWritePerMTok float64 `json:"cache_write_per_mtok,omitempty"`
-	Reasoning     bool    `json:"reasoning,omitempty"`
-	Vision        bool    `json:"vision,omitempty"`
-	Tools         bool    `json:"tools,omitempty"`
+	Reasoning         bool    `json:"reasoning,omitempty"`
+	Vision            bool    `json:"vision,omitempty"`
+	Tools             bool    `json:"tools,omitempty"`
 }
 
 // Cost returns the USD cost of u at m's prices.
@@ -232,6 +232,9 @@ type APIError struct {
 	Type       string // provider error type, e.g. "overloaded_error"
 	Message    string
 	RetryAfter time.Duration // from Retry-After header when present
+	// RetryAfterSet is true when the response carried a parseable Retry-After,
+	// so that an explicit zero means "retry now" rather than "no hint".
+	RetryAfterSet bool
 }
 
 func (e *APIError) Error() string {

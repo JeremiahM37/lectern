@@ -298,6 +298,11 @@ func hasArg(args []string, want ...string) bool {
 	return false
 }
 
+// Sensitive reports whether path's base name matches a secret-file pattern
+// (the pattern that matched is returned too). Other packages use it to keep
+// secret-looking files out of commits.
+func Sensitive(path string) (string, bool) { return sensitive(path) }
+
 // sensitive reports whether path's base name matches a secret-file pattern.
 func sensitive(path string) (string, bool) {
 	base := filepath.Base(filepath.ToSlash(path))

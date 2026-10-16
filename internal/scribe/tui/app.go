@@ -51,8 +51,11 @@ func Run(ctx context.Context, newBackend func() (Backend, error), opts Options) 
 		popts = append(popts, tea.WithAltScreen())
 	}
 	final, err := tea.NewProgram(m, popts...).Run()
-	if fm, ok := final.(*Model); ok && fm.resumeLine != "" {
-		fmt.Fprintln(os.Stdout, fm.resumeLine)
+	if fm, ok := final.(*Model); ok {
+		fm.closePanes()
+		if fm.resumeLine != "" {
+			fmt.Fprintln(os.Stdout, fm.resumeLine)
+		}
 	}
 	return err
 }
@@ -160,6 +163,8 @@ type Model struct {
 
 	// stash of the last tab removed by Ctrl+W, so a close can be undone? (not used)
 	tabBellRung bool
+
+	panes *paneState // editor and floating terminals (termpane.go)
 }
 
 // NewModel builds a Model around first. newBackend creates Backends for new
@@ -274,6 +279,7 @@ func (m *Model) Init() tea.Cmd {
 	for _, t := range m.tabs {
 		cmds = append(cmds, waitEvent(t.id, t.be), waitPrompt(t.id, t.be), gitCmd(t.id, t.be))
 	}
+	cmds = append(cmds, m.maybeOpenWizard())
 	if m.opts.Pick {
 		m.openSessionPicker()
 	}
@@ -349,6 +355,8 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case commitSuggestedMsg:
 		m.openCommitPrompt(msg.text)
 		return nil
+	case modalDone:
+		return m.deliverModal(msg)
 	case shellMsg:
 		if t := m.tabByID(msg.tab); t != nil {
 			t.chat.AddSystem("shell", msg.text)
@@ -356,9 +364,14 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return nil
 	case closedMsg:
 		return m.finishShutdown()
+	case paneMsg:
+		return m.onPaneMsg(msg)
 	case tea.MouseMsg:
 		if m.topModal() != nil || m.phase == phaseShutdown {
 			return nil
+		}
+		if cmd, handled := m.handlePaneMouse(msg); handled {
+			return cmd
 		}
 		t := m.cur()
 		if m.phase == phaseLanding {
@@ -376,6 +389,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 func (m *Model) onKey(km tea.KeyMsg) tea.Cmd {
 	if m.phase == phaseShutdown {
 		return nil
+	}
+	if cmd, handled := m.handlePaneKey(km); handled {
+		return cmd
 	}
 	if km.String() == "ctrl+c" {
 		return m.handleCtrlC()
@@ -643,14 +659,15 @@ func (m *Model) relayout() {
 	}
 	rows := m.chatRows()
 	for _, t := range m.tabs {
-		t.chat.SetSize(m.width, rows)
+		t.chat.SetSize(m.bodyWidth(), rows)
 		t.in.resize(m.inputWidth())
 	}
+	m.resizePanes()
 }
 
 // inputWidth is the textarea width: the box is two border and two padding columns wider.
 func (m *Model) inputWidth() int {
-	w := m.width
+	w := m.bodyWidth()
 	if m.phase == phaseLanding {
 		w = m.width * 60 / 100
 	}
@@ -684,10 +701,11 @@ func (m *Model) View() string {
 			lines = append(lines, m.viewChatBody(rows)...)
 		}
 	default:
-		lines = append(lines, m.viewChatBody(rows)...)
+		lines = append(lines, m.viewBody(rows)...)
 	}
 	lines = append(lines, m.viewFooter())
 	base := fitLines(lines, m.width, m.height)
+	base = m.overlayFloat(base)
 	if md := m.topModal(); md != nil {
 		box := modalFrame(md, m.th, m.width, m.height)
 		base = overlay(base, box, m.width, m.height)

@@ -655,10 +655,12 @@ func (v *View) assembleRows(rows []rowT) builder {
 }
 
 // renderRail is the final-response rail: a status header, then at most five
-// rows. Older rows fold into one "+N completed" row.
-func (v *View) renderRail(rec *Record, calls []*Call, now time.Time, cw int, thinking bool) builder {
+// rows. Older rows fold into one "+N completed" row. Once the turn is done
+// and the view is expanded, intermediate text joins the rows in order.
+func (v *View) renderRail(rec *Record, now time.Time, cw int, thinking bool) builder {
 	var b builder
-	rows := v.groupRows(calls, now, cw)
+	calls := allCalls(rec)
+	rows := v.railRows(rec, now, cw, rec.Done && v.expanded)
 	if len(rows) > 5 {
 		hidden := rows[:len(rows)-4]
 		edits := 0
@@ -690,6 +692,45 @@ func (v *View) renderRail(rec *Record, calls []*Call, now time.Time, cw int, thi
 		b.hits = append(b.hits, h)
 	}
 	return b
+}
+
+// railRows turns the turn's calls into rail rows. Without texts the calls
+// are grouped as one run; with texts each segment is grouped on its own so
+// the intermediate text keeps its place between the tool rows.
+func (v *View) railRows(rec *Record, now time.Time, cw int, texts bool) []rowT {
+	if !texts {
+		return v.groupRows(allCalls(rec), now, cw)
+	}
+	lastTools := -1
+	for i, s := range rec.Segments {
+		if s.Kind == "tools" {
+			lastTools = i
+		}
+	}
+	var rows []rowT
+	for i, s := range rec.Segments {
+		switch {
+		case s.Kind == "tools":
+			rows = append(rows, v.groupRows(s.Calls, now, cw)...)
+		case s.Kind == "text" && i < lastTools && trimmed(s.Text) != "":
+			rows = append(rows, v.intermediateRow(s.Text, cw))
+		}
+	}
+	return rows
+}
+
+// intermediateRow is a line of narration between tool calls, dim, at most
+// eight lines.
+func (v *View) intermediateRow(text string, cw int) rowT {
+	lines := wrapText(trimmed(text), maxInt(cw-2, 10))
+	if len(lines) > 8 {
+		lines = append(lines[:7], "…")
+	}
+	r := rowT{}
+	for _, l := range lines {
+		r.lines = append(r.lines, fg(v.th.TextDim, l))
+	}
+	return r
 }
 
 // phaseOf picks the phase from the current tool: the last running call when

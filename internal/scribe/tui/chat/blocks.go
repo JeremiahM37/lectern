@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/icons"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
@@ -62,6 +64,137 @@ func (v *View) renderReasoning(s *Segment, cw int, now time.Time) builder {
 	return b
 }
 
+// answerText is the turn's final answer: the text after the last tool call,
+// or all of the text when the turn used no tools. Whitespace is normalised.
+func answerText(rec *Record) string {
+	last := -1
+	for i, s := range rec.Segments {
+		if s.Kind == "tools" {
+			last = i
+		}
+	}
+	var parts []string
+	for i, s := range rec.Segments {
+		if s.Kind == "text" && i > last {
+			parts = append(parts, s.Text)
+		}
+	}
+	return normProse(strings.Join(parts, " "))
+}
+
+// normProse collapses whitespace and drops the markdown bold marks, so text
+// can be compared with the answer regardless of layout.
+func normProse(s string) string {
+	return strings.Join(strings.Fields(strings.ReplaceAll(s, "**", "")), " ")
+}
+
+// isDupReasoning reports whether a reasoning segment only repeats the final
+// answer (a prefix of it, or all of it). Such a segment is never shown.
+func isDupReasoning(s *Segment, answer string) bool {
+	r := normProse(s.Text)
+	return r == "" || (answer != "" && strings.HasPrefix(answer, r))
+}
+
+// allCalls lists the calls of every tools segment in order.
+func allCalls(rec *Record) []*Call {
+	var calls []*Call
+	for _, s := range rec.Segments {
+		if s.Kind == "tools" {
+			calls = append(calls, s.Calls...)
+		}
+	}
+	return calls
+}
+
+// lastLine is the last non-blank line of s, without markdown emphasis marks.
+func lastLine(s string) string {
+	lines := strings.Split(s, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if l := strings.TrimSpace(strings.NewReplacer("**", "", "`", "").Replace(lines[i])); l != "" {
+			return l
+		}
+	}
+	return ""
+}
+
+// renderHead is what sits above the tool rail in auto layout. While the turn
+// runs: the latest reasoning as one live row, and the last intermediate line
+// of text. Once it is done: one thought summary for the whole turn.
+func (v *View) renderHead(rec *Record, lastTools int, answer string, cw int, now time.Time) builder {
+	var b builder
+	th := v.th
+	var reasons []*Segment
+	for _, s := range rec.Segments {
+		if s.Kind == "reasoning" && !isDupReasoning(s, answer) {
+			reasons = append(reasons, s)
+		}
+	}
+	if !rec.Done {
+		if n := len(reasons); n > 0 {
+			latest := reasons[n-1]
+			// "⠸ ∴ Thinking · tail": the spinner stands in for the brain glyph
+			// while the reasoning streams, and the glyph is shown once it stops.
+			head := fg(th.TextMuted, icons.Icon("brain")+" Thinking")
+			if latest.Open {
+				head = fg(th.BrandDim, render.Frame(render.Braille, frameAt(now))) + " " + head
+			}
+			if tail := lastLine(latest.Text); tail != "" {
+				room := cw - ansi.StringWidth(head) - 3
+				head += fg(th.TextDim, " · ") + fgi(th.TextDim, clip(tail, room))
+			}
+			b.add(head)
+		}
+		for i := lastTools - 1; i >= 0; i-- {
+			if s := rec.Segments[i]; s.Kind == "text" && trimmed(s.Text) != "" {
+				b.add(fg(th.TextDim, clip(lastLine(s.Text), cw)))
+				break
+			}
+		}
+	} else if len(reasons) > 0 {
+		b.block(v.renderThought(rec, reasons, cw))
+	}
+	return b
+}
+
+// renderThought is the one reasoning row for a finished turn. Collapsed it
+// is a single line; expanded it is a box with a divider per step.
+func (v *View) renderThought(rec *Record, reasons []*Segment, cw int) builder {
+	var b builder
+	th := v.th
+	// Every reasoning segment counts toward the time, including one whose
+	// text is hidden as a repeat of the answer: the model did think for it.
+	var spent time.Duration
+	for _, s := range rec.Segments {
+		if s.Kind == "reasoning" {
+			spent += s.Spent
+		}
+	}
+	title := icons.Icon("brain") + " Thought"
+	if spent >= time.Second {
+		title += " for " + render.HumanDuration(spent.Truncate(time.Second))
+	}
+	steps := maxInt(rec.Steps, 1)
+	title += " · " + countWord(steps, "step", "steps")
+	if !v.expanded && !rec.ReasonOpen {
+		b.markSummary()
+		b.add(fg(th.Success, "▶") + " " + fg(th.TextSecondary, title) + " " + fg(th.TextSubtle, "^O"))
+		return b
+	}
+	inner := maxInt(cw-4, 1)
+	var body []string
+	for i, s := range reasons {
+		if i > 0 {
+			body = append(body, "")
+		}
+		div := fmt.Sprintf("─ step %d ", s.Step)
+		body = append(body, fg(th.TextFaint, div+strings.Repeat("─", maxInt(inner-ansi.StringWidth(div), 0))))
+		body = append(body, splitLines(render.Markdown(s.Text, inner, th, false))...)
+	}
+	b.markSummary()
+	b.add(boxed(fg(th.TextMuted, "▼ "+title), body, cw, 1, th.Border, nil)...)
+	return b
+}
+
 // reasoningPreview is the first line of a finished reasoning block.
 func reasoningPreview(text string) string {
 	p := strings.TrimSpace(strings.ReplaceAll(firstLine(text), "**", ""))
@@ -92,7 +225,7 @@ const (
 // the phase of the work in progress; once done it summarises the turn.
 func (v *View) railHeader(calls []*Call, rec *Record, now time.Time) string {
 	if !rec.Done {
-		return v.statusHeader(phaseOf(calls), rec.At, now)
+		return v.statusHeader(phaseOf(calls), rec.At, now, rec.Steps)
 	}
 	return v.railSummary(calls, rec.Duration)
 }
@@ -169,7 +302,7 @@ func phraseFor(phase string, el time.Duration) string {
 
 // statusHeader is the live phase line above a rail: a spinner, the rotating
 // phrase, animated dots and elapsed seconds.
-func (v *View) statusHeader(phase string, start, now time.Time) string {
+func (v *View) statusHeader(phase string, start, now time.Time, step int) string {
 	tone := v.tone(phaseTone[phase])
 	el := now.Sub(start)
 	if el < 0 {
@@ -177,7 +310,11 @@ func (v *View) statusHeader(phase string, start, now time.Time) string {
 	}
 	spin := render.Frame(phaseSpin[phase], frameAt(now))
 	dots := render.Frame(render.LoadingDots, frameAt(now)/4)
-	return fg(tone, spin) + " " + bold(tone, phraseFor(phase, el)) + fg(v.th.TextMuted, dots) + " " + fg(v.th.TextDim, secs(el))
+	out := fg(tone, spin) + " " + bold(tone, phraseFor(phase, el)) + fg(v.th.TextMuted, dots)
+	if step > 0 {
+		out += fg(v.th.TextDim, fmt.Sprintf(" · step %d", step))
+	}
+	return out + fg(v.th.TextDim, " · "+secs(el))
 }
 
 // LivePhrase names what the live turn is doing right now, for the busy line:

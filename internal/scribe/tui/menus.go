@@ -477,55 +477,6 @@ func (m *Model) openTabPicker() {
 
 // ---------------------------------------------------------------- git
 
-// openGitMenu offers status, diff and commit.
-func (m *Model) openGitMenu() {
-	t := m.cur()
-	p := NewPicker(m.th, "Git", "git")
-	p.Hint = "↑↓ move · Enter select · Esc close"
-	st := t.be.Git()
-	branch := st.Branch
-	if branch == "" {
-		branch = "(not a git repository)"
-	}
-	dirty := "clean"
-	if st.Dirty {
-		dirty = fmt.Sprintf("%d changed", len(st.Changed))
-	}
-	p.Items = []PickItem{
-		{Value: "status", Label: "Status", Desc: branch + " · " + dirty, Icon: "git"},
-		{Value: "diff", Label: "Diff", Desc: "working tree", Icon: "diff_add"},
-		{Value: "commit", Label: "Commit…", Desc: "suggests a message", Icon: "check"},
-	}
-	p.refilter()
-	p.OnSelect = func(it PickItem) tea.Cmd {
-		switch it.Value {
-		case "status":
-			lines := []string{"Branch: " + branch}
-			if st.Ahead > 0 || st.Behind > 0 {
-				lines = append(lines, fmt.Sprintf("Ahead %d, behind %d", st.Ahead, st.Behind))
-			}
-			lines = append(lines, "")
-			for _, f := range st.Changed {
-				lines = append(lines, "  "+f)
-			}
-			if len(st.Changed) == 0 {
-				lines = append(lines, "Nothing changed.")
-			}
-			m.openInfo("Git status", "git", lines)
-		case "diff":
-			d := t.be.GitDiff()
-			if strings.TrimSpace(d) == "" {
-				d = "No changes in the working tree."
-			}
-			m.openInfo("Git diff", "diff", strings.Split(d, "\n"))
-		case "commit":
-			return m.commitPrompt()
-		}
-		return nil
-	}
-	m.pushModal(p)
-}
-
 // openCommitPrompt opens the commit message box, pre-filled with a suggestion.
 func (m *Model) openCommitPrompt(suggestion string) {
 	be := m.cur().be
@@ -606,23 +557,6 @@ func (m *Model) openServers(kind string) {
 	}
 	title := strings.ToUpper(kind)
 	m.openInfo(title+" servers", kind, lines)
-}
-
-// openCheckpoints lists turns that changed files.
-func (m *Model) openCheckpoints() {
-	cps := m.cur().be.Checkpoints()
-	var lines []string
-	for _, cp := range cps {
-		mark := "●"
-		if cp.Undone {
-			mark = "○"
-		}
-		lines = append(lines, fmt.Sprintf("%s turn %-3d %d files  %s", mark, cp.Turn, len(cp.Files), oneLine(cp.Prompt)))
-	}
-	if len(lines) == 0 {
-		lines = []string{"No checkpoints yet. A turn that edits files creates one."}
-	}
-	m.openInfo("Checkpoints", "checkpoint", lines)
 }
 
 // openSettings lists the flat config map; booleans toggle, others open a prompt.

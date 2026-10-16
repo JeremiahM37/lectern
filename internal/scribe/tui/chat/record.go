@@ -40,6 +40,8 @@ type Record struct {
 	Interrupted bool          `json:"interrupted,omitempty"`
 	Duration    time.Duration `json:"duration,omitempty"`
 	Reasoned    bool          `json:"reasoned,omitempty"`
+	Steps       int           `json:"steps,omitempty"`       // highest step number seen this turn
+	ReasonOpen  bool          `json:"reason_open,omitempty"` // thought summary expanded by a click
 	Segments    []*Segment    `json:"segments,omitempty"`
 
 	cache *cached
@@ -55,10 +57,16 @@ type Segment struct {
 	Plan    *agent.Plan  `json:"plan,omitempty"`
 	Tasks   []agent.Task `json:"tasks,omitempty"`
 
+	// Reasoning: the step it belongs to and the time spent streaming it.
+	Step  int           `json:"step,omitempty"`
+	Spent time.Duration `json:"spent,omitempty"`
+
 	// Typewriter state for open text segments.
 	shown  int
 	vel    float64
 	dripAt time.Time
+	// seen is the time of the last reasoning delta, for Spent.
+	seen time.Time
 }
 
 // Call is one tool invocation.

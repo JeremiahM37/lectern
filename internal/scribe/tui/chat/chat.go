@@ -56,9 +56,10 @@ type View struct {
 }
 
 type hitTarget struct {
-	rec  *Record
-	call *Call
-	seg  *Segment
+	rec     *Record
+	call    *Call
+	seg     *Segment
+	summary bool
 }
 
 // New returns an empty transcript.
@@ -123,6 +124,7 @@ func (v *View) ToggleExpand() {
 	v.expanded = !v.expanded
 	v.gen++
 	for _, r := range v.msgs {
+		r.ReasonOpen = false
 		for _, s := range r.Segments {
 			s.Toggled = false
 			for _, c := range s.Calls {
@@ -174,14 +176,28 @@ func (v *View) Apply(e agent.Event) {
 		v.ensureLive(e.At).Prompt = e.Prompt
 		v.errShown = false
 	case agent.EvStepStart:
-		v.ensureLive(e.At)
+		rec := v.ensureLive(e.At)
+		if e.Step > rec.Steps {
+			rec.Steps = e.Step
+		} else if e.Step == 0 {
+			rec.Steps++
+		}
 	case agent.EvText:
 		v.openSeg("text", e.At).Text += e.Text
 	case agent.EvReasoning:
 		rec := v.ensureLive(e.At)
 		rec.Reasoned = true
 		if v.opt.ShowReasoning {
-			v.openSeg("reasoning", e.At).Text += e.Text
+			at := v.when(e.At)
+			s := v.openSeg("reasoning", at)
+			if s.Step == 0 {
+				s.Step = maxInt(rec.Steps, 1)
+			}
+			if !s.seen.IsZero() {
+				s.Spent += at.Sub(s.seen)
+			}
+			s.seen = at
+			s.Text += e.Text
 		}
 	case agent.EvToolStart:
 		v.callFor(e.CallID, e.Tool, e.At)

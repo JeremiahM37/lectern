@@ -85,6 +85,48 @@ func main() {
 		ev(agent.Event{Kind: agent.EvTurnDone, Stats: &agent.TurnStats{Duration: 65 * time.Second}})
 	}
 
+	// A five-step turn: reasoning before every step, narration between the
+	// tool calls, and a last reasoning block that repeats the answer.
+	// With "live" the sample stops in step 3, so the live row is visible.
+	v.AddUser("Why is the parser slow on big files?", 0, clock, false)
+	ev(agent.Event{Kind: agent.EvTurnStart, Prompt: "why is the parser slow"})
+	think := func(a, b string, d time.Duration) {
+		ev(agent.Event{Kind: agent.EvReasoning, Text: a})
+		clock = clock.Add(d)
+		ev(agent.Event{Kind: agent.EvReasoning, Text: b})
+	}
+	ev(agent.Event{Kind: agent.EvStepStart, Step: 1})
+	think("**Start** with the parser entry point.\n", "Then read how it walks the buffer.", 7*time.Second)
+	ev(agent.Event{Kind: agent.EvText, Text: "I'll read the parser first."})
+	call("m1", "read", map[string]any{"path": "/home/admin/projects/lectern/internal/scribe/parse/parse.go"},
+		&tools.Result{Output: "package parse", Summary: "340 lines"}, time.Second)
+	ev(agent.Event{Kind: agent.EvStepStart, Step: 2})
+	think("The loop calls buf.Index on every token.\n", "That rescans the whole buffer each time.", 11*time.Second)
+	ev(agent.Event{Kind: agent.EvText, Text: "The buffer scan looks like the cost. I'll check the lexer too."})
+	call("m2", "grep", map[string]any{"pattern": "Index("}, &tools.Result{Output: "x", Summary: "4 hits"}, 0)
+	call("m3", "read", map[string]any{"path": "/home/admin/projects/lectern/internal/scribe/parse/lex.go"},
+		&tools.Result{Output: "package parse", Summary: "180 lines"}, time.Second)
+	ev(agent.Event{Kind: agent.EvStepStart, Step: 3})
+	think("Confirmed: the cursor is never kept.\n", "A cursor fixes it without changing the API.", 5*time.Second)
+	ev(agent.Event{Kind: agent.EvText, Text: "Keeping a cursor fixes it."})
+	call("m4", "edit_file", map[string]any{"path": "/home/admin/projects/lectern/internal/scribe/parse/parse.go"},
+		&tools.Result{Output: "ok", Summary: "+3 -2", Files: []string{"internal/scribe/parse/parse.go"}}, 0)
+	if args["live"] {
+		clock = clock.Add(4 * time.Second)
+		v.Tick(clock)
+		fmt.Println(v.View())
+		return
+	}
+	ev(agent.Event{Kind: agent.EvStepStart, Step: 4})
+	think("Run the parser benchmark to compare.\n", "Compare before and after on the big fixture.", 4*time.Second)
+	call("m5", "shell", map[string]any{"command": "go test -run X -bench Parse ./internal/scribe/parse/"},
+		&tools.Result{Output: "ok", Summary: "exit 0"}, 3*time.Second)
+	ev(agent.Event{Kind: agent.EvStepStart, Step: 5})
+	think("The parser re-scanned the buffer on every token. ", "The fix keeps a cursor, and the big-file benchmark drops from 4.2s to 0.3s.", 3*time.Second)
+	ev(agent.Event{Kind: agent.EvText, Text: "The parser re-scanned the buffer on every token. The fix keeps a cursor, and the big-file benchmark drops from 4.2s to 0.3s."})
+	ev(agent.Event{Kind: agent.EvTurnDone, Stats: &agent.TurnStats{Steps: 5, Duration: 42 * time.Second}})
+	clock = clock.Add(time.Second)
+
 	v.AddUser("thanks, also rename the flag", 1, now.Add(time.Minute), false)
 	ev(agent.Event{Kind: agent.EvTurnStart, Prompt: "rename the flag"})
 	ev(agent.Event{Kind: agent.EvRetry, Category: llm.CatRateLimited, Attempt: 2, MaxAttempts: 3, Delay: 4 * time.Second})

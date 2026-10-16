@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	osexec "os/exec"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/registry"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/session"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
@@ -408,14 +410,50 @@ func (b *scribeBackend) Providers() []tui.ProviderStatus {
 	var out []tui.ProviderStatus
 	for _, p := range b.current().Registry.List() {
 		out = append(out, tui.ProviderStatus{
-			ID:     p.ID,
-			Name:   p.Name,
-			HasKey: p.HasKey,
-			Local:  localProviders[p.ID],
-			Icon:   p.ASCIIIcon,
+			ID:           p.ID,
+			Name:         p.Name,
+			HasKey:       p.HasKey,
+			Local:        localProviders[p.ID],
+			Icon:         p.ASCIIIcon,
+			KeySource:    p.KeySource,
+			DefaultModel: p.DefaultModel,
 		})
 	}
 	return out
+}
+
+// NeedsSetup reports whether the first-run wizard should open: no provider has
+// a key and no Ollama server answers on its usual address.
+func (b *scribeBackend) NeedsSetup() bool {
+	reg := b.current().Registry
+	for _, p := range reg.List() {
+		if p.HasKey {
+			return false
+		}
+	}
+	return !ollamaReachable(reg)
+}
+
+// ollamaReachable asks the local Ollama server for its model list with a short
+// timeout. The provider's base URL ends in /v1; the native API lives at its root.
+func ollamaReachable(reg *registry.Registry) bool {
+	info, ok := reg.Lookup("ollama")
+	if !ok || info.BaseURL == "" {
+		return false
+	}
+	root := strings.TrimSuffix(strings.TrimRight(info.BaseURL, "/"), "/v1")
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, root+"/api/tags", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 // SetKey stores a key. If the current model uses that provider, the model is
@@ -892,8 +930,25 @@ func (b *scribeBackend) GitCommit(message string) error {
 	if out, err := gitRun(ctx, wd, "add", "-A"); err != nil {
 		return fmt.Errorf("git add: %s", out)
 	}
+	// Unstage secret-looking files so a blanket add never commits them.
+	var left []string
+	if out, err := gitRun(ctx, wd, "diff", "--cached", "--name-only", "-z"); err == nil {
+		for _, f := range strings.Split(out, "\x00") {
+			if _, bad := exec.Sensitive(f); bad && f != "" {
+				left = append(left, f)
+			}
+		}
+	}
+	if len(left) > 0 {
+		if out, err := gitRun(ctx, wd, append([]string{"reset", "-q", "HEAD", "--"}, left...)...); err != nil {
+			return fmt.Errorf("git reset %s: %s", strings.Join(left, ", "), out)
+		}
+	}
 	if out, err := gitRun(ctx, wd, "commit", "-m", message); err != nil {
 		return fmt.Errorf("git commit: %s", out)
+	}
+	if len(left) > 0 {
+		return fmt.Errorf("committed, but left out files that look like secrets: %s. Stage them by hand if they belong in the repo", strings.Join(left, ", "))
 	}
 	return nil
 }
@@ -1146,6 +1201,8 @@ func (b *scribeBackend) Config() map[string]any {
 		compactAt = 0.8
 	}
 	return map[string]any{
+		"allow":             c.Allow,
+		"deny":              c.Deny,
 		"model":             a.Agent.CurrentModel().Ref,
 		"mode":              a.Agent.Mode(),
 		"theme":             c.Theme,
@@ -1185,6 +1242,11 @@ func (b *scribeBackend) SetConfig(key string, value any, project bool) error {
 	if err != nil {
 		return err
 	}
+	if key == "provider.add" {
+		if err := b.checkProviderAdd(value); err != nil {
+			return err
+		}
+	}
 	if err := setConfigField(&raw, key, value); err != nil {
 		return err
 	}
@@ -1202,6 +1264,11 @@ func (b *scribeBackend) SetConfig(key string, value any, project bool) error {
 	}
 	a.mu.Lock()
 	a.Cfg = merged
+	if key == "provider.add" {
+		// The registry is built once from the config; rebuild it so the new
+		// provider takes keys and models straight away.
+		a.Registry = registry.New(merged)
+	}
 	a.mu.Unlock()
 	switch key {
 	case "model":
@@ -1249,6 +1316,7 @@ func (b *scribeBackend) Shell(ctx context.Context, command string) (string, int,
 	defer cancel()
 	cmd := osexec.CommandContext(ctx, "bash", "-lc", command)
 	cmd.Dir = b.current().Workdir
+	cmd.Env = exec.ScrubEnv(os.Environ()) // same credential scrubbing as the shell tool
 	cmd.WaitDelay = 2 * time.Second
 	var buf limitBuffer
 	buf.max = 1 << 20
@@ -1505,6 +1573,16 @@ func setConfigField(c *config.Config, key string, v any) error {
 		c.ChatStyle = s
 	case "search_url":
 		c.SearchURL = toString(v)
+	case "allow":
+		c.Allow = toStrings(v)
+	case "deny":
+		c.Deny = toStrings(v)
+	case "provider.add":
+		p, err := providerFromSetting(v)
+		if err != nil {
+			return err
+		}
+		upsertProvider(c, p)
 	case "instructions":
 		c.Instructions = toStrings(v)
 	case "router.explore":
@@ -1535,6 +1613,50 @@ func setConfigField(c *config.Config, key string, v any) error {
 			return err
 		}
 		*ptr = &bv
+	}
+	return nil
+}
+
+// providerFromSetting reads a provider from the flat settings value: a map with
+// id, base_url and optionally name, api_key_env.
+func providerFromSetting(v any) (config.Provider, error) {
+	var p config.Provider
+	m, ok := v.(map[string]any)
+	if !ok {
+		return p, fmt.Errorf("provider.add expects id, base_url and api_key_env")
+	}
+	p.ID = toString(m["id"])
+	p.Name = toString(m["name"])
+	p.BaseURL = toString(m["base_url"])
+	p.APIKeyEnv = toString(m["api_key_env"])
+	if p.ID == "" || strings.ContainsAny(p.ID, " /\\") {
+		return p, fmt.Errorf("provider id must be a short name without spaces or slashes")
+	}
+	if !strings.HasPrefix(p.BaseURL, "http://") && !strings.HasPrefix(p.BaseURL, "https://") {
+		return p, fmt.Errorf("base URL must start with http:// or https://")
+	}
+	return p, nil
+}
+
+// upsertProvider replaces the provider with the same id, or appends it.
+func upsertProvider(c *config.Config, p config.Provider) {
+	for i := range c.Providers {
+		if c.Providers[i].ID == p.ID {
+			c.Providers[i] = p
+			return
+		}
+	}
+	c.Providers = append(c.Providers, p)
+}
+
+// checkProviderAdd refuses an id that belongs to a built-in provider.
+func (b *scribeBackend) checkProviderAdd(v any) error {
+	p, err := providerFromSetting(v)
+	if err != nil {
+		return err
+	}
+	if info, ok := b.current().Registry.Lookup(p.ID); ok && !info.Custom {
+		return fmt.Errorf("%q is a built-in provider; choose another id", p.ID)
 	}
 	return nil
 }

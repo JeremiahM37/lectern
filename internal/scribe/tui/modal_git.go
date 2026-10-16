@@ -1,0 +1,787 @@
+package tui
+
+// Git menu (Ctrl+G, /git), status list, and the commit modal (/commit).
+// Long work runs through asyncModal; see modal_async.go.
+
+import (
+	"context"
+	"fmt"
+	"path"
+	"strings"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/icons"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
+)
+
+func init() {
+	overrideCommands(
+		&command{Name: "commit", Args: "[message]", Desc: "Commit changes (suggests a message)", Group: "Git",
+			Run: func(m *Model, args string) tea.Cmd {
+				if args == "" {
+					return m.openCommitModal()
+				}
+				return m.commitWithGuard(args)
+			}},
+	)
+}
+
+// porcelainCmd lists every changed path with its two-letter status code.
+const porcelainCmd = "git status --porcelain=v1 --untracked-files=all"
+
+// gitEntry is one line of `git status --porcelain`.
+type gitEntry struct {
+	X, Y byte // index and worktree status letters
+	Path string
+}
+
+func (e gitEntry) untracked() bool { return e.X == '?' }
+func (e gitEntry) staged() bool    { return e.X != ' ' && e.X != '?' }
+func (e gitEntry) unstaged() bool  { return e.Y != ' ' && e.Y != '?' }
+
+// code is the letter shown for the entry in a list.
+func (e gitEntry) code() string {
+	switch {
+	case e.untracked():
+		return "??"
+	case e.X != ' ':
+		return string(e.X)
+	}
+	return string(e.Y)
+}
+
+// parsePorcelain reads porcelain v1 output. It keeps leading spaces, which
+// are part of the status codes, so the output must not be trimmed first.
+func parsePorcelain(out string) []gitEntry {
+	var es []gitEntry
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if len(line) < 4 {
+			continue
+		}
+		p := line[3:]
+		if i := strings.Index(p, " -> "); i >= 0 {
+			p = p[i+4:]
+		}
+		es = append(es, gitEntry{X: line[0], Y: line[1], Path: strings.Trim(p, "\"")})
+	}
+	return es
+}
+
+// statusColor colours a status letter. ?? uses the info colour.
+func statusColor(th theme.Theme, c byte) lipgloss.TerminalColor {
+	switch c {
+	case 'A':
+		return th.Success
+	case 'M':
+		return th.Warning
+	case 'D', 'U':
+		return th.Error
+	case 'R', 'C', '?':
+		return th.Info
+	}
+	return th.TextSecondary
+}
+
+// entryColor colours an entry by its primary code.
+func entryColor(th theme.Theme, e gitEntry) lipgloss.TerminalColor {
+	if e.untracked() {
+		return th.Info
+	}
+	if e.X != ' ' {
+		return statusColor(th, e.X)
+	}
+	return statusColor(th, e.Y)
+}
+
+// statusItems groups status entries for a Picker. Each path is a row whose
+// value is the path, so Enter can open its diff.
+func statusItems(th theme.Theme, es []gitEntry) []PickItem {
+	var staged, unstaged, untracked []PickItem
+	for _, e := range es {
+		if e.untracked() {
+			untracked = append(untracked, PickItem{Value: e.Path, Label: "?? " + e.Path, Color: th.Info})
+			continue
+		}
+		if e.staged() {
+			staged = append(staged, PickItem{Value: e.Path, Label: string(e.X) + "  " + e.Path, Color: statusColor(th, e.X)})
+		}
+		if e.unstaged() {
+			unstaged = append(unstaged, PickItem{Value: e.Path, Label: string(e.Y) + "  " + e.Path, Color: statusColor(th, e.Y)})
+		}
+	}
+	var out []PickItem
+	for _, g := range []struct {
+		name  string
+		items []PickItem
+	}{{"Staged", staged}, {"Unstaged", unstaged}, {"Untracked", untracked}} {
+		for _, it := range g.items {
+			it.Group = fmt.Sprintf("%s (%d)", g.name, len(g.items))
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// secretFiles returns the paths that look like credentials.
+func secretFiles(paths []string) []string {
+	var out []string
+	for _, p := range paths {
+		base := path.Base(p)
+		if strings.HasPrefix(base, ".env") || strings.HasPrefix(base, "id_rsa") ||
+			strings.HasSuffix(base, ".pem") || strings.HasSuffix(base, ".key") {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// readStatus runs porcelain status off the loop and hands back the entries
+// or the reason they could not be read.
+func readStatus(be Backend) (entries []gitEntry, reason string) {
+	out, code, err := shellRun(be, porcelainCmd, 30*time.Second)
+	switch {
+	case err != nil:
+		return nil, err.Error()
+	case code != 0:
+		return nil, outputLine(out)
+	}
+	return parsePorcelain(out), ""
+}
+
+// ---------------------------------------------------------------- git menu
+
+// gitMenu is the Ctrl+G menu. Each action closes it, except the confirms
+// that ask first.
+type gitMenu struct {
+	m    *Model
+	be   Backend
+	th   theme.Theme
+	st   GitStatus
+	acts []gitAction
+	cur  int
+}
+
+// gitAction is one row of the git menu.
+type gitAction struct {
+	key, label, desc, icon string
+	run                    func(g *gitMenu) (tea.Cmd, bool) // reports whether the menu closes
+}
+
+// openGitMenu is Ctrl+G and /git.
+func (m *Model) openGitMenu() {
+	t := m.cur()
+	g := &gitMenu{m: m, be: t.be, th: m.th, st: t.be.Git()}
+	g.acts = []gitAction{
+		{"s", "Status", "changed files, staged and unstaged", "git", (*gitMenu).actStatus},
+		{"d", "Diff", "working tree changes", "diff_add", (*gitMenu).actDiff},
+		{"c", "Commit", "stage everything and commit", "check", (*gitMenu).actCommit},
+		{"t", "Stash", "stash tracked changes", "file", (*gitMenu).actStash},
+		{"o", "Stash pop", "restore the latest stash", "rewind", (*gitMenu).actPop},
+		{"l", "Log", "last 30 commits", "clock", (*gitMenu).actLog},
+		{"p", "Push", "send commits to the remote", "arrow_right", (*gitMenu).actPush},
+	}
+	m.pushModal(g)
+}
+
+func (g *gitMenu) branch() string {
+	if g.st.Branch == "" {
+		return "(no branch)"
+	}
+	return g.st.Branch
+}
+
+func (g *gitMenu) actStatus() (tea.Cmd, bool) {
+	m, be, th := g.m, g.be, g.th
+	p := NewPicker(th, "Git status", "git")
+	p.Hint = "↑↓ move · Enter open diff · / filter · Esc close"
+	p.Loading, p.Spin = true, "◌"
+	p.Blurb = g.counts()
+	p.Empty = "Working tree clean."
+	p.OnSelect = func(it PickItem) tea.Cmd { return m.openWorkingDiff(it.Value) }
+	m.pushModal(p)
+	return asyncModal(p, func() func() (tea.Cmd, bool) {
+		es, reason := readStatus(be)
+		items := statusItems(th, es)
+		return func() (tea.Cmd, bool) {
+			p.Loading = false
+			if reason != "" {
+				p.Empty = "Could not read status: " + reason
+			}
+			p.SetItems(items)
+			return nil, false
+		}
+	}), true
+}
+
+func (g *gitMenu) actDiff() (tea.Cmd, bool) { return g.m.openWorkingDiff(""), true }
+
+func (g *gitMenu) actCommit() (tea.Cmd, bool) { return g.m.openCommitModal(), true }
+
+func (g *gitMenu) actStash() (tea.Cmd, bool) {
+	m, be := g.m, g.be
+	m.pushModal(NewConfirm(g.th, "Stash changes?",
+		"Stashes tracked changes and resets the working tree to HEAD. Untracked files stay where they are.", false,
+		func() tea.Cmd {
+			m.closeModal(g)
+			m.setFlash("info", "Stashing…")
+			return shellFlash(be, "git stash push", "Changes stashed.", "Stash failed")
+		}))
+	return nil, false
+}
+
+func (g *gitMenu) actPop() (tea.Cmd, bool) {
+	m, be := g.m, g.be
+	m.pushModal(NewConfirm(g.th, "Pop the latest stash?",
+		"Applies the most recent stash to the working tree and drops it from the stash list.", false,
+		func() tea.Cmd {
+			m.closeModal(g)
+			m.setFlash("info", "Popping the stash…")
+			return shellFlash(be, "git stash pop", "Stash popped.", "Stash pop failed")
+		}))
+	return nil, false
+}
+
+func (g *gitMenu) actLog() (tea.Cmd, bool) {
+	m, be, th := g.m, g.be, g.th
+	iv := NewInfoView(th, "Git log", "git", []string{"Reading the log…"})
+	m.pushModal(iv)
+	return asyncModal(iv, func() func() (tea.Cmd, bool) {
+		out, code, err := shellRun(be, "git log --oneline --decorate -30", 30*time.Second)
+		var lines []string
+		switch {
+		case err != nil || (code != 0 && strings.TrimSpace(out) == ""):
+			lines = []string{"Could not read the log."}
+		case strings.TrimSpace(out) == "":
+			lines = []string{"No commits found."}
+		default:
+			lines = strings.Split(strings.TrimRight(out, "\n"), "\n")
+		}
+		return func() (tea.Cmd, bool) {
+			iv.lines, iv.off = lines, 0
+			return nil, false
+		}
+	}), true
+}
+
+func (g *gitMenu) actPush() (tea.Cmd, bool) {
+	m, be, th := g.m, g.be, g.th
+	branch := g.branch()
+	return asyncModal(g, func() func() (tea.Cmd, bool) {
+		upstream, code, err := shellRun(be, "git rev-parse --abbrev-ref --symbolic-full-name @{u}", 15*time.Second)
+		up := ""
+		if err == nil && code == 0 {
+			up = strings.TrimSpace(upstream)
+		}
+		return func() (tea.Cmd, bool) {
+			title, msg := "Push to remote?", "This branch has no upstream yet, so git push will fail unless one is configured."
+			if up != "" {
+				title = "Push to " + up + "?"
+				msg = fmt.Sprintf("Sends your local commits on %s to %s.", branch, up)
+			}
+			m.pushModal(NewConfirm(th, title, msg, true, func() tea.Cmd {
+				m.closeModal(g)
+				m.setFlash("info", "Pushing…")
+				return shellFlash(be, "git push", "Push complete.", "Push failed")
+			}))
+			return nil, false
+		}
+	}), false
+}
+
+// counts describes the working tree in one line: branch position and dirt.
+func (g *gitMenu) counts() string {
+	var parts []string
+	if g.st.Ahead > 0 || g.st.Behind > 0 {
+		parts = append(parts, fmt.Sprintf("↑%d ↓%d", g.st.Ahead, g.st.Behind))
+	}
+	if g.st.Dirty {
+		parts = append(parts, fmt.Sprintf("%d changed", len(g.st.Changed)))
+	} else {
+		parts = append(parts, "clean")
+	}
+	return strings.Join(parts, " · ")
+}
+
+// Update implements Modal.
+func (g *gitMenu) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
+	km, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return g, nil, false
+	}
+	key := km.String()
+	switch key {
+	case "esc":
+		return g, nil, true
+	case "up", "k":
+		g.cur = (g.cur - 1 + len(g.acts)) % len(g.acts)
+	case "down", "j":
+		g.cur = (g.cur + 1) % len(g.acts)
+	case "enter":
+		return g.run(g.cur)
+	default:
+		for i, a := range g.acts {
+			if a.key == key {
+				g.cur = i
+				return g.run(i)
+			}
+		}
+	}
+	return g, nil, false
+}
+
+func (g *gitMenu) run(i int) (Modal, tea.Cmd, bool) {
+	cmd, done := g.acts[i].run(g)
+	return g, cmd, done
+}
+
+// Title implements Modal.
+func (g *gitMenu) Title() string { return "Git" }
+
+// Icon implements Iconed.
+func (g *gitMenu) Icon() string { return "git" }
+
+// Footer implements Footered.
+func (g *gitMenu) Footer() string {
+	return "↑↓ move · Enter run · s d c t o l p direct · Esc close"
+}
+
+// Size implements Sized.
+func (g *gitMenu) Size(cols, rows int) (int, int) {
+	return min(60, max(48, cols/2)), 16
+}
+
+// View implements Modal.
+func (g *gitMenu) View(w, h int) string {
+	th := g.th
+	blurb := "Common git actions"
+	if g.st.Branch == "" {
+		blurb = "Not a git repository."
+	}
+	lines := []string{
+		spaceBetween(fgb(th.TextPrimary).Render(icons.Icon("git")+" "+g.branch()), fg(th.TextMuted).Render(g.counts()), w),
+		fg(th.TextMuted).Render(blurb),
+		"",
+	}
+	for i, a := range g.acts {
+		mark, lab := "  ", fg(th.TextPrimary)
+		if i == g.cur {
+			mark, lab = fgb(th.BrandSecondary).Render("› "), fgb(th.TextPrimary)
+		}
+		line := mark + fgb(th.Brand).Render(a.key) + "  " + lab.Render(fmt.Sprintf("%-10s", a.label)) +
+			fg(th.TextDim).Render(a.desc)
+		lines = append(lines, render.Truncate(line, w))
+	}
+	return strings.Join(fitLines(lines, w, h), "\n")
+}
+
+// openWorkingDiff opens the working tree diff, selecting path when given.
+func (m *Model) openWorkingDiff(path string) tea.Cmd {
+	be := m.cur().be
+	v := newDiffView(m, "Working tree diff", path)
+	m.pushModal(v)
+	return asyncModal(v, func() func() (tea.Cmd, bool) {
+		text := be.GitDiff()
+		return func() (tea.Cmd, bool) {
+			v.load(text, "No changes in the working tree.")
+			return nil, false
+		}
+	})
+}
+
+// ---------------------------------------------------------------- commit
+
+// commitModal writes a message, shows what will be committed, and commits.
+// lines[0] is the subject; lines[1:] are the body.
+type commitModal struct {
+	m          *Model
+	be         Backend
+	th         theme.Theme
+	lines      []string
+	row, col   int
+	files      []gitEntry
+	secrets    []string
+	loading    bool
+	busy       string // non-empty while a background job runs; keys are held
+	suggesting bool
+	err        string
+	cols, rows int
+}
+
+// openCommitModal opens the commit modal and reads the changed files.
+func (m *Model) openCommitModal() tea.Cmd {
+	c := &commitModal{m: m, be: m.cur().be, th: m.th, lines: []string{""}, loading: true}
+	m.pushModal(c)
+	be := c.be
+	return asyncModal(c, func() func() (tea.Cmd, bool) {
+		es, reason := readStatus(be)
+		return func() (tea.Cmd, bool) {
+			c.loading = false
+			c.files = es
+			c.err = reason
+			paths := make([]string, 0, len(es))
+			for _, e := range es {
+				paths = append(paths, e.Path)
+			}
+			c.secrets = secretFiles(paths)
+			return nil, false
+		}
+	})
+}
+
+// commitWithGuard handles /commit <message>, asking first when a changed file
+// looks like a credential.
+func (m *Model) commitWithGuard(msg string) tea.Cmd {
+	secrets := secretFiles(m.cur().be.Git().Changed)
+	if len(secrets) == 0 {
+		return m.gitCommit(msg)
+	}
+	m.pushModal(secretConfirm(m.th, secrets, func() tea.Cmd { return m.gitCommit(msg) }))
+	return nil
+}
+
+// secretConfirm asks before committing files that look like credentials.
+func secretConfirm(th theme.Theme, secrets []string, onYes func() tea.Cmd) *listConfirm {
+	return newListConfirm(th, "Commit files that look like secrets?",
+		"These files look like credentials. Committing stages them with everything else, and they stay in the git history.",
+		secrets, true, onYes)
+}
+
+// composeMessage joins the subject and the trimmed body into a commit message.
+func composeMessage(lines []string) string {
+	subject := strings.TrimSpace(lines[0])
+	var body []string
+	for _, l := range lines[1:] {
+		body = append(body, strings.TrimRight(l, " \t"))
+	}
+	text := strings.TrimSpace(strings.Join(body, "\n"))
+	if text == "" {
+		return subject
+	}
+	return subject + "\n\n" + text
+}
+
+// setMessage fills the editor from a suggested message.
+func (c *commitModal) setMessage(text string) {
+	subject, body, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	c.lines = append([]string{strings.TrimSpace(subject)}, strings.Split(strings.TrimSpace(body), "\n")...)
+	c.row = 0
+	c.col = len([]rune(c.lines[0]))
+}
+
+// suggest asks the model for a message, filling the editor when it answers.
+func (c *commitModal) suggest() tea.Cmd {
+	if c.loading {
+		c.err = "Still reading the changed files."
+		return nil
+	}
+	c.busy, c.suggesting, c.err = "Suggesting a message…", true, ""
+	be := c.be
+	return asyncModal(c, func() func() (tea.Cmd, bool) {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		sugg, err := be.SuggestCommitMessage(ctx)
+		return func() (tea.Cmd, bool) {
+			c.busy, c.suggesting = "", false
+			if err != nil {
+				c.err = "No suggestion: " + err.Error()
+				return nil, false
+			}
+			c.setMessage(sugg)
+			return nil, false
+		}
+	})
+}
+
+// tryCommit validates the message, then commits or asks about secret files.
+func (c *commitModal) tryCommit() tea.Cmd {
+	if c.loading {
+		c.err = "Still reading the changed files."
+		return nil
+	}
+	subject := strings.TrimSpace(c.lines[0])
+	if subject == "" {
+		c.row, c.col = 0, 0
+		c.err = "Commit message cannot be empty."
+		return nil
+	}
+	if len(c.files) == 0 {
+		c.err = "No changes to commit."
+		return nil
+	}
+	msg := composeMessage(c.lines)
+	if len(c.secrets) > 0 {
+		c.m.pushModal(secretConfirm(c.th, c.secrets, func() tea.Cmd { return c.commit(msg, subject) }))
+		return nil
+	}
+	return c.commit(msg, subject)
+}
+
+// commit runs GitCommit in the background. The modal closes on success and
+// shows the error inline on failure.
+func (c *commitModal) commit(msg, subject string) tea.Cmd {
+	c.busy, c.err = "Committing…", ""
+	be, m := c.be, c.m
+	return asyncModal(c, func() func() (tea.Cmd, bool) {
+		err := be.GitCommit(msg)
+		return func() (tea.Cmd, bool) {
+			if err != nil {
+				c.busy = ""
+				c.err = "Commit failed: " + err.Error()
+				return nil, false
+			}
+			m.setFlash("ok", "Committed: "+subject)
+			return nil, true
+		}
+	})
+}
+
+// Update implements Modal.
+func (c *commitModal) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
+	km, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return c, nil, false
+	}
+	key := km.String()
+	if c.busy != "" {
+		// Esc abandons a suggestion; its result is then dropped. Nothing
+		// else can be interrupted while the commit is running.
+		if key == "esc" && c.suggesting {
+			return c, nil, true
+		}
+		return c, nil, false
+	}
+	switch key {
+	case "esc":
+		return c, nil, true
+	case "ctrl+g":
+		return c, c.suggest(), false
+	case "ctrl+s":
+		return c, c.tryCommit(), false
+	case "enter":
+		if c.row == 0 {
+			c.toBody()
+		} else {
+			c.newline()
+		}
+	case "tab":
+		c.toBody()
+	case "shift+tab":
+		c.row, c.col = 0, min(c.col, len([]rune(c.lines[0])))
+	case "backspace":
+		c.backspace()
+	case "left":
+		if c.col > 0 {
+			c.col--
+		} else if c.row > 0 {
+			c.row--
+			c.col = len([]rune(c.lines[c.row]))
+		}
+	case "right":
+		if c.col < len([]rune(c.lines[c.row])) {
+			c.col++
+		} else if c.row < len(c.lines)-1 {
+			c.row++
+			c.col = 0
+		}
+	case "up":
+		if c.row > 0 {
+			c.row--
+			c.col = min(c.col, len([]rune(c.lines[c.row])))
+		}
+	case "down":
+		if c.row < len(c.lines)-1 {
+			c.row++
+			c.col = min(c.col, len([]rune(c.lines[c.row])))
+		}
+	case "home":
+		c.col = 0
+	case "end":
+		c.col = len([]rune(c.lines[c.row]))
+	default:
+		if s := printable(km); s != "" {
+			c.insert(s)
+		}
+	}
+	return c, nil, false
+}
+
+// toBody moves the cursor to the start of the body, creating it if needed.
+func (c *commitModal) toBody() {
+	if len(c.lines) < 2 {
+		c.lines = append(c.lines, "")
+	}
+	c.row, c.col = 1, 0
+}
+
+func (c *commitModal) insert(s string) {
+	r := []rune(c.lines[c.row])
+	ins := []rune(s)
+	out := make([]rune, 0, len(r)+len(ins))
+	out = append(out, r[:c.col]...)
+	out = append(out, ins...)
+	out = append(out, r[c.col:]...)
+	c.lines[c.row] = string(out)
+	c.col += len(ins)
+	c.err = ""
+}
+
+func (c *commitModal) newline() {
+	r := []rune(c.lines[c.row])
+	head, tail := string(r[:c.col]), string(r[c.col:])
+	c.lines[c.row] = head
+	rest := append([]string{tail}, c.lines[c.row+1:]...)
+	c.lines = append(c.lines[:c.row+1], rest...)
+	c.row++
+	c.col = 0
+}
+
+func (c *commitModal) backspace() {
+	switch {
+	case c.col > 0:
+		r := []rune(c.lines[c.row])
+		c.lines[c.row] = string(append(r[:c.col-1], r[c.col:]...))
+		c.col--
+	case c.row > 0:
+		prev := []rune(c.lines[c.row-1])
+		c.col = len(prev)
+		c.lines[c.row-1] = string(prev) + c.lines[c.row]
+		c.lines = append(c.lines[:c.row], c.lines[c.row+1:]...)
+		c.row--
+	}
+	c.err = ""
+}
+
+// Title implements Modal.
+func (c *commitModal) Title() string { return "Git commit" }
+
+// Icon implements Iconed.
+func (c *commitModal) Icon() string { return "git" }
+
+// Footer implements Footered.
+func (c *commitModal) Footer() string {
+	return "Enter new line · Tab body · Ctrl+S commit · Ctrl+G suggest · Esc cancel"
+}
+
+// Size implements Sized.
+func (c *commitModal) Size(cols, rows int) (int, int) {
+	c.cols, c.rows = cols, rows
+	return min(72, max(56, cols*6/10)), min(rows-4, 22)
+}
+
+// summary is the first line: what the commit will contain.
+func (c *commitModal) summary() (string, bool) {
+	th := c.th
+	switch {
+	case c.loading:
+		return fg(th.TextMuted).Render(spinner() + " Reading the changes…"), false
+	case len(c.files) == 0:
+		return fg(th.TextMuted).Render("No changes to commit."), false
+	}
+	kinds := map[string]int{}
+	for _, e := range c.files {
+		switch {
+		case e.untracked() || e.X == 'A':
+			kinds["new"]++
+		case e.X == 'D' || e.Y == 'D':
+			kinds["deleted"]++
+		default:
+			kinds["modified"]++
+		}
+	}
+	var parts []string
+	for _, k := range []string{"modified", "new", "deleted"} {
+		if kinds[k] > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", kinds[k], k))
+		}
+	}
+	text := fmt.Sprintf("● %d changed (%s) · git add -A stages them all", len(c.files), strings.Join(parts, ", "))
+	return fg(th.Success).Render(text), true
+}
+
+// View implements Modal.
+func (c *commitModal) View(w, h int) string {
+	th := c.th
+	var out []string
+	sum, _ := c.summary()
+	out = append(out, render.Truncate(sum, w))
+
+	secretRows := 0
+	if len(c.secrets) > 0 {
+		secretRows = 1
+	}
+	edH := clamp(len(c.lines), 3, 6)
+	budget := h - 4 - secretRows - edH // summary, blank, label, status
+	if budget > 0 && len(c.files) > 0 {
+		show := c.files
+		more := 0
+		if len(show) > budget {
+			more = len(show) - (budget - 1)
+			show = show[:budget-1]
+		}
+		for _, e := range show {
+			line := "  " + fgb(entryColor(th, e)).Render(fmt.Sprintf("%-2s", e.code())) + "  " + fg(th.TextSecondary).Render(e.Path)
+			out = append(out, render.Truncate(line, w))
+		}
+		if more > 0 {
+			out = append(out, fg(th.TextFaint).Render(fmt.Sprintf("  … and %d more", more)))
+		}
+	}
+	if secretRows == 1 {
+		out = append(out, render.Truncate(fg(th.Warning).Render("⚠ looks like a secret: "+strings.Join(c.secrets, ", ")+" · Ctrl+S asks first"), w))
+	}
+	out = append(out, "", fg(th.TextMuted).Render("Message:"))
+
+	start := 0
+	if c.row >= edH {
+		start = c.row - edH + 1
+	}
+	for i := start; i < start+edH; i++ {
+		if i >= len(c.lines) {
+			out = append(out, "")
+			continue
+		}
+		out = append(out, render.Truncate(c.editorLine(i, w), w))
+	}
+
+	switch {
+	case c.busy != "":
+		out = append(out, fg(th.BrandSecondary).Render(spinner()+" "+c.busy))
+	case c.err != "":
+		out = append(out, render.Truncate(fg(th.Error).Render(c.err), w))
+	default:
+		out = append(out, "")
+	}
+	return strings.Join(fitLines(out, w, h), "\n")
+}
+
+// editorLine draws line i of the message with the cursor when it is focused.
+func (c *commitModal) editorLine(i, w int) string {
+	th := c.th
+	text := c.lines[i]
+	focused := i == c.row
+	prefix := "  "
+	base := fg(th.TextSecondary)
+	if i == 0 {
+		base = fg(th.TextPrimary)
+	}
+	if focused {
+		prefix = fg(th.Brand).Render("› ")
+	}
+	if text == "" && i == 0 && len(c.lines) == 1 {
+		if focused {
+			return prefix + fg(th.Brand).Render("▌") + fg(th.TextDim).Render("subject: describe the change")
+		}
+		return prefix + fg(th.TextDim).Render("subject: describe the change")
+	}
+	if !focused {
+		return prefix + base.Render(text)
+	}
+	r := []rune(text)
+	col := min(c.col, len(r))
+	return prefix + base.Render(string(r[:col])) + fg(th.Brand).Render("▌") + base.Render(string(r[col:]))
+}

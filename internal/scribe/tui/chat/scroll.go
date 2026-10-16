@@ -40,7 +40,7 @@ func (v *View) build() {
 		base := len(lines)
 		lines = append(lines, rb.lines...)
 		for _, h := range rb.hits {
-			hits[base+h.line] = hitTarget{rec: rec, call: h.call, seg: h.seg}
+			hits[base+h.line] = hitTarget{rec: rec, call: h.call, seg: h.seg, summary: h.summary}
 		}
 	}
 	if len(v.msgs) == 0 {
@@ -194,6 +194,9 @@ func (v *View) HandleMouse(m tea.MouseMsg) bool {
 		t, ok := v.hits[abs]
 		if !ok {
 			return false
+		}
+		if t.summary {
+			t.rec.ReasonOpen = !t.rec.ReasonOpen
 		}
 		if t.call != nil {
 			t.call.Toggled = !t.call.Toggled

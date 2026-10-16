@@ -228,45 +228,56 @@ func (v *View) renderAssistant(rec *Record, w int, now time.Time) builder {
 	return b
 }
 
-// renderBody lays out an assistant turn's segments. In auto layout the
-// tool calls form one rail placed after the opening text and before the
-// final answer; verbose keeps segments in arrival order.
+// renderBody lays out an assistant turn's segments. Verbose keeps them in
+// arrival order. Auto layout shows one reasoning row (live while the turn
+// runs, a summary once it is done), the tool rail, and the final answer.
 func (v *View) renderBody(rec *Record, cw int, now time.Time) builder {
 	var out builder
-	firstTools, lastTools := -1, -1
-	for i, s := range rec.Segments {
-		if s.Kind == "tools" {
-			if firstTools < 0 {
-				firstTools = i
-			}
-			lastTools = i
-		}
-	}
-	if v.opt.Verbose || firstTools < 0 {
+	answer := answerText(rec)
+	if v.opt.Verbose {
 		prev := ""
 		for _, s := range rec.Segments {
+			if s.Kind == "reasoning" && isDupReasoning(s, answer) {
+				prev = s.Kind
+				continue
+			}
 			out.block(v.renderSeg(s, cw, now, prev == "tools"))
 			prev = s.Kind
 		}
 		return out
 	}
-	var pre, post builder
-	var calls []*Call
+	lastTools := -1
 	for i, s := range rec.Segments {
 		if s.Kind == "tools" {
-			calls = append(calls, s.Calls...)
-			continue
-		}
-		blk := v.renderSeg(s, cw, now, i > 0 && rec.Segments[i-1].Kind == "tools")
-		if i < lastTools {
-			pre.block(blk)
-		} else {
-			post.block(blk)
+			lastTools = i
 		}
 	}
-	thinking := rec == v.live && rec.Segments[len(rec.Segments)-1].Kind == "tools" && allDone(calls)
+	var pre, post builder
+	for i, s := range rec.Segments {
+		switch s.Kind {
+		case "tools", "reasoning":
+			continue
+		case "text":
+			if i < lastTools {
+				continue // intermediate text: shown by the head or the rail
+			}
+			post.block(v.renderSeg(s, cw, now, i > 0 && rec.Segments[i-1].Kind == "tools"))
+		default: // plan and tasks keep their place
+			blk := v.renderSeg(s, cw, now, false)
+			if i < lastTools {
+				pre.block(blk)
+			} else {
+				post.block(blk)
+			}
+		}
+	}
 	out.block(pre)
-	out.block(v.renderRail(rec, calls, now, cw, thinking))
+	out.block(v.renderHead(rec, lastTools, answer, cw, now))
+	if lastTools >= 0 {
+		calls := allCalls(rec)
+		thinking := rec == v.live && rec.Segments[len(rec.Segments)-1].Kind == "tools" && allDone(calls)
+		out.block(v.renderRail(rec, now, cw, thinking))
+	}
 	out.block(post)
 	return out
 }

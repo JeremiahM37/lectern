@@ -37,6 +37,27 @@ var commandTable []*command
 
 func registerCommands(cs ...*command) { commandTable = append(commandTable, cs...) }
 
+// overrideCommands replaces commands with the same Name (or adds them).
+// Feature files call it from their own init() so that a full modal can
+// take over a placeholder command without editing this file. Go runs init
+// functions of a package's files in file-name order after this file's
+// variable initialisation, and commands.go's own init sorts first, so
+// overrides always win.
+func overrideCommands(cs ...*command) {
+	for _, c := range cs {
+		replaced := false
+		for i, old := range commandTable {
+			if old.Name == c.Name {
+				commandTable[i] = c
+				replaced = true
+			}
+		}
+		if !replaced {
+			commandTable = append(commandTable, c)
+		}
+	}
+}
+
 // allCommands returns the registry in palette order.
 func allCommands() []*command {
 	out := make([]*command, 0, len(commandTable))

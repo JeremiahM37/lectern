@@ -37,11 +37,11 @@ func Errorf(format string, a ...any) Result {
 
 // Approval is a question to the user before a risky action.
 type Approval struct {
-	Tool    string // tool name
-	Kind    string // "shell", "write_outside", "destructive", "web", "mcp"
-	Title   string // short line, e.g. "Run shell command"
-	Detail  string // the command / path / URL
-	Danger  bool   // destructive: render red, default to Deny
+	Tool   string // tool name
+	Kind   string // "shell", "write_outside", "destructive", "web", "mcp"
+	Title  string // short line, e.g. "Run shell command"
+	Detail string // the command / path / URL
+	Danger bool   // destructive: render red, default to Deny
 }
 
 // Decision is the user's answer to an Approval.

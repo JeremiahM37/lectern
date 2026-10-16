@@ -318,17 +318,22 @@ func TestTUIHostAllowSessionIsRemembered(t *testing.T) {
 		}
 	}()
 	ap := tools.Approval{Tool: "shell", Kind: "destructive", Title: "rm", Detail: "rm -rf x"}
-	if d := h.Approve(context.Background(), ap); d != tools.AllowSession {
-		t.Fatalf("first decision = %v", d)
+	// Every Approve gets a deadline: with no responder it must fail, not hang.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if d := h.Approve(ctx, ap); d != tools.AllowSession {
+		t.Fatalf("first decision = %v (ctx: %v)", d, ctx.Err())
 	}
-	if d := h.Approve(context.Background(), ap); d != tools.AllowSession {
+	if d := h.Approve(ctx, ap); d != tools.AllowSession {
 		t.Fatalf("second decision = %v", d)
 	}
 	if n := prompts.Load(); n != 1 {
 		t.Fatalf("prompted %d times, want 1", n)
 	}
 	h.resetSession()
-	_ = h.Approve(context.Background(), ap)
+	if d := h.Approve(ctx, ap); d != tools.AllowSession {
+		t.Fatalf("after reset decision = %v (ctx: %v)", d, ctx.Err())
+	}
 	if n := prompts.Load(); n != 2 {
 		t.Fatalf("after reset prompted %d times, want 2", n)
 	}
@@ -372,12 +377,17 @@ func TestPumpMergesDeltasBehindABacklog(t *testing.T) {
 	p.push(agent.Event{Kind: agent.EvText, Text: "llo"})
 	p.push(agent.Event{Kind: agent.EvTurnDone})
 	var tail []agent.Event
+	deadline := time.After(10 * time.Second)
 	for len(tail) < 3 {
-		e := <-p.out
-		if e.Text == "fill" {
-			continue
+		select {
+		case e := <-p.out:
+			if e.Text == "fill" {
+				continue
+			}
+			tail = append(tail, e)
+		case <-deadline:
+			t.Fatalf("pump delivered %d of 3 tail events within 10s", len(tail))
 		}
-		tail = append(tail, e)
 	}
 	if tail[0].Text != "queued" {
 		t.Fatalf("order lost at the head: %+v", tail[0])

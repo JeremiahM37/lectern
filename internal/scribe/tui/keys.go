@@ -25,7 +25,7 @@ func (m *Model) handleGlobalKey(km tea.KeyMsg) (tea.Cmd, bool) {
 	case "ctrl+p":
 		m.openSessionPicker()
 	case "ctrl+s":
-		m.openSkills()
+		m.openSkillBrowser()
 	case "ctrl+o":
 		t.chat.ToggleExpand()
 	case "esc":
@@ -182,22 +182,6 @@ func (m *Model) browseCheckpoint(dir int) tea.Cmd {
 	t.browse = usable[pos]
 	t.chat.JumpToTurn(t.cps[t.browse].Turn)
 	return nil
-}
-
-// confirmUndo asks before reverting the last turn.
-func (m *Model) confirmUndo() {
-	t := m.cur()
-	m.pushModal(NewConfirm(m.th, "Undo last turn?",
-		"This restores the files that the last turn changed. You can redo it with /redo.", true,
-		func() tea.Cmd {
-			cp, err := t.be.Undo()
-			if err != nil {
-				m.setFlash("err", "Undo failed: "+err.Error())
-				return nil
-			}
-			m.setFlash("ok", fmt.Sprintf("Undid turn %d (%d files)", cp.Turn, len(cp.Files)))
-			return nil
-		}))
 }
 
 // requestCloseTab implements Ctrl+W: closes the active tab, asking first when it is busy.

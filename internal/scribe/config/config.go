@@ -13,9 +13,9 @@ import (
 
 // Provider is a user-defined OpenAI-compatible provider.
 type Provider struct {
-	ID      string            `json:"id"`
-	Name    string            `json:"name,omitempty"`
-	BaseURL string            `json:"base_url"`
+	ID      string `json:"id"`
+	Name    string `json:"name,omitempty"`
+	BaseURL string `json:"base_url"`
 	// APIKeyEnv names the environment variable holding the key. Keys may
 	// also be stored with `lectern code --set-key`.
 	APIKeyEnv string            `json:"api_key_env,omitempty"`
@@ -25,13 +25,13 @@ type Provider struct {
 
 // Router assigns models to task slots. Empty slots use Model.
 type Router struct {
-	Explore    string   `json:"explore,omitempty"`    // read-only subagents
-	Code       string   `json:"code,omitempty"`       // editing subagents
-	WebSearch  string   `json:"web_search,omitempty"` // web research subagent
-	Compact    string   `json:"compact,omitempty"`    // summarisation for compaction
-	Title      string   `json:"title,omitempty"`      // session titles / commit messages
-	Fallback   []string `json:"fallback,omitempty"`   // tried in order when Model keeps failing
-	MaxAgents  int      `json:"max_agents,omitempty"` // concurrent subagents (2-8, default 3)
+	Explore   string   `json:"explore,omitempty"`    // read-only subagents
+	Code      string   `json:"code,omitempty"`       // editing subagents
+	WebSearch string   `json:"web_search,omitempty"` // web research subagent
+	Compact   string   `json:"compact,omitempty"`    // summarisation for compaction
+	Title     string   `json:"title,omitempty"`      // session titles / commit messages
+	Fallback  []string `json:"fallback,omitempty"`   // tried in order when Model keeps failing
+	MaxAgents int      `json:"max_agents,omitempty"` // concurrent subagents (2-8, default 3)
 }
 
 // Hook runs a shell command on an agent event.
@@ -44,13 +44,13 @@ type Hook struct {
 
 // MCPServer is an MCP server the agent can use.
 type MCPServer struct {
-	Name    string            `json:"name"`
-	Command string            `json:"command,omitempty"` // stdio transport
-	Args    []string          `json:"args,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
-	URL     string            `json:"url,omitempty"` // streamable HTTP transport
-	Headers map[string]string `json:"headers,omitempty"`
-	Disabled bool             `json:"disabled,omitempty"`
+	Name     string            `json:"name"`
+	Command  string            `json:"command,omitempty"` // stdio transport
+	Args     []string          `json:"args,omitempty"`
+	Env      map[string]string `json:"env,omitempty"`
+	URL      string            `json:"url,omitempty"` // streamable HTTP transport
+	Headers  map[string]string `json:"headers,omitempty"`
+	Disabled bool              `json:"disabled,omitempty"`
 }
 
 // Config is the merged configuration. Pointer and zero values mean "unset"
@@ -62,16 +62,22 @@ type Config struct {
 	Reasoning string `json:"reasoning,omitempty"`  // "", low, medium, high
 	MaxTokens int    `json:"max_tokens,omitempty"` // per response
 
-	NerdFont      *bool `json:"nerd_font,omitempty"`
-	ShowReasoning *bool `json:"show_reasoning,omitempty"`
-	Verbose       *bool `json:"verbose,omitempty"`       // show every tool row in order
-	ChatStyle     string `json:"chat_style,omitempty"`   // accent | bubble
-	Vim           *bool `json:"vim,omitempty"`            // vim keys in the input box
-	RepoMap       *bool `json:"repo_map,omitempty"`       // build the code map (default on)
-	AutoCompact   *bool `json:"auto_compact,omitempty"`   // default on
+	NerdFont      *bool   `json:"nerd_font,omitempty"`
+	ShowReasoning *bool   `json:"show_reasoning,omitempty"`
+	Verbose       *bool   `json:"verbose,omitempty"`      // show every tool row in order
+	ChatStyle     string  `json:"chat_style,omitempty"`   // accent | bubble
+	Vim           *bool   `json:"vim,omitempty"`          // vim keys in the input box
+	RepoMap       *bool   `json:"repo_map,omitempty"`     // build the code map (default on)
+	AutoCompact   *bool   `json:"auto_compact,omitempty"` // default on
 	CompactAt     float64 `json:"compact_at,omitempty"`   // fraction of window, default 0.8
-	Memory        *bool `json:"memory,omitempty"`         // recall + memory tool (default on)
-	Checkpoints   *bool `json:"checkpoints,omitempty"`    // default on
+	Memory        *bool   `json:"memory,omitempty"`       // recall + memory tool (default on)
+	Checkpoints   *bool   `json:"checkpoints,omitempty"`  // default on
+	// DeferredTools sends only core tools each step; other tools load on
+	// request_tools (default on). AutoCheck runs the project's typecheck or
+	// build after a turn that edited files and ended without a check
+	// (default on).
+	DeferredTools *bool `json:"deferred_tools,omitempty"`
+	AutoCheck     *bool `json:"auto_check,omitempty"`
 
 	// Instructions lists instruction files loaded into the system prompt,
 	// relative to the project root or ~ (default: SCRIBE.md, AGENTS.md,
@@ -185,6 +191,8 @@ func Merge(base, o Config) Config {
 	bp(&r.AutoCompact, o.AutoCompact)
 	bp(&r.Memory, o.Memory)
 	bp(&r.Checkpoints, o.Checkpoints)
+	bp(&r.DeferredTools, o.DeferredTools)
+	bp(&r.AutoCheck, o.AutoCheck)
 	if o.Instructions != nil {
 		r.Instructions = o.Instructions
 	}

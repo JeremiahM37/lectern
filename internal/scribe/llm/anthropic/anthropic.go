@@ -176,6 +176,7 @@ func (p *Provider) readAPIError(resp *http.Response) *llm.APIError {
 		StatusCode: resp.StatusCode,
 		RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
 	}
+	ae.RetryAfterSet = resp.Header.Get("Retry-After") != ""
 	var env struct {
 		Error struct {
 			Type    string `json:"type"`
