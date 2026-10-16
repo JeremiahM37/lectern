@@ -112,3 +112,25 @@ def test_the_phone_more_sheet_is_grouped_and_aligned(page, server):
         lefts.add((round(icon["x"]), round(label["x"])))
         assert items.nth(i).bounding_box()["height"] >= 44
     assert len(lefts) == 1, lefts
+
+
+def test_star_a_session_and_show_only_favorites(page, server):
+    """A session is starred from its card's ⋯ menu; the card then shows ★, and
+    the Favorites filter lists only starred sessions. Unstarred cards gain
+    nothing, so the calm card budget is untouched."""
+    _sessions(page, server, ["Keep working on this", "Not today"])
+    page.set_viewport_size(PHONE_412)
+    page.goto(server + "/#sessions")
+    expect(page.locator("#sesslist .scard")).to_have_count(2, timeout=30000)
+    card = page.locator("#sesslist .scard", has_text="Keep working on this")
+    expect(page.locator("#sesslist .session-star")).to_have_count(0)
+    card.locator(".action-menu > summary").click()
+    card.get_by_role("button", name="Add to favorites").click()
+    expect(card.locator(".session-star")).to_have_text("★", timeout=15000)
+    other = page.locator("#sesslist .scard", has_text="Not today")
+    expect(other.locator(".session-star")).to_have_count(0)
+
+    page.locator("#sess-more > summary").click()
+    page.locator("#sess-scope").select_option("favorites")
+    expect(page.locator("#sesslist .scard")).to_have_count(1, timeout=15000)
+    expect(page.locator("#sesslist .scard")).to_contain_text("Keep working on this")
