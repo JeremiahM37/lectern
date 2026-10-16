@@ -436,6 +436,27 @@ func (s *Store) LoadUI(id string) ([]json.RawMessage, error) {
 	return out, err
 }
 
+// TruncateUI keeps the first n valid UI records and drops the rest, so the
+// transcript matches a conversation cut back to an earlier turn.
+func (s *Store) TruncateUI(id string, n int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	path := filepath.Join(s.Dir(id), "ui.jsonl")
+	var buf bytes.Buffer
+	kept := 0
+	err := readLines(path, func(line []byte) {
+		if kept < n && json.Valid(line) {
+			buf.Write(line)
+			buf.WriteByte('\n')
+			kept++
+		}
+	})
+	if err != nil {
+		return err
+	}
+	return atomicWrite(path, buf.Bytes(), 0o600)
+}
+
 // SavePlan stores plan.json for the session.
 func (s *Store) SavePlan(id string, plan json.RawMessage) error {
 	s.mu.Lock()

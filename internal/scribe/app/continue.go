@@ -23,6 +23,7 @@ func (a *App) ContinueTurn(ctx context.Context) (agent.TurnStats, error) {
 	a.turn++
 	turn := a.turn
 	a.mu.Unlock()
+	a.markTurnUI(turn)
 	if a.Checks != nil {
 		a.Checks.Begin(turn, prompt)
 	}

@@ -165,6 +165,12 @@ func newStallModel(t *testing.T) *stallModel {
 	t.Helper()
 	s := &stallModel{release: make(chan struct{})}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Only model calls count. Scribe also lists models at start (a GET),
+		// which must not be mistaken for the prompt arriving.
+		if r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
 		b, _ := io.ReadAll(r.Body)
 		s.mu.Lock()
 		s.bodies = append(s.bodies, string(b))

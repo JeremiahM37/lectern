@@ -950,9 +950,8 @@ type ImageSteerer interface {
 // later turns' files, drops their messages and sends; No puts the text back.
 func (m *Model) confirmBranch(t *tab, br CheckpointBrancher, raw, text string) tea.Cmd {
 	cp := t.cps[t.browse]
-	later := len(t.cps) - 1 - t.browse
 	images := t.in.takeImages()
-	msg := fmt.Sprintf("You are viewing turn %d. Sending from here drops the %d later turn(s): their file changes are reverted and their messages are removed for good.", cp.Turn, later)
+	msg := fmt.Sprintf("You are viewing turn %d. Sending from here drops everything after it: the later turns' file changes are reverted and their messages are removed for good.", cp.Turn)
 	c := NewConfirm(m.th, "Send from an earlier turn?", msg, false, func() tea.Cmd {
 		if _, err := br.BranchFrom(cp.Turn); err != nil {
 			t.in.setValue(raw)

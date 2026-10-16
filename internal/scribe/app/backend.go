@@ -796,6 +796,11 @@ func (b *scribeBackend) BranchFrom(turn int) (int, error) {
 		return 0, errors.New("checkpoints are off for this session")
 	}
 	n, err := a.Checks.TruncateAfter(turn, false)
+	if err == nil {
+		// The transcript loses the dropped turns too, including turns that
+		// changed no files (n counts only those that did).
+		a.cutUIAfter(turn)
+	}
 	return n, conflictError(err)
 }
 

@@ -99,6 +99,11 @@ type App struct {
 	pending   strings.Builder // coalesced text deltas for the transcript
 	pendKind  agent.EventKind
 	pendAgent string
+	// uiCount is the number of saved UI records (loaded once, then kept);
+	// uiMarks is uiCount at the start of each turn of this process.
+	uiCount   int
+	uiCounted bool
+	uiMarks   map[int]int
 	closed    bool
 	// closeHooks run once when the app closes, before the agent is aborted.
 	// They let surfaces such as the Lectern bridge deny what is still waiting.
@@ -746,8 +751,72 @@ func (a *App) record(e agent.Event) {
 		out = append(out, b)
 	}
 	if len(out) > 0 {
-		_ = a.Store.AppendUI(a.Meta.ID, out...)
+		a.countUILocked()
+		if a.Store.AppendUI(a.Meta.ID, out...) == nil {
+			a.uiCount += len(out)
+		}
 	}
+}
+
+// countUILocked loads the number of saved UI records once, so later appends
+// can keep the count without reading the file. The caller holds a.mu.
+func (a *App) countUILocked() {
+	if a.uiCounted || a.Store == nil {
+		return
+	}
+	if recs, err := a.Store.LoadUI(a.Meta.ID); err == nil {
+		a.uiCount = len(recs)
+	}
+	a.uiCounted = true
+}
+
+// markTurnUI records where the UI log stands as turn starts, after writing
+// any text still buffered from the turn before, so sending from an earlier
+// checkpoint can cut the transcript there too (BranchFrom).
+func (a *App) markTurnUI(turn int) {
+	if a.opts.Ephemeral || a.Store == nil {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.pendKind != "" {
+		b, _ := json.Marshal(agent.Event{Kind: a.pendKind, AgentID: a.pendAgent, Text: a.pending.String()})
+		a.pending.Reset()
+		a.pendKind = ""
+		a.countUILocked()
+		if a.Store.AppendUI(a.Meta.ID, b) == nil {
+			a.uiCount++
+		}
+	}
+	a.countUILocked()
+	if a.uiMarks == nil {
+		a.uiMarks = map[int]int{}
+	}
+	a.uiMarks[turn] = a.uiCount
+}
+
+// cutUIAfter drops the UI records of the turns after turn, when the start of
+// the first dropped turn was recorded in this process. It reports whether it
+// cut.
+func (a *App) cutUIAfter(turn int) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	first, mark := 0, -1
+	for t, m := range a.uiMarks {
+		if t > turn && (first == 0 || t < first) {
+			first, mark = t, m
+		}
+	}
+	if mark < 0 || a.Store.TruncateUI(a.Meta.ID, mark) != nil {
+		return false
+	}
+	a.uiCount = mark
+	for t := range a.uiMarks {
+		if t > turn {
+			delete(a.uiMarks, t)
+		}
+	}
+	return true
 }
 
 // Transcript returns the recorded events of this session.
@@ -789,6 +858,7 @@ func (a *App) Run(ctx context.Context, prompt string, images []llm.Part) (agent.
 	a.turn++
 	turn := a.turn
 	a.mu.Unlock()
+	a.markTurnUI(turn)
 	if a.Checks != nil {
 		a.Checks.Begin(turn, prompt)
 	}
