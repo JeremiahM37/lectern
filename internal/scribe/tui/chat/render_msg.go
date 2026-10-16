@@ -199,7 +199,7 @@ func (v *View) renderAssistant(rec *Record, w int, now time.Time) builder {
 		cw = 1
 	}
 	rail := fg(th.Brand, "▌") + " "
-	b.add(rail + bold(th.AccentAssistant, icons.Icon("ai")+" Scribe") + fg(th.TextDim, " · "+clockText(rec.At)))
+	b.add(rail + bold(th.AccentAssistant, "✒ Scribe") + fg(th.TextDim, " · "+clockText(rec.At)))
 	body := v.renderBody(rec, cw, now)
 	if len(body.lines) == 0 {
 		switch {

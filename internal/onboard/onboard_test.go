@@ -78,10 +78,23 @@ func TestDetectAgentsHonorsBinOverride(t *testing.T) {
 func TestDetectAgentsNoneFound(t *testing.T) {
 	fakePath(t) // empty PATH dir
 	for _, a := range DetectAgents("", "", "") {
-		if a.Found {
+		if a.Found && a.Name != "scribe" { // scribe is this binary, always present
 			t.Errorf("%s should not be found on an empty PATH", a.Name)
 		}
 	}
+}
+
+func TestDetectAgentsAlwaysFindsScribe(t *testing.T) {
+	fakePath(t) // empty PATH dir
+	for _, a := range DetectAgents("", "", "") {
+		if a.Name == "scribe" {
+			if !a.Found || !a.Builtin || a.Path == "" {
+				t.Fatalf("scribe check = %+v, want found built-in with a path", a)
+			}
+			return
+		}
+	}
+	t.Fatal("scribe missing from the agent report")
 }
 
 func TestCheckTmuxAndGit(t *testing.T) {

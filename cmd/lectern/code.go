@@ -13,14 +13,62 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/app"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/headless"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/session"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui"
 	"github.com/JeremiahM37/lectern/v2/internal/version"
 )
 
-// scribeTUI opens Scribe's full-screen terminal UI. It is nil until the TUI
-// is wired (tui.Run with app.NewBackend, and a fake backend for --demo). The
-// args carry what the TUI itself must act on: "--demo", "--pick" (open the
-// session picker) and "--prompt" followed by the text to send first.
+// scribeTUI opens Scribe's full-screen terminal UI. The args carry what the
+// TUI itself must act on: "--demo" (scripted backend, no model), "--pick"
+// (open the session picker) and "--prompt" followed by the text to send first.
 var scribeTUI func(ctx context.Context, opts app.Options, args []string) int
+
+func init() { scribeTUI = runScribeTUI }
+
+// runScribeTUI runs the terminal UI. Every tab gets its own App and its own
+// approval host. The first tab resumes what the flags asked for; later tabs
+// start fresh sessions in the same folder.
+func runScribeTUI(ctx context.Context, opts app.Options, args []string) int {
+	topts := tui.Options{}
+	demo := false
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--demo":
+			demo = true
+		case "--pick":
+			topts.Pick = true
+		case "--prompt":
+			if i+1 < len(args) {
+				topts.Prompt = args[i+1]
+				i++
+			}
+		}
+	}
+	newBackend := func() (tui.Backend, error) {
+		return tui.NewFakeBackend(), nil
+	}
+	if !demo {
+		tabs := 0
+		newBackend = func() (tui.Backend, error) {
+			o := opts
+			if tabs > 0 {
+				o.Resume = ""
+			}
+			tabs++
+			host := app.NewTUIHost()
+			o.Host = host
+			a, err := app.Open(ctx, o)
+			if err != nil {
+				return nil, err
+			}
+			return app.NewBackend(a, host), nil
+		}
+	}
+	if err := tui.Run(ctx, newBackend, topts); err != nil {
+		fmt.Fprintf(os.Stderr, "lectern code: %v\n", err)
+		return 1
+	}
+	return 0
+}
 
 // headlessFlags make `lectern code` run without the terminal UI.
 var headlessFlags = map[string]bool{
@@ -32,6 +80,7 @@ var headlessFlags = map[string]bool{
 // a stdin that is not a terminal, run Scribe non-interactively. Anything else
 // opens the full-screen TUI.
 func codeCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	maybeLecternBridge()
 	if wantsHeadless(args, stdin) {
 		return headless.Run(context.Background(), stripHeadlessWords(args), stdin, stdout, stderr)
 	}

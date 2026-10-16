@@ -11,6 +11,12 @@ you pick.
 | `claude` | first-class | ✅ | ✅ | `~/.claude/.credentials.json` |
 | `codex` | first-class | ✅ (hooks.json, confirmed against 0.156.1) | ✅ | `~/.codex/auth.json` |
 | `gemini` | experimental | ❌ | ❌ | — |
+| `scribe` | built in (Lectern's own) | ✅ (via Lectern's approval queue) | ✅ (newest session in the folder) | — |
+
+`scribe` is Lectern's own coding agent, "Scribe (Lectern)". It is always
+installed because it is the `lectern` binary, and it runs as `lectern code`.
+It does not need another CLI. See [Scribe](scribe.md) for its modes, keys,
+configuration and headless use.
 
 An **interactive session's** "ask" permission mode holds an approval on your
 phone for both claude and codex, via each CLI's own hook mechanism — see

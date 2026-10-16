@@ -45,6 +45,11 @@ var agentQuickVerbs = builtinAgentQuickVerbs()
 func builtinAgentQuickVerbs() map[string]bool {
 	out := make(map[string]bool)
 	for _, b := range sessions.Builtins() {
+		// `lectern scribe` is the terminal Scribe (an alias of `lectern code`),
+		// not a tracked session; Scribe sessions start from Lectern itself.
+		if b.Name == sessions.ScribeAgent {
+			continue
+		}
 		out[b.Name] = true
 	}
 	return out

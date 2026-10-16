@@ -3,7 +3,9 @@ package sessions
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -104,9 +106,12 @@ type Spec struct {
 	// --experimental-acp are offered in Settings → Agents but are not
 	// pre-registered here — see docs/acp.md.
 	ACP *ACPSpec `json:"acp,omitempty"`
-	// Builtin marks the three that ship with lectern, so the UI can show which
+	// Builtin marks the agents that ship with lectern, so the UI can show which
 	// are yours.
 	Builtin bool `json:"builtin,omitempty"`
+	// DisplayName is the label a picker shows instead of Name, for a built-in
+	// whose name is a bare word (scribe is "Scribe (Lectern)").
+	DisplayName string `json:"display_name,omitempty"`
 }
 
 // SessionsSpec is one way to list a CLI's saved conversations
@@ -201,7 +206,30 @@ func Builtins() []Spec {
 		// line, so its prime is typed in once the pane settles
 		{Name: "gemini", Command: "gemini", ModelFlag: "-m", Builtin: true,
 			YoloArgs: []string{"--yolo"}},
+		// Scribe is Lectern's own coding agent and is always installed: it is
+		// this binary. Resume reopens the newest Scribe session in the folder
+		// (lectern code --continue). An exact session id is not recorded yet.
+		{Name: ScribeAgent, DisplayName: "Scribe (Lectern)", Command: ScribeCommand(), Args: []string{"code"},
+			ModelFlag: "--model", ResumeArgs: []string{"--continue"}, PromptArg: true, Builtin: true,
+			YoloArgs: []string{"--mode", "auto"}},
 	}
+}
+
+// ScribeAgent is the registry name of Lectern's own coding agent.
+const ScribeAgent = "scribe"
+
+// ScribeCommand is the command that starts Scribe: this lectern binary, so a
+// session runs the same build that answered it. Falls back to "lectern" on
+// PATH when the executable cannot be found.
+func ScribeCommand() string {
+	exe, err := os.Executable()
+	if err != nil || exe == "" {
+		return "lectern"
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	return exe
 }
 
 // ParseSpecs decodes the operator's custom agents and merges them over the
@@ -908,6 +936,9 @@ var capabilityLabels = map[Capability]string{
 }
 
 func (s Spec) displayName() string {
+	if s.DisplayName != "" {
+		return s.DisplayName
+	}
 	if s.Name == "" {
 		return "this agent"
 	}
@@ -952,7 +983,7 @@ func (s Spec) Capabilities() map[Capability]CapabilityState {
 		CapModelsList:    state(s.ModelsCommand != "", CapModelsList),
 		CapYolo:          state(len(s.YoloArgs) > 0 || len(s.YoloEnv) > 0, CapYolo),
 		CapACP:           state(s.ACP != nil, CapACP),
-		CapTask:          state(s.Builtin || s.Task != nil || s.ACP != nil, CapTask),
+		CapTask:          state((s.Builtin && s.Name != ScribeAgent) || s.Task != nil || s.ACP != nil, CapTask),
 		CapExact:         state(s.ExactConversations() && len(s.ResumeIDArgs) > 0, CapExact),
 		CapRemoteControl: state(s.SupportsRemoteControl(), CapRemoteControl),
 	}

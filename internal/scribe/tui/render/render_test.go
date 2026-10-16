@@ -492,7 +492,8 @@ func TestSpinnerFrames(t *testing.T) {
 }
 
 func TestHumanHelpers(t *testing.T) {
-	tok := map[int]string{842: "842", 1234: "1.2k", 1_500_000: "1.5M"}
+	tok := map[int]string{842: "842", 1234: "1.2k", 8400: "8.4k", 9949: "9.9k", 9950: "10k",
+		88_000: "88k", 200_000: "200k", 999_960: "1.0M", 1_200_000: "1.2M", 1_500_000: "1.5M"}
 	for n, want := range tok {
 		if got := HumanTokens(n); got != want {
 			t.Errorf("HumanTokens(%d) = %q, want %q", n, got, want)

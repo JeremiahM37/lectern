@@ -9,8 +9,9 @@ import (
 func TestNoOpAgentListRoundTripPreservesBuiltinTaskCapabilities(t *testing.T) {
 	h := newHarness(t)
 	builtins := h.getList("/api/agents")
-	if len(builtins) != 3 {
-		t.Fatalf("expected three built-ins, got %d", len(builtins))
+	// claude, codex, gemini and scribe (Lectern's own agent).
+	if len(builtins) != 4 {
+		t.Fatalf("expected four built-ins, got %d", len(builtins))
 	}
 	h.decode("PUT", "/api/agents", builtins, 200, nil)
 	if got := h.App.DB.Setting("agents"); got != "[]" {

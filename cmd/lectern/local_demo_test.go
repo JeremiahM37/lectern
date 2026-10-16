@@ -101,7 +101,7 @@ func TestStartingAnUninstalledAgentIsRefused(t *testing.T) {
 	t.Cleanup(func() { _, _ = runLocalCLI(bin, env, "local", "stop") })
 	out, err := runLocalCLI(bin, env, "api", "POST", "/sessions", fmt.Sprintf(`{"agent":"codex","workdir":%q}`, dir))
 	if err == nil || !bytes.Contains(out, []byte("codex isn't installed on this computer")) ||
-		!bytes.Contains(out, []byte("Installed there: claude.")) || !bytes.Contains(out, []byte("npm install -g @openai/codex")) {
+		!bytes.Contains(out, []byte("Installed there: claude")) || !bytes.Contains(out, []byte("npm install -g @openai/codex")) {
 		t.Fatalf("uninstalled agent: %v %s", err, out)
 	}
 	// The web app gets a code it can act on.
@@ -117,7 +117,7 @@ func TestStartingAnUninstalledAgentIsRefused(t *testing.T) {
 	}
 	body, _ := io.ReadAll(res.Body)
 	res.Body.Close()
-	if res.StatusCode != 422 || !bytes.Contains(body, []byte(`"code":"agent_not_installed"`)) || !bytes.Contains(body, []byte(`"installed":["claude"]`)) {
+	if res.StatusCode != 422 || !bytes.Contains(body, []byte(`"code":"agent_not_installed"`)) || !bytes.Contains(body, []byte(`"installed":["claude","scribe"]`)) {
 		t.Fatalf("API answer: %d %s", res.StatusCode, body)
 	}
 	if list, _ := runLocalCLI(bin, env, "api", "GET", "/sessions?all=1"); bytes.Contains(list, []byte(`"agent":"codex"`)) {

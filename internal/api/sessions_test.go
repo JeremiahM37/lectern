@@ -674,8 +674,9 @@ func ptr[T any](v T) *T { return &v }
 func TestCustomAgentsAreDefinableAndLaunchable(t *testing.T) {
 	h := newHarness(t)
 	builtins := h.getList("/api/agents")
-	if len(builtins) != 3 {
-		t.Fatalf("expected the three built-ins, got %d", len(builtins))
+	// claude, codex, gemini and scribe (Lectern's own agent).
+	if len(builtins) != 4 {
+		t.Fatalf("expected the four built-ins, got %d", len(builtins))
 	}
 
 	h.decode("PUT", "/api/agents", []obj{

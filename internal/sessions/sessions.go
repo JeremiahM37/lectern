@@ -41,7 +41,7 @@ const (
 // Agents that can be run interactively. Unlike a dispatched task, an interactive
 // session has a human at the keyboard, so there is no permission mode to resolve
 // and no gated-approval requirement — the operator IS the gate.
-var InteractiveAgents = []string{"claude", "codex", "gemini"}
+var InteractiveAgents = []string{"claude", "codex", "gemini", ScribeAgent}
 
 // Launcher carries the binary overrides for the built-in agents. Agent binaries
 // often live in ~/.local/bin, which a systemd unit's PATH does not include.

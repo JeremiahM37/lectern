@@ -12,13 +12,11 @@ import (
 // argFn renders a tool's key argument for its row.
 type argFn func(v *View, m map[string]any) string
 
-// toolDef is the display rule for one tool: labels, icon, category and args.
+// toolDef is the display rule for one tool: its labels, glyph, tone and args.
 type toolDef struct {
 	run, done string
 	icon      string
 	tone      string
-	cat       string
-	catTone   string
 	args      argFn
 }
 
@@ -72,9 +70,9 @@ func dispatchArgs(_ *View, m map[string]any) string {
 		}
 	}
 	if len(tasks) == 1 {
-		return clip("["+roles[0]+"] "+first, 45)
+		return clip(roles[0]+" · "+first, 45)
 	}
-	return clip("["+strings.Join(roles, "/")+"] "+first, 55)
+	return clip(strings.Join(roles, "/")+" · "+first, 55)
 }
 
 func memoryArgs(_ *View, m map[string]any) string {
@@ -86,55 +84,73 @@ func memoryArgs(_ *View, m map[string]any) string {
 func codeArgs(_ *View, m map[string]any) string {
 	code := argStr(m, "code")
 	if n := strings.Count(code, "await"); n > 0 {
-		return fmt.Sprintf("%d tools in the furnace", n)
+		return fmt.Sprintf("%d tool calls", n)
 	}
 	return clip(firstLine(code), 50)
 }
 
+// toolDefs gives every tool its labels and glyph. Icons come from the icons
+// package, so the ASCII set stays one cell per tool.
 var toolDefs = map[string]toolDef{
-	"read":             {"Reading", "Read", "file", "info", "file", "info", readArgs},
-	"edit_file":        {"Editing", "Edited", "pencil", "amber", "file", "info", argPath},
-	"multi_edit":       {"Editing", "Edited", "pencil", "amber", "file", "info", argPath},
-	"write_file":       {"Writing", "Wrote", "pencil", "amber", "file", "info", argPath},
-	"undo_edit":        {"Undoing", "Undid", "pencil", "amber", "file", "info", argPath},
-	"list_dir":         {"Listing", "Listed", "changes", "info", "file", "info", argPath},
-	"shell":            {"Running", "Ran", "terminal", "error", "shell", "error", argText(60, "command")},
-	"grep":             {"Searching", "", "search", "warning", "file", "info", argText(55, "pattern")},
-	"glob":             {"Globbing", "", "changes", "info", "file", "info", argText(55, "pattern")},
-	"dispatch":         {"Dispatching", "Dispatched", "explore", "brand", "agent", "brand", dispatchArgs},
-	"web_search":       {"Searching web", "Searched web", "globe", "info", "web", "info", argText(50, "query")},
-	"fetch_page":       {"Fetching page", "Fetched page", "file", "info", "web", "info", argText(50, "url")},
-	"memory":           {"Memory", "Memory", "bookmark", "amber", "memory", "amber", memoryArgs},
-	"skills":           {"Skills", "Skills", "skills", "brand", "agent", "brand", argText(50, "query", "name")},
-	"editor":           {"Editor", "Editor", "pencil", "info", "editor", "info", argPath},
-	"git":              {"Git", "Git", "git", "success", "git", "success", argText(50, "message", "action")},
-	"navigate":         {"Navigating", "Navigated", "arrow_right", "brandAlt", "code", "warning", actionSymbol},
-	"analyze":          {"Analyzing", "Analyzed", "search", "brandAlt", "code", "warning", actionSymbol},
-	"rename_symbol":    {"Renaming symbol", "Renamed symbol", "rename", "amber", "code", "warning", argText(50, "new_name", "to")},
-	"move_symbol":      {"Moving symbol", "Moved symbol", "arrow_right", "amber", "code", "warning", argText(50, "to")},
-	"rename_file":      {"Moving file", "Moved file", "arrow_right", "amber", "code", "warning", argText(60, "to")},
-	"refactor":         {"Refactoring", "Refactored", "wrench", "amber", "code", "warning", actionSymbol},
-	"project":          {"Project", "Project", "terminal", "error", "shell", "error", argText(50, "action", "command")},
-	"discover_pattern": {"Discovering", "Discovered", "search", "brandAlt", "code", "warning", argText(50, "query")},
-	"editor_panel":     {"Opening editor", "Opened editor", "pencil", "info", "editor", "info", nil},
-	"plan":             {"Planning", "Planned", "plan", "info", "ui", "info", argText(50, "title")},
-	"write_plan":       {"Planning", "Planned", "plan", "info", "ui", "info", argText(50, "title")},
-	"update_plan_step": {"Updating plan", "Updated plan", "check", "info", "ui", "info", argText(50, "stepId", "step_id")},
-	"ask_user":         {"Asking", "Asked", "question", "amber", "ui", "info", argText(50, "question")},
-	"task_list":        {"Tasks", "Tasks", "plan", "info", "ui", "info", nil},
-	"code_execution":   {"Forging", "Forged", "smithy", "amber", "smithy", "amber", codeArgs},
-	"soul_vision":      {"Visualizing", "Visualized", "image", "textSecondary", "vision", "brand", nil},
-	"soul_grep":        {"Searching", "", "search", "success", "soul-map", "success", argText(55, "pattern")},
-	"soul_find":        {"Finding", "", "search", "success", "soul-map", "success", argText(50, "query")},
-	"soul_analyze":     {"Analyzing", "Analyzed", "repomap", "success", "soul-map", "success", actionSymbol},
-	"soul_impact":      {"Impact analysis", "Impact analysis", "repomap", "success", "soul-map", "success", actionSymbol},
-	"ast_edit":         {"morphing", "morphed", "morph", "brandAlt", "morph", "brandAlt", argPath},
-	"_nudge":           {"Output nudge", "Output nudge", "lightning", "warning", "", "", nil},
+	"read":             {"Reading", "Read", "file", "info", readArgs},
+	"read_file":        {"Reading", "Read", "file", "info", readArgs},
+	"file_outline":     {"Outlining", "Outlined", "file", "info", argPath},
+	"edit_file":        {"Editing", "Edited", "pencil", "amber", argPath},
+	"multi_edit":       {"Editing", "Edited", "pencil", "amber", argPath},
+	"write_file":       {"Writing", "Wrote", "write", "amber", argPath},
+	"undo_edit":        {"Undoing", "Undid", "rewind", "amber", argPath},
+	"list_dir":         {"Listing", "Listed", "list", "info", argPath},
+	"shell":            {"Running", "Ran", "terminal", "error", argText(60, "command")},
+	"shell_output":     {"Reading output", "Read output", "terminal", "info", argText(50, "id", "job")},
+	"shell_kill":       {"Stopping", "Stopped", "shell_kill", "error", argText(50, "id", "job")},
+	"grep":             {"Searching", "", "search", "warning", argText(55, "pattern")},
+	"glob":             {"Globbing", "", "glob", "info", argText(55, "pattern")},
+	"dispatch":         {"Dispatching", "Dispatched", "dispatch", "brand", dispatchArgs},
+	"web_search":       {"Searching web", "Searched web", "web_search", "info", argText(50, "query")},
+	"fetch_page":       {"Fetching page", "Fetched page", "fetch", "info", argText(50, "url")},
+	"memory":           {"Memory", "Memory", "memory", "amber", memoryArgs},
+	"skills":           {"Skills", "Skills", "skills", "brand", argText(50, "query", "name")},
+	"editor":           {"Editor", "Editor", "pencil", "info", argPath},
+	"git":              {"Git", "Git", "git", "success", argText(50, "message", "action")},
+	"project":          {"Project", "Project", "terminal", "error", argText(50, "action", "command")},
+	"navigate":         {"Navigating", "Navigated", "arrow_right", "brandAlt", actionSymbol},
+	"analyze":          {"Analyzing", "Analyzed", "search", "brandAlt", actionSymbol},
+	"code_map":         {"Mapping code", "Mapped code", "map", "info", argText(50, "path", "query")},
+	"find_symbol":      {"Finding symbol", "Found symbol", "search", "info", argText(50, "name", "query", "symbol")},
+	"symbol_refs":      {"Finding references", "Found references", "references", "info", actionSymbol},
+	"code_impact":      {"Impact analysis", "Impact analysis", "impact", "info", actionSymbol},
+	"diagnostics":      {"Checking diagnostics", "Checked diagnostics", "diagnostics", "warning", argPath},
+	"rename_symbol":    {"Renaming symbol", "Renamed symbol", "rename", "amber", argText(50, "new_name", "to")},
+	"move_symbol":      {"Moving symbol", "Moved symbol", "arrow_right", "amber", argText(50, "to")},
+	"rename_file":      {"Moving file", "Moved file", "arrow_right", "amber", argText(60, "to")},
+	"refactor":         {"Refactoring", "Refactored", "wrench", "amber", actionSymbol},
+	"format_file":      {"Formatting", "Formatted", "format", "amber", argPath},
+	"discover_pattern": {"Discovering", "Discovered", "search", "brandAlt", argText(50, "query")},
+	"editor_panel":     {"Opening editor", "Opened editor", "pencil", "info", nil},
+	"plan":             {"Planning", "Planned", "plan", "info", argText(50, "title")},
+	"write_plan":       {"Planning", "Planned", "plan", "info", argText(50, "title")},
+	"update_plan_step": {"Updating plan", "Updated plan", "check", "info", argText(50, "stepId", "step_id")},
+	"ask_user":         {"Asking", "Asked", "question", "amber", argText(50, "question")},
+	"task_list":        {"Tasks", "Tasks", "task", "info", nil},
+	"code_execution":   {"Running code", "Ran code", "smithy", "amber", codeArgs},
+	"ast_edit":         {"Morphing", "Morphed", "morph", "brandAlt", argPath},
+	"_nudge":           {"Output nudge", "Output nudge", "lightning", "warning", nil},
 }
 
 func defFor(tool string) toolDef {
 	if d, ok := toolDefs[tool]; ok {
 		return d
+	}
+	if strings.HasPrefix(tool, "mcp__") {
+		// mcp__<server>__<tool>: show "<server> <tool>".
+		parts := strings.SplitN(tool, "__", 3)
+		label := strings.TrimPrefix(tool, "mcp__")
+		if len(parts) == 3 {
+			label = parts[1] + " " + parts[2]
+		}
+		return toolDef{run: label, done: label, icon: "mcp_tool", tone: "textSecondary", args: func(_ *View, m map[string]any) string {
+			return clip(genericArg(m), 50)
+		}}
 	}
 	return toolDef{run: tool, done: tool, icon: "wrench", tone: "textSecondary", args: func(_ *View, m map[string]any) string {
 		return clip(genericArg(m), 50)
@@ -271,15 +287,6 @@ func (v *View) callHeader(c *Call, now time.Time) string {
 	}
 	iconStr := fg(v.tone(iconTone), icons.Icon(d.icon))
 
-	catStr := ""
-	if d.cat != "" {
-		if running {
-			catStr = fg(v.tone(d.catTone), "["+d.cat+"]")
-		} else {
-			catStr = fg(th.TextDim, "["+d.cat+"]")
-		}
-	}
-
 	label := ""
 	if running {
 		label = bold(th.Brand, d.run)
@@ -319,7 +326,7 @@ func (v *View) callHeader(c *Call, now time.Time) string {
 			suffix += fg(th.TextDim, " · "+render.HumanDuration(c.Duration))
 		}
 	}
-	return joinNonEmpty(" ", status, iconStr, catStr, label, args) + suffix
+	return joinNonEmpty(" ", status, iconStr, label, args) + suffix
 }
 
 // callDetails is the expanded body of a call, indented under its row.
@@ -664,7 +671,7 @@ func (v *View) renderRail(rec *Record, calls []*Call, now time.Time, cw int, thi
 		}
 		txt := fg(v.th.Success, icons.Icon("success")) + fg(v.th.TextMuted, fmt.Sprintf(" +%d completed", len(hidden)))
 		if edits > 0 {
-			txt += fg(v.th.TextDim, fmt.Sprintf(" [%d edits]", edits))
+			txt += fg(v.th.TextDim, fmt.Sprintf(" · %d edits", edits))
 		}
 		rows = append([]rowT{{lines: []string{txt}}}, rows[len(rows)-4:]...)
 	}
@@ -674,7 +681,7 @@ func (v *View) renderRail(rec *Record, calls []*Call, now time.Time, cw int, thi
 			fg(v.th.Brand, render.Frame(render.Braille, frameAt(now))),
 			fg(v.th.TextMuted, "Thinking"+frame))}})
 	}
-	b.add(v.statusHeader(phaseOf(calls), !rec.Done, rec.At, now))
+	b.add(v.railHeader(calls, rec, now))
 	ab := v.assembleRows(rows)
 	off := len(b.lines)
 	b.lines = append(b.lines, ab.lines...)
@@ -685,15 +692,25 @@ func (v *View) renderRail(rec *Record, calls []*Call, now time.Time, cw int, thi
 	return b
 }
 
+// phaseOf picks the phase from the current tool: the last running call when
+// one runs, otherwise the most recent call. Dispatch and edit tools have their
+// own phases; everything else is exploration.
 func phaseOf(calls []*Call) string {
-	phase := "explore"
-	for _, c := range calls {
-		switch {
-		case c.Tool == "dispatch":
-			return "dispatch"
-		case isEditTool(c.Tool):
-			phase = "edit"
+	if len(calls) == 0 {
+		return "explore"
+	}
+	cur := calls[len(calls)-1]
+	for i := len(calls) - 1; i >= 0; i-- {
+		if calls[i].running() {
+			cur = calls[i]
+			break
 		}
 	}
-	return phase
+	switch {
+	case cur.Tool == "dispatch":
+		return "dispatch"
+	case isEditTool(cur.Tool):
+		return "edit"
+	}
+	return "explore"
 }

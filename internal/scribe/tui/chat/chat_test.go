@@ -13,6 +13,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/icons"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
 )
 
@@ -86,7 +87,7 @@ func TestTextStreamHeaderAndFooter(t *testing.T) {
 	v.Tick(c.now())
 	finish(v, c, 65*time.Second)
 	out := plain(v)
-	for _, want := range []string{"You · 3:04 PM", "▹ Scribe · 3:04 PM", "Hi!", "code", "✓ Completed in 1m 05s"} {
+	for _, want := range []string{"You · 3:04 PM", "✒ Scribe · 3:04 PM", "Hi!", "code", "✓ Completed in 1m 05s"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
@@ -192,7 +193,7 @@ func TestSubagentTree(t *testing.T) {
 		Tokens: llm.Usage{InputTokens: 12000, OutputTokens: 300}, Last: "read store.go",
 	}})
 	out := plain(v)
-	for _, want := range []string{"a1 explore · haiku-4-5 · step 4 · 12.3k", "find where sessions are saved", "read store.go"} {
+	for _, want := range []string{"a1 explore · haiku-4-5 · step 4 · 12k", "find where sessions are saved", "read store.go"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("subagent tree missing %q:\n%s", want, out)
 		}
@@ -475,4 +476,60 @@ func TestSteeringSplitsTurn(t *testing.T) {
 		t.Errorf("still busy after turn_done")
 	}
 	checkShape(t, v)
+}
+
+func TestFinishedRailSummarisesTheTurn(t *testing.T) {
+	v, c := newView(t, Options{})
+	v.Apply(agent.Event{Kind: agent.EvTurnStart, At: at(c)})
+	tool(v, "r1", "read", map[string]any{"path": "/w/a.go"}, c)
+	result(v, "r1", "read", tools.Result{Output: "x", Summary: "3 lines"}, time.Second, c)
+	tool(v, "e1", "edit_file", map[string]any{"path": "/w/a.go"}, c)
+	result(v, "e1", "edit_file", tools.Result{Output: "ok", Summary: "+1 -1", Diff: "--- a\n+++ a\n@@ -1 +1 @@\n-x\n+y\n"}, time.Second, c)
+	tool(v, "s1", "shell", map[string]any{"command": "go test"}, c)
+	result(v, "s1", "shell", tools.Result{Output: "ok", Summary: "exit 0"}, time.Second, c)
+	finish(v, c, 15*time.Second)
+	out := plain(v)
+	if !strings.Contains(out, "✓ 3 tool calls · 1 file edited · 15s") {
+		t.Fatalf("summary header wrong:\n%s", out)
+	}
+	if strings.Contains(out, "Helpers reported back") {
+		t.Fatalf("a turn without dispatch must not say helpers reported back:\n%s", out)
+	}
+}
+
+func TestPhaseFollowsTheRunningTool(t *testing.T) {
+	run := func(tool string, running bool) *Call {
+		st := "done"
+		if running {
+			st = "running"
+		}
+		return &Call{Tool: tool, Status: st}
+	}
+	cases := []struct {
+		name  string
+		calls []*Call
+		want  string
+	}{
+		{"read while idle", []*Call{run("edit_file", false), run("read", true)}, "explore"},
+		{"edit running", []*Call{run("read", false), run("edit_file", true)}, "edit"},
+		{"dispatch running", []*Call{run("edit_file", false), run("dispatch", true)}, "dispatch"},
+		{"nothing running, last was edit", []*Call{run("read", false), run("edit_file", false)}, "edit"},
+	}
+	for _, tc := range cases {
+		if got := phaseOf(tc.calls); got != tc.want {
+			t.Errorf("%s: phase %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestUnmappedToolGetsNoWords(t *testing.T) {
+	for _, tool := range []string{"read", "shell", "dispatch", "web_search", "mcp__github__list_issues", "made_up_tool"} {
+		d := defFor(tool)
+		if strings.ContainsAny(icons.ToolIcon(tool), "[]") || strings.Contains(icons.ToolIcon(tool), "tool") {
+			t.Errorf("%s icon %q looks like a word", tool, icons.ToolIcon(tool))
+		}
+		if d.run == "" {
+			t.Errorf("%s has no label", tool)
+		}
+	}
 }

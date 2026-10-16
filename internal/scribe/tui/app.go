@@ -33,6 +33,8 @@ type Options struct {
 	Theme       string // theme name; "" uses the backend's theme
 	Width       int    // tests: initial terminal width (0 waits for WindowSizeMsg)
 	Height      int    // tests: initial terminal height
+	Pick        bool   // open the session picker on start (`lectern code --resume`)
+	Prompt      string // send this prompt first (`lectern code "text"`)
 }
 
 // Run starts the full-screen UI. newBackend makes the first tab's Backend and
@@ -215,6 +217,9 @@ func (m *Model) addTab(be Backend, name string) *tab {
 		chat:   newTranscript(copt),
 	}
 	t.in.history = historyFromTranscript(be.Transcript())
+	if hl, ok := be.(HistoryLoader); ok && len(t.in.history) == 0 {
+		t.in.history = hl.History()
+	}
 	replayEvents(t.chat, be.Transcript())
 	t.git = be.Git()
 	t.local = isLocalModel(t.model)
@@ -268,6 +273,13 @@ func (m *Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{tickCmd()}
 	for _, t := range m.tabs {
 		cmds = append(cmds, waitEvent(t.id, t.be), waitPrompt(t.id, t.be), gitCmd(t.id, t.be))
+	}
+	if m.opts.Pick {
+		m.openSessionPicker()
+	}
+	if p := strings.TrimSpace(m.opts.Prompt); p != "" {
+		m.phase = phaseChat
+		cmds = append(cmds, m.startTurn(m.cur(), p))
 	}
 	return tea.Batch(cmds...)
 }
@@ -618,7 +630,7 @@ func (m *Model) tabBarRows() int {
 	if len(m.tabs) > 1 {
 		return 1
 	}
-	if m.cur().browse >= 0 || len(m.cur().cps) > 1 {
+	if t := m.cur(); t.browse >= 0 && len(t.cps) > 1 {
 		return 1
 	}
 	return 0
@@ -743,14 +755,20 @@ func (m *Model) flashLine() string {
 	return fg(col).Render(ic+" "+m.flash) + ""
 }
 
-// busyLine shows the spinner, the elapsed time and the stop hint.
+// busyQuill is the busy-line spinner: the quill's ink dots grow and shrink.
+var busyQuill = render.Spinner{"✒ ·", "✒ ··", "✒ ···", "✒ ··"}
+
+// busyLine shows the quill spinner, what the turn is doing, the elapsed time
+// and the stop hint on the right.
 func (m *Model) busyLine(t *tab) string {
-	spin := render.Frame(render.Rune, m.frame/3)
+	now := time.Now()
+	spin := render.Frame(busyQuill, m.frame/3)
 	elapsed := ""
 	if !t.since.IsZero() {
-		elapsed = render.Elapsed(time.Since(t.since))
+		elapsed = render.Elapsed(now.Sub(t.since))
 	}
-	left := fgb(m.th.Brand).Render(spin) + " " + fg(m.th.TextMuted).Render("Working") + " " + fg(m.th.TextDim).Render(elapsed)
+	left := fgb(m.th.Brand).Render(spin) + " " + fg(m.th.TextPrimary).Render(t.chat.LivePhrase(now)) +
+		" " + fg(m.th.TextDim).Render(elapsed)
 	right := fgb(m.th.Error).Render("■ Esc to stop")
 	if m.flash != "" {
 		left += "  " + fg(m.th.TextDim).Render(m.flash)

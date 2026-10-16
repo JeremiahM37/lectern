@@ -397,8 +397,118 @@ func TestContextBarThresholds(t *testing.T) {
 	m, _ := newTestModel(t, 120, 30)
 	tb := m.cur()
 	tb.ctxUsed, tb.ctxWin, tb.ctxShown = 84000, 200000, 42
-	if !strings.Contains(screen(m), "42% 84.0k/200.0k") {
+	if !strings.Contains(screen(m), "42% 84k/200k") {
 		t.Fatalf("context bar should show percent and tokens:\n%s", screen(m))
 	}
 	_ = llm.Usage{}
+}
+
+// The header keeps whole words: at every width each piece is shown in full or
+// not at all, and the row is exactly the terminal's width.
+func TestHeaderFitsWithoutCuttingWords(t *testing.T) {
+	for _, w := range []int{60, 72, 84, 100, 120} {
+		m, _ := newTestModel(t, w, 30)
+		m.frame = 200 // the brand tag types itself out over the first frames
+		tb := m.cur()
+		tb.model = "anthropic/claude-sonnet-5-extended-long"
+		tb.git.Branch = "feature/parser-rewrite"
+		tb.cost = 0.021
+		tb.ctxWin, tb.ctxUsed, tb.ctxShown = 200000, 88000, 44
+		line := strings.Split(screen(m), "\n")[0]
+		if n := len([]rune(line)); n > w {
+			t.Errorf("width %d: header is %d cells", w, n)
+		}
+		if strings.Contains(line, "claude-sonnet-5-extend ") || strings.Contains(line, "feature/parser-rew ") {
+			t.Errorf("width %d: a name was cut mid-word: %q", w, line)
+		}
+		if w >= 100 && !strings.Contains(line, "in Lectern") {
+			t.Errorf("width %d: brand tag should show: %q", w, line)
+		}
+		if w < 100 && strings.Contains(line, "in Lectern") {
+			t.Errorf("width %d: brand tag should be dropped first: %q", w, line)
+		}
+	}
+}
+
+func TestCheckpointLegendOnlyWhileBrowsing(t *testing.T) {
+	m, _ := newTestModel(t, 100, 30)
+	tb := m.cur()
+	tb.cps = []CheckpointInfo{{Turn: 1}, {Turn: 2}}
+	tb.browse = -1
+	if got := m.tabBarRows(); got != 0 {
+		t.Errorf("two checkpoints, not browsing: %d rows, want 0", got)
+	}
+	tb.browse = 0
+	if got := m.tabBarRows(); got != 1 {
+		t.Errorf("browsing two checkpoints: %d rows, want 1", got)
+	}
+	tb.cps = tb.cps[:1]
+	if got := m.tabBarRows(); got != 0 {
+		t.Errorf("one checkpoint: %d rows, want 0", got)
+	}
+}
+
+func TestDangerApprovalDefaultsToDeny(t *testing.T) {
+	m, _ := newTestModel(t, 100, 30)
+	reply := make(chan PromptReply, 1)
+	m.Update(promptMsg{tab: m.cur().id, p: Prompt{
+		Approval: &tools.Approval{Tool: "shell", Kind: "destructive", Title: "Delete files", Detail: "rm -rf build", Danger: true},
+		Reply:    reply,
+	}})
+	settle(m)
+	if got := m.cur().pui.sel; got != 2 {
+		t.Fatalf("danger approval selects %d, want 2 (Deny)", got)
+	}
+	if !strings.Contains(screen(m), "Refuses this call") {
+		t.Fatalf("selected option should explain itself:\n%s", screen(m))
+	}
+	runCmd(m, send(m, "enter"))
+	select {
+	case r := <-reply:
+		if r.Decision != tools.Deny {
+			t.Fatalf("Enter on a danger prompt should deny, got %v", r.Decision)
+		}
+	default:
+		t.Fatalf("no reply was sent")
+	}
+}
+
+func TestBusyLineUsesQuillAndStopHint(t *testing.T) {
+	m, _ := newTestModel(t, 100, 30)
+	m.phase = phaseChat
+	tb := m.cur()
+	tb.busy = true
+	tb.since = time.Now()
+	out := screen(m)
+	if strings.Contains(out, "ᚲ") || strings.Contains(out, "Working") {
+		t.Fatalf("busy line still shows the rune spinner or the bare word:\n%s", out)
+	}
+	if !strings.Contains(out, "■ Esc to stop") {
+		t.Fatalf("busy line should carry the stop hint:\n%s", out)
+	}
+}
+
+func TestFitTipEndsOnAWordBoundary(t *testing.T) {
+	for w := 12; w <= 80; w++ { // narrower than a tip's first word, no boundary exists
+		for start := 0; start < len(tips); start++ {
+			got := fitTip(start, w)
+			if ansi.StringWidth(got) > w {
+				t.Fatalf("fitTip(%d,%d) is %d cells: %q", start, w, ansi.StringWidth(got), got)
+			}
+			if !strings.HasSuffix(got, "…") {
+				continue
+			}
+			stem := strings.TrimSuffix(got, "…")
+			ok := false
+			for _, tip := range tips {
+				if strings.HasPrefix(tip, stem) && (len(tip) == len(stem) || strings.ContainsRune(" -_/.+,;:()", rune(tip[len(stem)]))) {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				t.Fatalf("fitTip(%d,%d) cut mid-word: %q", start, w, got)
+			}
+		}
+	}
 }

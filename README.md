@@ -243,6 +243,7 @@ listens on 127.0.0.1 only).
 | [Use from claude.ai / ChatGPT](docs/use-from-chat.md) | The chat connector: setup, what a chat can do, troubleshooting |
 | [Terminal client](docs/terminal-client.md) | Dashboard keys, multi-window, `lectern claude`, send-file |
 | [Agents](docs/agents.md) | Catalog, capabilities per agent, custom agents |
+| [Scribe](docs/scribe.md) | Lectern's own coding agent (`lectern code`): terminal, headless/CI, and inside Lectern sessions |
 | [Mobile sessions](docs/mobile-sessions.md) | Chat cards, approvals, voice mode |
 | [Remote Control](docs/remote-control.md) | Open a claude session in claude.ai/code and the Claude app too |
 | [Browser](docs/browser.md) | Browser pane, Design Mode, agent browser tools, computer use |

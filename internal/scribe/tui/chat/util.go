@@ -108,6 +108,18 @@ func styledItalic(s string) string {
 	return lipgloss.NewStyle().Italic(true).Render(s)
 }
 
+// fgi colours s in italic.
+func fgi(c lipgloss.TerminalColor, s string) string {
+	if s == "" {
+		return s
+	}
+	st := lipgloss.NewStyle().Italic(true)
+	if c != nil {
+		st = st.Foreground(c)
+	}
+	return st.Render(s)
+}
+
 func bold(c lipgloss.TerminalColor, s string) string {
 	if c == nil {
 		return lipgloss.NewStyle().Bold(true).Render(s)
@@ -142,6 +154,29 @@ func clip(s string, n int) string {
 		return ansi.Truncate(s, n, "")
 	}
 	return ansi.Truncate(s, n-3, "") + "..."
+}
+
+// clipWords is clip that cuts back to a word boundary, so a preview never ends
+// half a word. It falls back to a plain cut when the first word is too long.
+func clipWords(s string, n int) string {
+	if n <= 0 || ansi.StringWidth(s) <= n {
+		return s
+	}
+	rs := []rune(s)
+	cut, fits := 0, 0
+	for i := range rs {
+		if ansi.StringWidth(string(rs[:i+1]))+3 > n {
+			break
+		}
+		fits = i + 1
+		if rs[i] == ' ' {
+			cut = i
+		}
+	}
+	if cut <= 0 {
+		cut = fits
+	}
+	return strings.TrimRight(string(rs[:cut]), " ,;:") + "..."
 }
 
 func trimmed(s string) string { return strings.TrimSpace(s) }

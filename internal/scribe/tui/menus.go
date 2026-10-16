@@ -19,6 +19,10 @@ import (
 // Backend interface stays unchanged.
 type SessionDeleter interface{ DeleteSession(id string) error }
 
+// HistoryLoader is optionally implemented by a Backend that can supply prompt
+// history from earlier sessions in this folder (Up-arrow in a new session).
+type HistoryLoader interface{ History() []string }
+
 // SessionRenamer is optionally implemented by a Backend that can rename any
 // saved session, not only the current one (session picker, Ctrl+R).
 type SessionRenamer interface{ RenameSession(id, title string) error }

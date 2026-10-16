@@ -199,7 +199,8 @@ func (s *Server) knownAgentNames() []string {
 
 func (s *Server) taskAgent(name string) (sessions.Spec, bool) {
 	spec, ok := sessions.Find(s.agentSpecs(), name)
-	if !ok || (!spec.Builtin && spec.Task == nil && spec.ACP == nil) {
+	// Scribe is interactive only: it has no non-interactive task driver yet.
+	if !ok || spec.Name == sessions.ScribeAgent || (!spec.Builtin && spec.Task == nil && spec.ACP == nil) {
 		return sessions.Spec{}, false
 	}
 	return spec, true

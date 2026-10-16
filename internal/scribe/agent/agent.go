@@ -171,6 +171,20 @@ func (a *Agent) ContextUsed() (int, int) {
 // Running reports whether a turn is in progress.
 func (a *Agent) Running() bool { a.mu.Lock(); defer a.mu.Unlock(); return a.running }
 
+// SetActive replaces the set of tool names offered to the model (nil = all).
+// It takes effect on the next tool call, even mid-turn.
+func (a *Agent) SetActive(active map[string]bool) {
+	a.mu.Lock()
+	a.opts.Active = active
+	a.mu.Unlock()
+}
+
+func (a *Agent) active() map[string]bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.opts.Active
+}
+
 // Steer queues a message for the running turn; it is delivered at the
 // next step boundary. Returns false when the queue is full (5).
 func (a *Agent) Steer(msg string) bool {
@@ -702,7 +716,7 @@ func (a *Agent) execTool(ctx context.Context, call llm.Part) (res tools.Result) 
 		}
 	}()
 	t, ok := a.opts.Tools.Get(call.ToolName)
-	if !ok || (a.opts.Active != nil && !a.opts.Active[call.ToolName]) {
+	if active := a.active(); !ok || (active != nil && !active[call.ToolName]) {
 		return tools.Errorf("unknown tool %q. Available tools: %s", call.ToolName, strings.Join(a.toolNames(), ", "))
 	}
 	mode := a.Mode()
@@ -728,8 +742,9 @@ func (a *Agent) execTool(ctx context.Context, call llm.Part) (res tools.Result) 
 
 func (a *Agent) toolNames() []string {
 	var n []string
+	active := a.active()
 	for _, name := range a.opts.Tools.Names() {
-		if a.opts.Active == nil || a.opts.Active[name] {
+		if active == nil || active[name] {
 			n = append(n, name)
 		}
 	}

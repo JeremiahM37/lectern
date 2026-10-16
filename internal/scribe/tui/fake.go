@@ -234,12 +234,12 @@ func (f *FakeBackend) runTurn(turn int, prompt string) {
 	stats.ToolCalls = append(stats.ToolCalls, "shell")
 
 	// subagent dispatch
-	f.emit(agent.Event{Kind: agent.EvSubagent, Agent: &agent.AgentInfo{ID: "sa1", Task: "find other callers of ParseList", Role: "explore", Status: "running", Model: f.Model(), Step: 1}})
-	f.emit(agent.Event{Kind: agent.EvToolStart, AgentID: "sa1", CallID: "s1", Tool: "grep"})
-	f.emit(agent.Event{Kind: agent.EvToolRun, AgentID: "sa1", CallID: "s1", Tool: "grep", Args: json.RawMessage(`{"pattern":"ParseList"}`)})
+	f.emit(agent.Event{Kind: agent.EvSubagent, Agent: &agent.AgentInfo{ID: "a1", Task: "find other callers of ParseList", Role: "explore", Status: "running", Model: f.Model(), Step: 1}})
+	f.emit(agent.Event{Kind: agent.EvToolStart, AgentID: "a1", CallID: "s1", Tool: "grep"})
+	f.emit(agent.Event{Kind: agent.EvToolRun, AgentID: "a1", CallID: "s1", Tool: "grep", Args: json.RawMessage(`{"pattern":"ParseList"}`)})
 	f.pause()
-	f.emit(agent.Event{Kind: agent.EvToolResult, AgentID: "sa1", CallID: "s1", Tool: "grep", Result: &tools.Result{Output: "no other callers", Summary: "0 matches"}})
-	f.emit(agent.Event{Kind: agent.EvSubagent, Agent: &agent.AgentInfo{ID: "sa1", Task: "find other callers of ParseList", Role: "explore", Status: "done", Model: f.Model(), Step: 2, Last: "no other callers"}})
+	f.emit(agent.Event{Kind: agent.EvToolResult, AgentID: "a1", CallID: "s1", Tool: "grep", Result: &tools.Result{Output: "no other callers", Summary: "0 matches"}})
+	f.emit(agent.Event{Kind: agent.EvSubagent, Agent: &agent.AgentInfo{ID: "a1", Task: "find other callers of ParseList", Role: "explore", Status: "done", Model: f.Model(), Step: 2, Last: "no other callers"}})
 
 	step(2)
 	text("Done. Empty items are now skipped, and the test suite passes.")

@@ -10,6 +10,7 @@ package onboard
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 
 	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
@@ -44,14 +45,29 @@ func DetectAgents(claudeBin, codexBin, geminiBin string) []AgentCheck {
 		{"codex", nonEmpty(codexBin, "codex")},
 		{"gemini", nonEmpty(geminiBin, "gemini")},
 	}
-	out := make([]AgentCheck, 0, len(builtin)+len(extraAgents))
+	out := make([]AgentCheck, 0, len(builtin)+len(extraAgents)+1)
 	for _, a := range builtin {
 		out = append(out, lookup(a.name, a.bin, true))
 	}
+	// Scribe is this binary, so it is always found (sessions.ScribeCommand).
+	out = append(out, AgentCheck{Name: "scribe", Found: true, Path: selfExecutable(), Builtin: true})
 	for _, name := range extraAgents {
 		out = append(out, lookup(name, name, false))
 	}
 	return out
+}
+
+// selfExecutable is the path of the running binary, as sessions.ScribeCommand
+// computes it. It is repeated here because sessions imports this package.
+func selfExecutable() string {
+	exe, err := os.Executable()
+	if err != nil || exe == "" {
+		return "lectern"
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	return exe
 }
 
 func lookup(name, bin string, builtin bool) AgentCheck {

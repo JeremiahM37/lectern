@@ -220,6 +220,7 @@ func Open(ctx context.Context, o Options) (*App, error) {
 		}
 	}
 	a.ext.sessionStart(ctx, a)
+	runOpenHooks(a)
 	return a, nil
 }
 

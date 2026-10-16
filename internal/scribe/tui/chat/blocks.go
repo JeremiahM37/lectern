@@ -25,6 +25,8 @@ func (v *View) renderReasoning(s *Segment, cw int, now time.Time) builder {
 	count := ""
 	if lines > 1 {
 		count = fmt.Sprintf(" (%d lines)", lines)
+	} else {
+		count = " (1 line)"
 	}
 	brain := icons.Icon("brain")
 	if !v.expandedFor(&Call{Toggled: s.Toggled}) {
@@ -33,7 +35,7 @@ func (v *View) renderReasoning(s *Segment, cw int, now time.Time) builder {
 			head = fg(th.BrandDim, render.Frame(render.Braille, frameAt(now))) + " " +
 				fg(th.TextFaint, "▶ "+brain+" reasoning"+count) + " " + fg(th.TextSubtle, "^O")
 		} else {
-			head = fg(th.Success, "▶") + " " + fg(th.TextMuted, brain+" "+reasoningPreview(s.Text)) +
+			head = fg(th.Success, "▶") + " " + fgi(th.TextDim, brain+" "+reasoningPreview(s.Text)) +
 				fg(th.TextFaint, count) + " " + fg(th.TextSubtle, "^O")
 		}
 		b.mark(nil, s)
@@ -66,13 +68,14 @@ func reasoningPreview(text string) string {
 	if p == "" {
 		return "Reasoned"
 	}
-	return clip(p, 60)
+	return clipWords(p, 60)
 }
 
-var phrases = map[string][][2]string{
-	"explore":  {{"Reading the code", "Read the code"}, {"Following references", "Followed references"}, {"Searching", "Searched"}, {"Mapping dependencies", "Mapped dependencies"}},
-	"edit":     {{"Writing changes", "Wrote changes"}, {"Editing", "Edited"}, {"Revising", "Revised"}},
-	"dispatch": {{"Sending out helpers", "Helpers reported back"}, {"Working in parallel", "Parallel work done"}},
+// phrases are the rotating phase phrases shown while a phase is live.
+var phrases = map[string][]string{
+	"explore":  {"Reading the code", "Following references", "Searching", "Mapping dependencies"},
+	"edit":     {"Writing changes", "Editing", "Revising"},
+	"dispatch": {"Sending out helpers", "Working in parallel"},
 }
 
 var (
@@ -85,32 +88,120 @@ const (
 	garbleStep  = 70 * time.Millisecond
 )
 
-// statusHeader is the phase line above a rail: a spinner, the rotating phrase
-// (with a short garble when it changes), animated dots and elapsed seconds.
-// Once the turn is done it reads "✓ <done phrase>".
-func (v *View) statusHeader(phase string, live bool, start, now time.Time) string {
-	tone := v.tone(phaseTone[phase])
-	pairs := phrases[phase]
-	if !live {
-		return fg(tone, "✓ "+pairs[0][1])
+// railHeader is the line above a tool rail. While the turn is live it names
+// the phase of the work in progress; once done it summarises the turn.
+func (v *View) railHeader(calls []*Call, rec *Record, now time.Time) string {
+	if !rec.Done {
+		return v.statusHeader(phaseOf(calls), rec.At, now)
 	}
-	el := now.Sub(start)
+	return v.railSummary(calls, rec.Duration)
+}
+
+// railSummary is the finished header: "✓ 5 tool calls · 1 file edited · 15s".
+// Zero parts are left out.
+func (v *View) railSummary(calls []*Call, dur time.Duration) string {
+	th := v.th
+	shown := v.visibleCalls(calls)
+	files := map[string]bool{}
+	failed := 0
+	for _, c := range shown {
+		switch {
+		case c.Status == "error":
+			failed++
+		case isEditTool(c.Tool) && !c.running() && c.Status != "denied":
+			files[pathOf(c)] = true
+		}
+	}
+	var parts []string
+	if n := len(shown); n > 0 {
+		parts = append(parts, countWord(n, "tool call", "tool calls"))
+	}
+	if n := len(files); n > 0 {
+		parts = append(parts, countWord(n, "file edited", "files edited"))
+	}
+	if failed > 0 {
+		parts = append(parts, fmt.Sprintf("%d failed", failed))
+	}
+	if dur >= time.Second {
+		parts = append(parts, render.HumanDuration(dur.Truncate(time.Second)))
+	}
+	glyph := fg(th.Success, icons.Icon("success"))
+	switch {
+	case failed > 0 && failed == len(shown):
+		glyph = fg(th.Error, icons.Icon("fail"))
+	case failed > 0:
+		glyph = fg(th.Warning, icons.Icon("warning"))
+	}
+	if len(parts) == 0 {
+		return glyph + " " + fg(th.TextMuted, "Done")
+	}
+	return glyph + " " + fg(th.TextSecondary, strings.Join(parts, " · "))
+}
+
+func countWord(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return fmt.Sprintf("%d %s", n, many)
+}
+
+// phraseFor is the rotating phase phrase after el has passed. The phrase
+// garbles for a moment when it changes.
+func phraseFor(phase string, el time.Duration) string {
+	pairs := phrases[phase]
+	if len(pairs) == 0 {
+		pairs = phrases["explore"]
+	}
 	if el < 0 {
 		el = 0
 	}
 	k := int(el / phraseEvery)
-	i := k % len(pairs)
+	label := pairs[k%len(pairs)]
 	off := el % phraseEvery
-	label := pairs[i][0]
 	switch {
 	case k > 0 && off < 3*garbleStep:
-		label = garble(pairs[(k-1)%len(pairs)][0], int(off/garbleStep))
+		label = garble(pairs[(k-1)%len(pairs)], int(off/garbleStep))
 	case k > 0 && off < 6*garbleStep:
 		label = garble(label, int(off/garbleStep))
 	}
+	return label
+}
+
+// statusHeader is the live phase line above a rail: a spinner, the rotating
+// phrase, animated dots and elapsed seconds.
+func (v *View) statusHeader(phase string, start, now time.Time) string {
+	tone := v.tone(phaseTone[phase])
+	el := now.Sub(start)
+	if el < 0 {
+		el = 0
+	}
 	spin := render.Frame(phaseSpin[phase], frameAt(now))
 	dots := render.Frame(render.LoadingDots, frameAt(now)/4)
-	return fg(tone, spin) + " " + bold(tone, label) + fg(v.th.TextMuted, dots) + " " + fg(v.th.TextDim, secs(el))
+	return fg(tone, spin) + " " + bold(tone, phraseFor(phase, el)) + fg(v.th.TextMuted, dots) + " " + fg(v.th.TextDim, secs(el))
+}
+
+// LivePhrase names what the live turn is doing right now, for the busy line:
+// the phase phrase of the running tool, or "Thinking" when no tool runs.
+func (v *View) LivePhrase(now time.Time) string {
+	if v.live == nil {
+		return "Thinking"
+	}
+	var calls []*Call
+	for _, s := range v.live.Segments {
+		if s.Kind == "tools" {
+			calls = append(calls, s.Calls...)
+		}
+	}
+	for _, c := range calls {
+		if c.running() {
+			start := c.Start
+			if start.IsZero() {
+				start = now
+			}
+			return phraseFor(phaseOf(calls), now.Sub(start))
+		}
+	}
+	return "Thinking"
 }
 
 // renderPlan draws the live plan: a rail, a title with done/total, and the

@@ -5,8 +5,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-
-	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
 )
 
 // tagline is the landing page line under the wordmark.
@@ -35,16 +33,40 @@ func wordmarkRows() []string {
 	return out
 }
 
-// mascotFrames is the quill writing a line of ink. The ink line grows and
-// shrinks; the nib stays put.
-var mascotFrames = [][]string{
-	{"     ╱│", "   ╱ │", " ✒   ", "     "},
-	{"     ╱│", "   ╱ │", " ✒   ", " ·   "},
-	{"     ╱│", "   ╱ │", " ✒   ", " ··  "},
-	{"     ╱│", "   ╱ │", " ✒   ", " ···."},
-	{"     ╱│", "   ╱ │", " ✒   ", " ··  "},
-	{"     ╱│", "   ╱ │", " ✒   ", " ·   "},
+// mascotBase is the quill dipped into an inkwell. Every row is a single-cell
+// glyph so the mascot lines up in any terminal.
+var mascotBase = []string{
+	"        ╱│",
+	"      ╱╱ │",
+	"    ╱╱  │",
+	"  ✒╱   │",
+	" ╭─┴─╮",
+	" │ ~ │",
+	" ╰───╯",
 }
+
+// mascotFrames are the four animation frames: the ink in the well shifts and
+// a drop gathers under it, falls, and is gone. At 400 ms a frame it loops
+// every 1.6 s.
+var mascotFrames = func() [][]string {
+	drips := []struct{ well, bottom string }{
+		{"│ ~ │", " ╰───╯"},
+		{"│ ~ │", " ╰─·─╯"},
+		{"│ ~ │", " ╰─┊─╯"},
+		{"│ ≈ │", " ╰─ ─╯"},
+	}
+	out := make([][]string, len(drips))
+	for i, d := range drips {
+		f := append([]string{}, mascotBase...)
+		f[5] = " " + d.well
+		f[6] = d.bottom
+		out[i] = f
+	}
+	return out
+}()
+
+// mascotTick is how many 50 ms ticks a mascot frame lasts (400 ms).
+const mascotTick = 8
 
 // landingState is the animation state of the landing page.
 type landingState struct {
@@ -64,7 +86,7 @@ func (m *Model) viewLanding(w, rows int) []string {
 	showMascot := rows >= 22
 	showTips := rows >= 16
 	if showMascot {
-		frame := mascotFrames[(m.frame/5)%len(mascotFrames)]
+		frame := mascotFrames[(m.frame/mascotTick)%len(mascotFrames)]
 		for _, l := range frame {
 			parts = append(parts, center(fg(th.Brand).Render(l)))
 		}
@@ -84,7 +106,7 @@ func (m *Model) viewLanding(w, rows int) []string {
 		base := (m.frame / (6 * 20)) % len(tips)
 		for i := 0; i < 3; i++ {
 			tip := tips[(base+i)%len(tips)]
-			parts = append(parts, center(fg(th.TextSecondary).Render("✦ "+render.Truncate(tip, min(w-8, 70)))))
+			parts = append(parts, center(fg(th.TextSecondary).Render("✦ "+truncWord(tip, min(w-10, 68)))))
 		}
 		parts = append(parts, "")
 	}

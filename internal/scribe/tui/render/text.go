@@ -44,13 +44,14 @@ func PadRight(s string, w int) string {
 // HumanTokens formats a token count: 842, 1.2k, 3.4M.
 func HumanTokens(n int) string {
 	switch {
-	case n >= 1_000_000:
+	case n >= 999_950:
 		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 9_950:
+		return fmt.Sprintf("%dk", (n+500)/1000)
 	case n >= 1_000:
 		return fmt.Sprintf("%.1fk", float64(n)/1_000)
-	default:
-		return fmt.Sprintf("%d", n)
 	}
+	return fmt.Sprintf("%d", n)
 }
 
 // HumanDuration formats a duration for tool rows: "850ms", "12s", "1m 05s",

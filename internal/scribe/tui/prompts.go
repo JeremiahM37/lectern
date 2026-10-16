@@ -36,6 +36,10 @@ func newPromptUI(p Prompt, th theme.Theme, width int) *promptUI {
 	switch {
 	case p.Approval != nil:
 		ui.kind = "approval"
+		if p.Approval.Danger {
+			// A destructive action defaults to Deny: Enter alone refuses it.
+			ui.sel = 2
+		}
 	case p.Question != nil && p.Question.Kind == "plan_review":
 		ui.kind = "plan"
 	default:
@@ -199,6 +203,13 @@ func (m *Model) promptLines(t *tab) []string {
 	return m.questionLines(ui, w)
 }
 
+// approvalWhy is the dim line under the options: what the selected choice does.
+var approvalWhy = []string{
+	"Runs this one call. You are asked again next time.",
+	"Runs calls like this without asking again in this session.",
+	"Refuses this call. The model is told and carries on.",
+}
+
 func (m *Model) approvalLines(ui *promptUI, w int) []string {
 	th := m.th
 	a := ui.p.Approval
@@ -212,18 +223,28 @@ func (m *Model) approvalLines(ui *promptUI, w int) []string {
 	if detail == "" {
 		detail = "(no details)"
 	}
+	lang := ""
+	if a.Kind == "shell" {
+		lang = "bash"
+	}
 	for i, l := range strings.Split(render.Wrap(detail, w-6), "\n") {
 		if i >= 5 {
-			body = append(body, fg(th.TextDim).Render("  …"))
+			body = append(body, fg(th.TextDim).Render("…"))
 			break
 		}
-		body = append(body, fg(th.TextSecondary).Render(l))
+		if lang != "" {
+			l = strings.TrimRight(render.Highlight(l, lang, th), "\n")
+		} else {
+			l = fg(th.TextPrimary).Render(l)
+		}
+		body = append(body, l)
 	}
 	body = append(body, "")
 	opts := []string{"Allow once (y)", "Allow for this session (a)", "Deny (n)"}
 	for i, o := range opts {
 		body = append(body, m.optionRow(o, i == ui.sel, border))
 	}
+	body = append(body, "", lipgloss.NewStyle().Italic(true).Foreground(th.TextDim).Render(approvalWhy[ui.sel]))
 	ic := icons.Icon("warning")
 	if !a.Danger {
 		ic = icons.Icon("question")

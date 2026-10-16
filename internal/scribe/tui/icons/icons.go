@@ -44,12 +44,17 @@ func SetNerd(on bool) { nerdOn.Store(on) }
 // NerdEnabled reports whether Nerd Font glyphs are in use.
 func NerdEnabled() bool { return nerdOn.Load() }
 
-// Icon returns the glyph for name in the active set. Missing names return the
-// name itself. A name with no Nerd glyph falls back to its ASCII value.
+// Missing is what Icon returns for a name the table does not know. It is a
+// neutral dot, never the name itself, so an unmapped tool cannot leak words
+// into the glyph column.
+const Missing = "•"
+
+// Icon returns the glyph for name in the active set. Missing names return
+// Missing. A name with no Nerd glyph falls back to its ASCII value.
 func Icon(name string) string {
 	e, ok := table[name]
 	if !ok {
-		return name
+		return Missing
 	}
 	if nerdOn.Load() && e.nerd != 0 {
 		return string(e.nerd)
@@ -57,7 +62,7 @@ func Icon(name string) string {
 	if e.ascii != "" {
 		return e.ascii
 	}
-	return name
+	return Missing
 }
 
 // Nerd returns the Nerd Font glyph for name regardless of the active set, and
@@ -184,24 +189,29 @@ func ProviderIcon(id string) string {
 	return Dot
 }
 
-// toolIcons maps a tool name to the icon name the tool row uses.
+// toolIcons maps a tool name to the icon name its row uses. Every tool the
+// agent can call has an entry; mcp__ tools fall back to the MCP glyph.
 var toolIcons = map[string]string{
-	"read": "file", "edit_file": "pencil", "multi_edit": "pencil", "undo_edit": "pencil",
-	"list_dir": "changes", "shell": "terminal", "grep": "search", "glob": "changes",
-	"dispatch": "explore", "web_search": "globe", "fetch_page": "file", "memory": "bookmark",
-	"skills": "skills", "editor": "pencil", "git": "git", "navigate": "arrow_right",
-	"analyze": "search", "rename_symbol": "rename", "move_symbol": "arrow_right",
-	"rename_file": "arrow_right", "refactor": "wrench", "project": "terminal",
-	"discover_pattern": "search", "editor_panel": "pencil", "plan": "plan", "write_plan": "plan",
-	"update_plan_step": "check", "ask_user": "question", "task_list": "plan",
-	"code_execution": "smithy", "soul_vision": "image", "soul_grep": "search", "soul_find": "search",
-	"soul_analyze": "repomap", "soul_impact": "repomap", "ast_edit": "morph", "_nudge": "lightning",
+	"read": "file", "read_file": "file", "file_outline": "file",
+	"write_file": "write", "edit_file": "pencil", "multi_edit": "pencil",
+	"undo_edit": "rewind", "list_dir": "list", "glob": "glob", "grep": "search",
+	"shell": "terminal", "shell_output": "terminal", "shell_kill": "shell_kill",
+	"project": "terminal", "git": "git", "web_search": "globe", "fetch_page": "fetch",
+	"code_map": "map", "find_symbol": "search", "symbol_refs": "references",
+	"code_impact": "impact", "navigate": "arrow_right", "diagnostics": "diagnostics",
+	"rename_symbol": "rename", "format_file": "format", "ast_edit": "morph",
+	"memory": "memory", "skills": "skills", "dispatch": "dispatch", "plan": "plan",
+	"update_plan_step": "check", "ask_user": "question", "task_list": "task",
 }
 
-// ToolIcon returns the glyph for a tool row. Unknown tools get the wrench.
+// ToolIcon returns the glyph for a tool row. MCP tools (mcp__server__tool)
+// get the MCP glyph; any other unknown tool gets the wrench.
 func ToolIcon(tool string) string {
 	if name, ok := toolIcons[tool]; ok {
 		return Icon(name)
+	}
+	if strings.HasPrefix(tool, "mcp__") {
+		return Icon("mcp_tool")
 	}
 	return Icon("wrench")
 }

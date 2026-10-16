@@ -65,44 +65,99 @@ func modelOf(ref string) string {
 
 // ---------------------------------------------------------------- header
 
-// viewHeader is the single top row: identity on the left, model, branch,
-// mode, context and cost, and the brand tag at the far right.
+// viewHeader is the single top row. The left holds the identity; the middle
+// holds model, branch, mode and context; the right holds the cost and the brand
+// tag. When the row is too narrow, pieces leave in a fixed order and never
+// mid-word: the brand tag first (under 100 columns), then the branch, then the
+// context numbers (the bar stays), then the mode badge, and last the model
+// name shortened at a word boundary.
 func (m *Model) viewHeader() string {
 	th := m.th
 	t := m.cur()
+	w := m.width
 	left := fgb(th.Brand).Render("✒ Scribe") + " " + fg(th.TextMuted).Render("v"+m.version)
-
 	sep := fg(th.TextFaint).Render(" │ ")
-	var mid []string
-	mid = append(mid, m.modelSegment(t))
+
+	var cost, brand string
+	if !t.busy && t.cost >= 0 {
+		cost = m.costSegment(t)
+	}
+	if w >= 100 {
+		brand = fg(th.TextMuted).Italic(true).Render(typewriter("in Lectern", m.frame))
+	}
+	right := joinNonEmpty(sep, cost, brand)
+
+	var branch, mode, bar, nums string
 	if t.git.Branch != "" {
-		mid = append(mid, m.branchSegment(t))
+		branch = m.branchSegment(t)
 	}
 	if len(m.tabs) <= 1 && t.mode != "default" {
 		mi := modeStyle(t.mode, th)
-		mid = append(mid, fgb(mi.color).Render("["+mi.label+"]"))
+		mode = fgb(mi.color).Render("[" + mi.label + "]")
 	}
 	if t.ctxWin > 0 {
-		mid = append(mid, m.contextBar(t))
+		bar, nums = m.contextParts(t)
 	}
-	if !t.busy && t.cost >= 0 {
-		mid = append(mid, m.costSegment(t))
-	}
-	midStr := strings.Join(mid, sep)
 
-	brand := ""
-	if m.width >= 80 {
-		brand = fg(th.TextMuted).Italic(true).Render(typewriter("in Lectern", m.frame))
+	// build assembles the middle group for the given pieces.
+	build := func(model string, withBranch, withNums bool) string {
+		parts := []string{model}
+		if withBranch && branch != "" {
+			parts = append(parts, branch)
+		}
+		if mode != "" {
+			parts = append(parts, mode)
+		}
+		if bar != "" {
+			c := bar
+			if withNums && nums != "" {
+				c += " " + nums
+			}
+			parts = append(parts, c)
+		}
+		return strings.Join(parts, sep)
 	}
-	room := m.width - ansi.StringWidth(left) - ansi.StringWidth(brand) - 4
-	if room > 0 && ansi.StringWidth(midStr) > room {
-		midStr = render.Truncate(midStr, room)
+	fixed := ansi.StringWidth(left) + ansi.StringWidth(right) + 4
+	modelFull := m.modelSegment(t, 0)
+	for _, opt := range [][2]bool{{true, true}, {false, true}, {false, false}} {
+		if mid := build(modelFull, opt[0], opt[1]); fixed+ansi.StringWidth(mid) <= w {
+			return m.headerRow(left, mid, right)
+		}
 	}
-	gap := m.width - ansi.StringWidth(left) - ansi.StringWidth(midStr) - ansi.StringWidth(brand) - 2
-	if gap < 1 {
-		gap = 1
+	// Still too wide: drop the mode badge, then shorten the model name.
+	mode = ""
+	room := w - fixed - ansi.StringWidth(build("", false, false))
+	if room >= 6 {
+		return m.headerRow(left, build(m.modelSegment(t, room), false, false), right)
 	}
-	return render.Truncate(" "+left+strings.Repeat(" ", gap-1)+midStr+" "+brand, m.width)
+	// Too narrow for the middle group: keep the identity and the cost.
+	return m.headerRow(left, "", cost)
+}
+
+// joinNonEmpty joins the non-empty parts with sep.
+func joinNonEmpty(sep string, parts ...string) string {
+	var out []string
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, sep)
+}
+
+// headerRow lays out left, mid and right on one row of the header's width:
+// " left<gap>mid  right ". The gap takes whatever is left.
+func (m *Model) headerRow(left, mid, right string) string {
+	used := 1 + ansi.StringWidth(left) + ansi.StringWidth(right) + 1
+	if mid != "" {
+		used += ansi.StringWidth(mid) + 2
+	}
+	gap := max(1, m.width-used)
+	out := " " + left + strings.Repeat(" ", gap)
+	if mid != "" {
+		out += mid + "  "
+	}
+	return render.Truncate(out+right+" ", m.width)
 }
 
 // typewriter reveals s one rune per two frames and then holds.
@@ -115,7 +170,9 @@ func typewriter(s string, frame int) string {
 	return string(r[:n])
 }
 
-func (m *Model) modelSegment(t *tab) string {
+// modelSegment is the provider mark and the model name. maxW caps the whole
+// segment (0 means the default cap); a cut lands on a word boundary.
+func (m *Model) modelSegment(t *tab, maxW int) string {
 	th := m.th
 	prov := providerOf(t.model)
 	model := modelOf(t.model)
@@ -126,7 +183,44 @@ func (m *Model) modelSegment(t *tab) string {
 	if prov == "" {
 		limit = 40
 	}
-	return fg(th.BrandAlt).Render(icons.ProviderIcon(prov)) + " " + fg(th.TextPrimary).Render(render.Truncate(model, limit))
+	if maxW > 0 {
+		limit = maxW - ansi.StringWidth(icons.ProviderIcon(prov)) - 1
+	}
+	return fg(th.BrandAlt).Render(icons.ProviderIcon(prov)) + " " + fg(th.TextPrimary).Render(truncWord(model, limit))
+}
+
+// truncWord shortens s to n cells. It cuts back to the last separator so a
+// name is never shown half a word, and marks the cut with an ellipsis.
+func truncWord(s string, n int) string {
+	out, _ := cutWord(s, n)
+	return out
+}
+
+// cutWord is truncWord that also reports whether the cut landed on a word
+// boundary. It is false only when no boundary fits, so the text had to be
+// cut mid-word.
+func cutWord(s string, n int) (string, bool) {
+	if n <= 0 || ansi.StringWidth(s) <= n {
+		return s, true
+	}
+	if n == 1 {
+		return "…", false
+	}
+	rs := []rune(s)
+	cut, fits := 0, 0
+	for i := range rs {
+		if ansi.StringWidth(string(rs[:i+1]))+1 > n {
+			break
+		}
+		fits = i + 1
+		if i > 0 && strings.ContainsRune("-_/.+,;:() ", rs[i]) {
+			cut = i
+		}
+	}
+	if cut > 0 {
+		return string(rs[:cut]) + "…", true
+	}
+	return string(rs[:fits]) + "…", false
 }
 
 func (m *Model) branchSegment(t *tab) string {
@@ -142,8 +236,9 @@ func (m *Model) branchSegment(t *tab) string {
 	return fg(th.Success).Render(icons.Icon("git") + " " + name)
 }
 
-// contextBar draws "● [▰▰▰▱▱▱▱▱] 42% 84k/200k" with the eased fill.
-func (m *Model) contextBar(t *tab) string {
+// contextParts returns the context bar ("● [▰▰▰▱▱▱▱▱] 42%") and the numbers
+// ("84k/200k"), separately so the header can drop the numbers first.
+func (m *Model) contextParts(t *tab) (string, string) {
 	th := m.th
 	pct := int(t.ctxShown + 0.5)
 	if pct < 0 {
@@ -167,13 +262,14 @@ func (m *Model) contextBar(t *tab) string {
 	if pct*8%100 >= 50 {
 		filled++
 	}
-	bar := fg(th.TextFaint).Render("[") +
+	bar := fg(th.Success).Render("●") + " " +
+		fg(th.TextFaint).Render("[") +
 		fg(filledCol).Render(strings.Repeat("▰", filled)) +
 		fg(th.TextSubtle).Render(strings.Repeat("▱", 8-filled)) +
-		fg(th.TextFaint).Render("]")
-	dot := fg(th.Success).Render("●")
-	label := itoa(pct) + "% " + render.HumanTokens(t.ctxUsed) + "/" + render.HumanTokens(t.ctxWin)
-	return dot + " " + bar + " " + fg(col).Render(label)
+		fg(th.TextFaint).Render("]") + " " +
+		fg(col).Render(itoa(pct)+"%")
+	nums := fg(col).Render(render.HumanTokens(t.ctxUsed) + "/" + render.HumanTokens(t.ctxWin))
+	return bar, nums
 }
 
 // costSegment shows "Local", "$0.123" or "$1.23".
@@ -256,19 +352,18 @@ func (m *Model) viewTabBar() string {
 	return render.Truncate(bar, m.width)
 }
 
-// checkpointLegend is the one-row legend shown when a single tab has checkpoints.
+// checkpointLegend is the one-row legend shown while browsing checkpoints
+// (Ctrl+B / Ctrl+F). It takes no row when there is one checkpoint or when the
+// user is not browsing.
 func (m *Model) checkpointLegend() string {
 	th := m.th
 	t := m.cur()
-	if len(t.cps) <= 1 && t.browse < 0 {
+	if len(t.cps) <= 1 || t.browse < 0 || t.browse >= len(t.cps) {
 		return ""
 	}
-	if t.browse >= 0 && t.browse < len(t.cps) {
-		cp := t.cps[t.browse]
-		return fg(th.Warning).Render("◀ viewing checkpoint #" + itoa(cp.Turn) + " — send a message to rewind to it, ^F to go forward")
-	}
-	left := fg(th.TextDim).Render("◆ latest │ ● viewing │ ● edits │ ○ read")
-	right := fg(th.TextDim).Render("^B/^F navigate")
+	cp := t.cps[t.browse]
+	left := fg(th.Warning).Render("◀ viewing checkpoint #" + itoa(cp.Turn))
+	right := fg(th.TextDim).Render("send a message to rewind here · ^F forward")
 	return spaceBetween(left, right, m.width)
 }
 
@@ -312,6 +407,25 @@ var tips = []string{
 	"/copy puts the last answer on the clipboard via OSC 52",
 }
 
+// fitTip picks a tip for a w-cell footer, starting the search at index start.
+// It prefers a tip that fits whole, then one that can be cut at a word
+// boundary, and cuts the first tip mid-word only when nothing else works.
+func fitTip(start, w int) string {
+	for i := 0; i < len(tips); i++ {
+		t := tips[(start+i)%len(tips)]
+		if ansi.StringWidth(t) <= w {
+			return t
+		}
+	}
+	for i := 0; i < len(tips); i++ {
+		if out, ok := cutWord(tips[(start+i)%len(tips)], w); ok {
+			return out
+		}
+	}
+	out, _ := cutWord(tips[start%len(tips)], w)
+	return out
+}
+
 // viewFooter is the bottom row: shortcuts that fit the width, and a rotating tip.
 func (m *Model) viewFooter() string {
 	th := m.th
@@ -331,11 +445,10 @@ func (m *Model) viewFooter() string {
 	if left == "" {
 		left = strings.Join(keys[:3], "  ")
 	}
-	tipIdx := (m.frame / (12 * 20)) % len(tips)
-	tip := ""
 	room := m.width - ansi.StringWidth(left) - 4
+	tip := ""
 	if room > 12 {
-		tip = fg(th.Brand).Render("✦ ") + fg(th.TextSecondary).Render(render.Truncate(tips[tipIdx], room-2))
+		tip = fg(th.Brand).Render("✦ ") + fg(th.TextSecondary).Render(fitTip(m.frame/(12*20), room-2))
 	}
 	return spaceBetween(" "+left, tip+" ", m.width)
 }
