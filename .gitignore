@@ -34,3 +34,6 @@ node_modules/
 
 # goreleaser output
 dist/
+
+# Scribe (lectern code) keeps its per-project cache, plans and sessions here.
+.scribe/

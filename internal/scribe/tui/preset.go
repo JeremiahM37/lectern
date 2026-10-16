@@ -162,6 +162,12 @@ func presetWrites(p config.Config, cur map[string]any) (writes []presetWrite, sk
 		if rs.ServiceTier != "" {
 			add(prefix+"service_tier", rs.ServiceTier)
 		}
+		if rs.Verbosity != "" {
+			add(prefix+"verbosity", rs.Verbosity)
+		}
+		if rs.Exclude {
+			add(prefix+"exclude", rs.Exclude)
+		}
 	}
 	for _, s := range []struct {
 		name string

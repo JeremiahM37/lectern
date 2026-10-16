@@ -88,8 +88,9 @@ type settings struct {
 
 // modelStyle is what the Reasoning tab needs to know about one model.
 type modelStyle struct {
-	style string // llm.ReasoningNone, ReasoningBudget, ReasoningAdaptive or ReasoningEffort
-	err   error  // the lookup failed (often: no key for the provider yet)
+	style     string // llm.ReasoningNone, ReasoningBudget, ReasoningAdaptive or ReasoningEffort
+	reasoning bool   // the model lists reasoning among its parameters (OpenRouter)
+	err       error  // the lookup failed (often: no key for the provider yet)
 }
 
 // openSettingsScreen opens the settings modal on the current tab's backend.
@@ -917,6 +918,7 @@ func (s *settings) ensureStyle() tea.Cmd {
 		for _, mi := range ms {
 			if mi.ID == id {
 				st.style = mi.ReasoningStyle
+				st.reasoning = mi.Reasoning
 			}
 		}
 		return func() (tea.Cmd, bool) {
@@ -936,7 +938,7 @@ func (s *settings) reasoningRows() []setRow {
 	if ref == "" {
 		return []setRow{{label: "No model selected", note: "pick one on the General tab"}}
 	}
-	provider, _ := llm.SplitModelRef(ref)
+	provider, id := llm.SplitModelRef(ref)
 	rows := []setRow{{label: "Model", value: ref, note: "change it on the General tab"}}
 	st, known := s.styles[ref]
 	switch {
@@ -947,15 +949,26 @@ func (s *settings) reasoningRows() []setRow {
 	}
 	rs := s.reasoningEffective()[provider]
 	key := reasoningKeyPrefix + provider + "."
+	if provider == "openrouter" {
+		// OpenRouter's reasoning object takes effort or a token budget for
+		// any model that lists reasoning, whatever its family.
+		if !st.reasoning {
+			return append(rows, setRow{label: "No reasoning controls", note: "this model does not list reasoning"})
+		}
+		return append(rows, s.openRouterRows(key, rs)...)
+	}
 	switch st.style {
 	case llm.ReasoningEffort:
-		rows = append(rows, s.cycleRow("Effort", key+"effort", rs.Effort, effortOptions, provider))
+		rows = append(rows, s.cycleRow("Effort", key+"effort", rs.Effort, effortOptionsFor(provider), provider))
 	case llm.ReasoningAdaptive:
 		rows = append(rows, s.cycleRow("Effort", key+"effort", rs.Effort, adaptiveEffortOptions, provider))
 	case llm.ReasoningBudget:
 		rows = append(rows, s.budgetRow(key+"budget", rs.Budget, provider))
 	default:
 		rows = append(rows, setRow{label: "No reasoning controls", note: "for this model; the global Reasoning setting still applies"})
+	}
+	if provider == "openai" && st.style == llm.ReasoningEffort && gpt5Model(id) {
+		rows = append(rows, s.cycleRow("Verbosity", key+"verbosity", rs.Verbosity, verbosityOptions, "answer length; GPT-5 models only"))
 	}
 	if tiers, ok := serviceTiers[provider]; ok {
 		rows = append(rows, s.cycleRow("Service tier", key+"service_tier", rs.ServiceTier, tiers, provider))

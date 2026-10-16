@@ -725,7 +725,7 @@ func (t *renameTool) Run(ctx context.Context, env *tools.Env, args json.RawMessa
 		}
 		return missingServer(err)
 	}
-	applied, err := ApplyWorkspaceEditWith(edit, func(path string) {
+	applied, err := applyChecked(ctx, env, edit, func(path string) {
 		if env != nil && env.Files != nil {
 			env.Files.BeforeWrite(path)
 		}
@@ -816,7 +816,7 @@ func (t *formatTool) Run(ctx context.Context, env *tools.Env, args json.RawMessa
 			return missingServer(err)
 		}
 		if len(actions) > 0 {
-			applied, err := ApplyWorkspaceEditWith(*actions[0].Edit, before)
+			applied, err := applyChecked(ctx, env, *actions[0].Edit, before)
 			if err != nil {
 				return tools.Errorf("organizing imports was not applied, and no file was changed: %v", err)
 			}
@@ -836,7 +836,7 @@ func (t *formatTool) Run(ctx context.Context, env *tools.Env, args json.RawMessa
 	}
 	if len(edits) > 0 {
 		edit := WorkspaceEdit{Changes: map[string][]TextEdit{pathToURI(abs): edits}}
-		applied, err := ApplyWorkspaceEditWith(edit, before)
+		applied, err := applyChecked(ctx, env, edit, before)
 		if err != nil {
 			return tools.Errorf("formatting was not applied, and no file was changed: %v", err)
 		}

@@ -793,10 +793,14 @@ function ProjectCard({
       return onNotice(t("settings.projects.mcpInvalid"), true);
     }
     try {
-      const saved = await api.request<{ revision: string }>(
+      const saved = await api.request<{ mcp: Record<string, JsonValue>; revision: string }>(
         `/projects/${p.id}/mcp`,
         { method: "PUT", body: { mcp: next, revision, strict_mcp: strict } },
       );
+      // The retained-secret markers are tied to the revision, so the draft
+      // must take the saved document's markers; keeping the old ones makes the
+      // next save look like a conflict.
+      setMcp(JSON.stringify(saved.mcp, null, 2));
       setRevision(saved.revision);
       setMcpStatus(t("settings.projects.mcpSavedStatus"));
       onNotice(t("settings.projects.mcpSaved"));

@@ -180,7 +180,7 @@ func (m *Model) sideHasContent() bool {
 	if len(m.tabs) == 0 {
 		return false
 	}
-	created, modified := m.cur().chat.ChangedFiles()
+	created, modified := m.cur().changedNow()
 	return len(created)+len(modified) > 0
 }
 
@@ -203,7 +203,7 @@ func (m *Model) changesPanel(t *tab, w, rows int) []string {
 		return nil
 	}
 	th := m.th
-	created, modified := t.chat.ChangedFiles()
+	created, modified := t.changedNow()
 	head := " " + fgb(th.TextPrimary).Render("Changes")
 	if len(created) > 0 {
 		head += " " + fg(th.Success).Render("+"+itoa(len(created)))

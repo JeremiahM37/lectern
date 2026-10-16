@@ -181,6 +181,10 @@ type Model struct {
 	themesSeen time.Time // newest mtime of the user theme files, for hot reload
 	themesAt   time.Time // last time the theme files were checked
 	quitAt     time.Time
+	// ctrlCs counts Ctrl+C presses less than ctrlCBurst apart; the third
+	// always quits, whatever is open (see handleCtrlC).
+	ctrlCs     int
+	ctrlCAt    time.Time
 	errLog     []errEntry
 	lastBG     time.Time // last background-fault poll
 	lastStale  time.Time // last stale-memory refresh
@@ -207,7 +211,7 @@ func NewModel(first Backend, newBackend func() (Backend, error), opts Options) *
 	if m.themeName == "" {
 		m.themeName = theme.ScribeID
 	}
-	m.th = theme.Resolve(m.themeName)
+	m.th = startupStyle(theme.Resolve(m.themeName), first)
 	m.version = first.Version()
 	m.land = newLandingState()
 	m.addTab(first, "")
@@ -702,7 +706,40 @@ func (m *Model) openNextPrompt(t *tab) {
 }
 
 // handleCtrlC clears the input, else stops a running turn, else arms quit.
+// ctrlCBurst is the most time between Ctrl+C presses that still counts them
+// as one burst.
+const ctrlCBurst = time.Second
+
 func (m *Model) handleCtrlC() tea.Cmd {
+	// Each press peels one layer (dialog, prompt, input, running turn), which
+	// can take several presses and, with a turn that keeps asking, never
+	// reach the quit. Three quick presses always quit.
+	now := time.Now()
+	if now.Sub(m.ctrlCAt) < ctrlCBurst {
+		m.ctrlCs++
+	} else {
+		m.ctrlCs = 1
+	}
+	m.ctrlCAt = now
+	if m.ctrlCs >= 3 {
+		// Deny what is waiting first, so no agent sits on an answer while
+		// its backend closes.
+		var cmds []tea.Cmd
+		for _, t := range m.tabs {
+			if t.pui != nil {
+				cmds = append(cmds, m.resolvePrompt(t, denyFor(t.pui)))
+			}
+		}
+		for m.topModal() != nil {
+			m.closeModal(m.topModal())
+		}
+		return tea.Batch(append(cmds, m.beginShutdown())...)
+	}
+	defer func() {
+		if m.ctrlCs == 2 && m.flash == "" {
+			m.setFlash("info", "Press Ctrl+C once more to quit")
+		}
+	}()
 	if m.topModal() != nil {
 		m.closeModal(m.topModal())
 		return nil
@@ -738,7 +775,7 @@ func (m *Model) bottomHeight() int {
 		h++
 	}
 	h += len(m.steerLines(t))
-	if n := len(changedFiles(t.chat)); n > 0 && m.phase != phaseLanding {
+	if c, mo := t.changedNow(); len(c)+len(mo) > 0 && m.phase != phaseLanding {
 		h++
 	}
 	if t.pui != nil {
@@ -902,7 +939,7 @@ func (m *Model) viewBottom() []string {
 		out = append(out, m.flashLine())
 	}
 	out = append(out, m.steerLines(t)...)
-	if n := len(changedFiles(t.chat)); n > 0 {
+	if c, mo := t.changedNow(); len(c)+len(mo) > 0 {
 		out = append(out, m.changedBar(t))
 	}
 	if t.pui != nil {
@@ -974,7 +1011,7 @@ func (m *Model) steerLines(t *tab) []string {
 // in amber, then the first three names coloured the same way, then the count
 // of the rest.
 func (m *Model) changedBar(t *tab) string {
-	created, modified := t.chat.ChangedFiles()
+	created, modified := t.changedNow()
 	line := fg(m.th.Amber).Render(" ✎ ")
 	if len(created) > 0 {
 		line += fg(m.th.Success).Render("+"+itoa(len(created))) + " "

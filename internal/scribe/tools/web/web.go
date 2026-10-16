@@ -139,7 +139,12 @@ func (w *webTools) approve(ctx context.Context, env *tools.Env, tool, title, det
 	if env == nil || env.Host == nil {
 		return false, "No way to ask the user for approval in this session, so web access is off. " + denied
 	}
-	switch env.Host.Approve(ctx, tools.Approval{Tool: tool, Kind: "web", Title: title, Detail: detail}) {
+	rctx, reason := tools.WithReasonSlot(ctx)
+	d := env.Host.Approve(rctx, tools.Approval{Tool: tool, Kind: "web", Title: title, Detail: detail})
+	if d != tools.Deny {
+		tools.NoteApproval(ctx, reason())
+	}
+	switch d {
 	case tools.AllowSession:
 		w.approval.mu.Lock()
 		w.approval.allowed = true

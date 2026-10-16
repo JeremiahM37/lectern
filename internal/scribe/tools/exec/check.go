@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
@@ -28,9 +29,27 @@ type stageOutcome struct {
 	failed  []string // failing test names
 }
 
-// runCheck runs typecheck, lint and test in order and reports one summary.
-// Every stage runs even when an earlier one fails, so the model sees all the
-// problems at once. Lint warnings fail the lint stage.
+// maxCheckParallel bounds how many check stages run at once. There are only
+// three stages, so this is the number that can run together; it is named so
+// the bound is visible where the stages are started.
+const maxCheckParallel = 3
+
+// stagePlan is one stage before it runs: the command after any fix rewrite,
+// and whether it may change files.
+type stagePlan struct {
+	action string
+	cmd    string
+	writes bool // lint with an auto-fix rewrites files
+	done   bool // already decided: skipped, or blocked by the gate
+	out    stageOutcome
+}
+
+// runCheck runs typecheck, lint and test and reports one summary. Every stage
+// runs even when an earlier one fails, so the model sees all the problems at
+// once. Stages that do not write files run at the same time, bounded by
+// maxCheckParallel; a lint with fix writes files, so it runs alone first and
+// the others start after it. The report keeps the stage order whatever order
+// they finish in. Lint warnings fail the lint stage.
 func (t *projectTool) runCheck(ctx context.Context, env *tools.Env, a projectArgs, p Profile, dir string) tools.Result {
 	if strings.TrimSpace(a.Target) != "" || strings.TrimSpace(a.Args) != "" {
 		return tools.Errorf("check runs typecheck, lint and test in full and takes no target or args. Run test or lint on its own to narrow it.")
@@ -51,49 +70,118 @@ func (t *projectTool) runCheck(ctx context.Context, env *tools.Env, a projectArg
 	}
 
 	timeout := clampTimeout(a.TimeoutMS, t.jobs.defaultTimeout(projectTimeout))
-	outcomes := make([]stageOutcome, 0, len(checkStages))
-	for _, action := range checkStages {
-		outcomes = append(outcomes, t.runStage(ctx, env, dir, a.Fix, p, action, timeout))
+	plans := make([]stagePlan, len(checkStages))
+	for i, action := range checkStages {
+		plans[i] = t.planStage(ctx, env, a.Fix, p, action)
+	}
+
+	// Gate prompts were answered above, one at a time; the stages below run
+	// without asking anything.
+	var writers, readers []int
+	for i, pl := range plans {
+		switch {
+		case pl.done:
+		case pl.writes:
+			writers = append(writers, i)
+		default:
+			readers = append(readers, i)
+		}
+	}
+	for _, i := range writers {
+		plans[i].out = t.execStage(ctx, env, dir, plans[i], timeout, "")
+	}
+	t.runParallel(ctx, env, dir, plans, readers, timeout)
+
+	outcomes := make([]stageOutcome, len(plans))
+	for i, pl := range plans {
+		outcomes[i] = pl.out
 	}
 	return checkResult(outcomes)
 }
 
-// runStage runs one check stage. A stage with no command is skipped, not
-// failed: a project without a typechecker is not a broken project.
-func (t *projectTool) runStage(ctx context.Context, env *tools.Env, dir string, fix bool, p Profile, action string, timeout time.Duration) stageOutcome {
-	out := stageOutcome{action: action, cmd: p.Commands[action]}
-	if out.cmd == "" {
-		out.skipped = true
-		out.note = "skipped, no " + action + " command detected"
-		return out
+// runParallel runs the stages at idx together, at most maxCheckParallel at a
+// time. Each writes its outcome into plans[i], so the order is fixed by the
+// index, not by which finishes first. A stage that runs with others gets its
+// progress lines labelled with its name.
+func (t *projectTool) runParallel(ctx context.Context, env *tools.Env, dir string, plans []stagePlan, idx []int, timeout time.Duration) {
+	label := len(idx) > 1
+	sem := make(chan struct{}, maxCheckParallel)
+	var wg sync.WaitGroup
+	for _, i := range idx {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			prefix := ""
+			if label {
+				prefix = "[" + plans[i].action + "] "
+			}
+			plans[i].out = t.execStage(ctx, env, dir, plans[i], timeout, prefix)
+		}(i)
+	}
+	wg.Wait()
+}
+
+// planStage decides what a stage will run and asks the gate about it. A stage
+// with no command is skipped, not failed: a project without a typechecker is
+// not a broken project. A command the gate refuses ends the stage here.
+func (t *projectTool) planStage(ctx context.Context, env *tools.Env, fix bool, p Profile, action string) stagePlan {
+	pl := stagePlan{action: action, out: stageOutcome{action: action, cmd: p.Commands[action]}}
+	if pl.out.cmd == "" {
+		pl.done = true
+		pl.out.skipped = true
+		pl.out.note = "skipped, no " + action + " command detected"
+		return pl
 	}
 	if action == "lint" && fix {
-		if fixed, ok := fixCommand(out.cmd); ok {
-			out.cmd = fixed
+		if fixed, ok := fixCommand(pl.out.cmd); ok {
+			pl.out.cmd = fixed
+			pl.writes = true
 		} else {
-			out.note = "no auto-fix for this linter; "
+			pl.out.note = "no auto-fix for this linter; "
 		}
 	}
-
-	if res, blocked := gate(ctx, env, t.jobs.opts, "project", out.cmd, ""); blocked {
-		out.note += "blocked: " + firstLine(res.Output)
-		out.preview = []string{firstLine(res.Output)}
-		return out
+	pl.cmd = pl.out.cmd
+	if res, blocked := gate(ctx, env, t.jobs.opts, "project", pl.cmd, ""); blocked {
+		pl.done = true
+		pl.out.note += "blocked: " + firstLine(res.Output)
+		pl.out.preview = []string{firstLine(res.Output)}
 	}
-	fg := runForegroundIn(ctx, env, dir, out.cmd, timeout, []string{"FORCE_COLOR=0", "NO_COLOR=1"})
+	return pl
+}
+
+// execStage runs a planned stage and parses its output. prefix, when set,
+// labels the progress lines it streams.
+func (t *projectTool) execStage(ctx context.Context, env *tools.Env, dir string, pl stagePlan, timeout time.Duration, prefix string) stageOutcome {
+	out := pl.out
+	e := *env
+	if prefix != "" && env.Host != nil {
+		e.Host = stageHost{Host: env.Host, prefix: prefix}
+	}
+	fg := runForegroundIn(ctx, &e, dir, pl.cmd, timeout, []string{"FORCE_COLOR=0", "NO_COLOR=1"})
+	if pl.writes && fg.exit != 0 && fg.err == nil && !fg.timedOut && !fg.cancelled {
+		// A fix flag this linter version does not know: retry once with the
+		// spelling older versions used.
+		if legacy, ok := legacyFixCommand(pl.cmd, fg.raw); ok {
+			out.note += "retried with legacy fix flags; "
+			fg = runForegroundIn(ctx, &e, dir, legacy, timeout, []string{"FORCE_COLOR=0", "NO_COLOR=1"})
+			out.cmd = legacy
+		}
+	}
 	switch {
 	case fg.err != nil:
 		out.note += fmt.Sprintf("could not start: %v", fg.err)
 		return out
 	case fg.timedOut || fg.cancelled:
-		out.note += footerFor(fg, timeout, action)
+		out.note += footerFor(fg, timeout, pl.action)
 		return out
 	}
 
 	diags, failed := parseDiagnostics(fg.raw)
 	out.diags, out.failed = diags, failed
 	var warnings []string
-	if action == "lint" {
+	if pl.action == "lint" {
 		warnings = warningLines(fg.raw)
 	}
 	switch {
@@ -111,6 +199,16 @@ func (t *projectTool) runStage(ctx context.Context, env *tools.Env, dir string, 
 	}
 	out.preview = previewOf(fg.raw, warnings, diags)
 	return out
+}
+
+// stageHost labels the progress lines of a stage that runs beside others.
+type stageHost struct {
+	tools.Host
+	prefix string
+}
+
+func (h stageHost) Progress(callID, text string) {
+	h.Host.Progress(callID, h.prefix+text)
 }
 
 // previewOf picks the lines that explain a failure: warnings for lint, then

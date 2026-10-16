@@ -72,7 +72,59 @@ func (m *Model) checkThemes(now time.Time) {
 	}
 	loadUserThemes()
 	if th, ok := theme.Lookup(m.themeName); ok {
-		m.setTheme(m.themeName, th)
+		m.setTheme(m.themeName, m.styledTheme(th))
 		m.setFlash("info", "Themes reloaded")
 	}
+}
+
+// themeStyleKeys are the flat config keys of the theme style (config/theme_style.go).
+var themeStyleKeys = []string{"theme_transparent", "theme_message_opacity", "theme_diff_opacity", "theme_border"}
+
+// styleFromConfig reads the saved theme style: transparency, the message and
+// diff background opacity, and the border strength. Unset values are the
+// defaults (opaque, 100 percent, default border).
+func styleFromConfig(c config.Config) theme.Style {
+	s := theme.DefaultStyle()
+	s.Transparent = config.Bool(c.ThemeTransparent, false)
+	if c.ThemeMessageOpacity != nil {
+		s.UserMessageOpacity = *c.ThemeMessageOpacity
+	}
+	if c.ThemeDiffOpacity != nil {
+		s.DiffOpacity = *c.ThemeDiffOpacity
+	}
+	if c.ThemeBorder != "" {
+		s.BorderStrength = c.ThemeBorder
+	}
+	return s
+}
+
+// startupStyle is th with the saved theme style applied. NewModel uses it so
+// the first frame already shows the saved transparency and borders.
+func startupStyle(th theme.Theme, be Backend) theme.Theme {
+	return theme.Adjust(th, styleFromConfig(fields7(be)))
+}
+
+// styledTheme is th with the style saved for the active backend.
+func (m *Model) styledTheme(th theme.Theme) theme.Theme {
+	return theme.Adjust(th, styleFromConfig(fields7(m.cur().be)))
+}
+
+// applyThemeStyle re-applies the saved style to the active palette and every
+// open transcript. The settings screen calls it after a style row changes.
+func (m *Model) applyThemeStyle() {
+	th, ok := theme.Lookup(m.themeName)
+	if !ok {
+		return
+	}
+	m.setTheme(m.themeName, m.styledTheme(th))
+}
+
+// isThemeStyleKey reports whether a flat key is one of the theme style keys.
+func isThemeStyleKey(key string) bool {
+	for _, k := range themeStyleKeys {
+		if k == key {
+			return true
+		}
+	}
+	return false
 }

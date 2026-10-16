@@ -19,6 +19,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/registry"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/nvim"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/chat"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
 )
 
 // ConfigFields7 reads the merged settings (project over global).
@@ -58,10 +59,10 @@ func is7Key(key string) bool {
 }
 
 // appliesLater reports whether a saved flat key takes effect in the next
-// session. Diff style and collapse are applied to the open tabs at once; the
-// rest are read when a session starts.
+// session. Diff style, collapse and the theme style are applied to the open
+// tabs at once; the rest are read when a session starts.
 func appliesLater(key string) bool {
-	return key != "diff_style" && key != "collapse_diffs"
+	return key != "diff_style" && key != "collapse_diffs" && !isThemeStyleKey(key)
 }
 
 // setFlat7 saves one flat key to the chosen scope and applies what can be
@@ -78,6 +79,9 @@ func (s *settings) setFlat7(key string, value any) tea.Cmd {
 	}
 	if key == "diff_style" || key == "collapse_diffs" {
 		s.applyDiffs()
+	}
+	if isThemeStyleKey(key) {
+		s.m.applyThemeStyle()
 	}
 	if key == "chat_style" {
 		s.m.applyChatStyleSetting()
@@ -205,7 +209,7 @@ func (s *settings) listRow7(title, key string, items []string, placeholder strin
 // diffRows are the diff settings shown under the themes.
 func (s *settings) diffRows() []setRow {
 	c := fields7(s.be)
-	return []setRow{
+	rows := []setRow{
 		{label: "Diff style", value: diffStyleName(c.DiffStyle), note: "default, side by side, or compact one-liners",
 			key: "diff_style", raw: c.DiffStyle, act: func() tea.Cmd {
 				next := []string{"default", "sidebyside", "compact"}
@@ -224,6 +228,52 @@ func (s *settings) diffRows() []setRow {
 			raw: config.Bool(c.CollapseDiffs, false),
 			act: func() tea.Cmd { return s.setFlat7("collapse_diffs", !config.Bool(c.CollapseDiffs, false)) }},
 	}
+	return append(rows, s.styleRows()...)
+}
+
+// styleRows are the theme style rows under the themes: transparency, the
+// message and diff background opacity, and the border strength. Each saves a
+// flat key and re-applies the palette at once.
+func (s *settings) styleRows() []setRow {
+	c := fields7(s.be)
+	msg, diff := 100, 100
+	if c.ThemeMessageOpacity != nil {
+		msg = *c.ThemeMessageOpacity
+	}
+	if c.ThemeDiffOpacity != nil {
+		diff = *c.ThemeDiffOpacity
+	}
+	border := c.ThemeBorder
+	if border == "" {
+		border = "default"
+	}
+	on := config.Bool(c.ThemeTransparent, false)
+	return []setRow{
+		s.flagRow7("Transparent background", "theme_transparent", on, "let the terminal show through the app background"),
+		s.opacityRow7("Message background", "theme_message_opacity", msg, "percent of the user-message fill kept; needs transparent"),
+		s.opacityRow7("Diff background", "theme_diff_opacity", diff, "percent of the diff fills kept; needs transparent"),
+		{label: "Border strength", value: border, note: "default, strong or op (brighter borders and faint text)",
+			key: "theme_border", raw: border, act: func() tea.Cmd {
+				next := config.ThemeBorders[(listIndex(config.ThemeBorders, border)+1)%len(config.ThemeBorders)]
+				if next == config.ThemeBorders[0] {
+					next = ""
+				}
+				return s.setFlat7("theme_border", next)
+			}},
+	}
+}
+
+// opacityRow7 cycles a percentage through theme.OpacitySteps on Enter.
+func (s *settings) opacityRow7(label, key string, cur int, note string) setRow {
+	steps := theme.OpacitySteps
+	next := steps[0]
+	for i, v := range steps {
+		if v == cur && i+1 < len(steps) {
+			next = steps[i+1]
+		}
+	}
+	return setRow{label: label, value: strconv.Itoa(cur) + "%", note: note, key: key, raw: cur,
+		act: func() tea.Cmd { return s.setFlat7(key, next) }}
 }
 
 func diffStyleName(v string) string {
@@ -426,22 +476,29 @@ func (s *settings) toolRows() []setRow {
 	return rows
 }
 
+// keySourceBadge names where a key comes from: [env] for an environment
+// variable (the variable is in the source string), [config] for a copy in the
+// key store under the config directory, [none] when nothing resolves. This
+// build has no OS keychain, so [keychain] never appears.
+func keySourceBadge(src string) string {
+	switch {
+	case strings.HasPrefix(src, "env:"):
+		return "[env]"
+	case src == "store":
+		return "[config]"
+	}
+	return "[none]"
+}
+
 // secretRow shows a search key's source and sets or removes it. The value is
 // read through a masked prompt and goes straight to the key store.
 func (s *settings) secretRow(label, id, note string) setRow {
-	val := "✗ no key"
 	src := ""
 	ss, hasStore := s.be.(SecretStore7)
 	if hasStore {
 		src = ss.SecretSource(id)
 	}
-	switch {
-	case strings.HasPrefix(src, "env:"):
-		val = "✓ " + src
-	case src == "store":
-		val = "✓ stored"
-	}
-	return setRow{label: label, value: val, note: note,
+	return setRow{label: label, value: keySourceBadge(src), note: note,
 		act: func() tea.Cmd {
 			if !hasStore {
 				s.say("err", "this build cannot store keys")

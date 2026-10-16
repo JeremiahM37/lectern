@@ -55,3 +55,46 @@ func DeniedWithReason(reason string) string {
 	}
 	return " Reason: " + reason
 }
+
+// A caller that let the user approve a call with a note reads the note back
+// with NoteApproval. The note joins the call's result for the model, through
+// a slot the agent puts on the call's context (WithCallNotes). The caller
+// does not need the slot to be there: without it the note is dropped.
+
+type callNotesKey struct{}
+
+type callNotes struct {
+	mu    sync.Mutex
+	notes []string
+}
+
+// WithCallNotes returns a context that collects approval notes for one tool
+// call, and a function that returns them joined by newlines ("" when none).
+func WithCallNotes(ctx context.Context) (context.Context, func() string) {
+	s := &callNotes{}
+	return context.WithValue(ctx, callNotesKey{}, s), func() string {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return strings.Join(s.notes, "\n")
+	}
+}
+
+// NoteApproval records that the user approved a call and gave a note. It is
+// a no-op for an empty reason or a context without a slot. Call it after an
+// approval that was not a denial, with the reason the Host gave.
+func NoteApproval(ctx context.Context, reason string) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return
+	}
+	s, ok := ctx.Value(callNotesKey{}).(*callNotes)
+	if !ok {
+		return
+	}
+	if len(reason) > 500 {
+		reason = reason[:500] + "…"
+	}
+	s.mu.Lock()
+	s.notes = append(s.notes, "The user approved this with a note: "+reason)
+	s.mu.Unlock()
+}

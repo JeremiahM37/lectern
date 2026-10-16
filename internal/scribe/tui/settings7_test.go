@@ -183,7 +183,7 @@ func TestBraveKeyIsMaskedAndStoredNotShown(t *testing.T) {
 		t.Fatalf("the key must not appear in the note or in config writes: note=%q writes=%v", s.note, b.writes)
 	}
 	selectRow(t, s, "Brave Search key")
-	if v := s.rows()[s.cur[s.tab]].value; v != "✓ stored" {
+	if v := s.rows()[s.cur[s.tab]].value; v != "[config]" {
 		t.Fatalf("row should show the source, got %q", v)
 	}
 }

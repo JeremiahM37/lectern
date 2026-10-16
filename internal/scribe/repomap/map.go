@@ -86,6 +86,9 @@ type Map struct {
 	// under derivedMu by whichever query needs it first.
 	derivedMu sync.Mutex
 	derived   *derivedIndex
+	// generation counts every recompute of the graph.
+	// Readers compare it to tell whether a rendered map is still current.
+	generation atomic.Uint64
 }
 
 // summaryEntry is a model-written summary and the content hash it describes.

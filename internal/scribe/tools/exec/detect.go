@@ -362,6 +362,9 @@ func nodeCommands(d dirView, pm string) map[string]string {
 		c["format"] = runScript("format")
 	case d.glob("biome.json*"):
 		c["format"] = "npx biome format --write ."
+		// Biome's check formats and lints in one pass; the format action
+		// prefers it (spec 06 9.1). FormatFile keeps the plain formatter.
+		c["formatAndLint"] = "npx biome check --write ."
 	case d.glob(".prettierrc*") || d.glob("prettier.config.*"):
 		c["format"] = "npx prettier --write ."
 	}

@@ -41,3 +41,42 @@ func fixCommand(lint string) (fixed string, ok bool) {
 	}
 	return "", false
 }
+
+// legacyFixRules are the spellings older linter versions used for a fix flag
+// that fixRules now writes. A run whose output says the flag is unknown is
+// retried once with the legacy spelling (spec 06 section 9.2).
+var legacyFixRules = []fixRule{
+	{"biome check --write", "biome check --apply"},
+	{"rubocop -a", "rubocop --auto-correct"},
+	{"ktlint --format", "ktlint -F"},
+}
+
+// unknownFlagHint matches linter output that rejects a flag as unknown.
+var unknownFlagHint = []string{
+	"unknown option", "unrecognized option", "unrecognised option", "unknown flag",
+	"unknown argument", "unexpected argument", "no such option", "flag provided but not defined",
+	"invalid option", "unknown switch",
+}
+
+// legacyFixCommand returns fixed with its fix flag swapped for the legacy
+// spelling, when the output shows the flag was rejected and a legacy spelling
+// is known. ok is false otherwise.
+func legacyFixCommand(fixed, output string) (string, bool) {
+	low := strings.ToLower(output)
+	rejected := false
+	for _, h := range unknownFlagHint {
+		if strings.Contains(low, h) {
+			rejected = true
+			break
+		}
+	}
+	if !rejected {
+		return "", false
+	}
+	for _, r := range legacyFixRules {
+		if strings.Contains(fixed, r.match) {
+			return strings.Replace(fixed, r.match, r.replace, 1), true
+		}
+	}
+	return "", false
+}

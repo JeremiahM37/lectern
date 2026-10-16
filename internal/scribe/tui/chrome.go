@@ -410,8 +410,8 @@ func (m *Model) viewTabBar() string {
 				seg += " " + fg(mc).Render("["+mi.label+"]")
 			}
 		}
-		if n := len(changedFiles(t.chat)); n > 0 {
-			seg += " " + fg(th.Success).Render("[✎ "+itoa(n)+"]")
+		if created, modified := t.changedNow(); len(created)+len(modified) > 0 {
+			seg += " " + fg(th.Success).Render("[✎ "+itoa(len(created)+len(modified))+"]")
 		}
 		if t.defModel != "" && t.model != "" && t.model != t.defModel {
 			seg += " " + fg(th.TextMuted).Render("["+render.Truncate(modelOf(t.model), 16)+"]")

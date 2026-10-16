@@ -48,7 +48,7 @@ func init() {
 				m.openInfo("Changes", "diff", m.changesLines())
 				return nil
 			}},
-		&command{Name: "checkpoint", Args: "[N|live|list|undo [n]|redo]", Desc: "Checkpoints: jump to a turn, go live, list, undo or redo", Group: "Session",
+		&command{Name: "checkpoint", Args: "[N|live|save [name]|list|undo [n]|redo]", Desc: "Checkpoints: jump to a turn, go live, list, undo or redo", Group: "Session",
 			Run: func(m *Model, args string) tea.Cmd { return checkpointCommand(m, args) }},
 		&command{Name: "font", Args: "[nerd]", Desc: "Terminal font info; nerd toggles Nerd Font icons", Group: "Settings",
 			Run: func(m *Model, args string) tea.Cmd {

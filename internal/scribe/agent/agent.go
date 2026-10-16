@@ -1398,7 +1398,7 @@ func (a *Agent) runTool(ctx context.Context, call llm.Part) llm.Part {
 	if a.opts.BeforeTool != nil {
 		a.opts.BeforeTool(ctx, call.ToolName, call.Args)
 	}
-	res := a.execTool(ctx, call)
+	res := a.runToolCall(ctx, call)
 	if a.opts.AfterTool != nil {
 		a.opts.AfterTool(ctx, call.ToolName, call.Args, &res)
 	}
@@ -1422,7 +1422,44 @@ func (a *Agent) runTool(ctx context.Context, call llm.Part) llm.Part {
 	return llm.Part{Type: llm.PartToolResult, ToolCallID: call.ToolCallID, ToolName: call.ToolName, Result: out, IsError: res.IsError}
 }
 
-func (a *Agent) execTool(ctx context.Context, call llm.Part) (res tools.Result) {
+// toolFailureObserver is implemented by hooks that see failed calls
+// (PostToolUseFailure). Hooks.PostTool reports the failures that reached the
+// tool; this reports the ones refused before it ran.
+type toolFailureObserver interface {
+	PostToolFailure(ctx context.Context, tool string, args json.RawMessage, res tools.Result) string
+}
+
+// runToolCall runs one call and does what the hooks and the model need after
+// it. A call that failed before it reached the tool (unknown, blocked, not
+// available for this step) still fires PostToolUseFailure, once. A note the
+// user gave when approving the call is put at the top of the result, so the
+// model knows what it was allowed to do.
+func (a *Agent) runToolCall(ctx context.Context, call llm.Part) tools.Result {
+	ctx, notes := tools.WithCallNotes(ctx)
+	var posted bool
+	res := a.execToolPosted(ctx, call, &posted)
+	if res.IsError && !posted && a.opts.Hooks != nil {
+		if f, ok := a.opts.Hooks.(toolFailureObserver); ok {
+			if extra := f.PostToolFailure(ctx, call.ToolName, call.Args, res); extra != "" {
+				res.Output += "\n\n" + extra
+			}
+		}
+	}
+	if n := notes(); n != "" {
+		res.Output = n + "\n" + res.Output
+	}
+	return res
+}
+
+// execTool runs the call's checks and the tool, with its hooks.
+func (a *Agent) execTool(ctx context.Context, call llm.Part) tools.Result {
+	var posted bool
+	return a.execToolPosted(ctx, call, &posted)
+}
+
+// execToolPosted is execTool. posted is set once the PostToolUse hooks have
+// run for the call, so runToolCall knows which failures were not reported.
+func (a *Agent) execToolPosted(ctx context.Context, call llm.Part, posted *bool) (res tools.Result) {
 	defer func() {
 		if r := recover(); r != nil {
 			res = tools.Errorf("internal error in %s: %v", call.ToolName, r)
@@ -1470,6 +1507,7 @@ func (a *Agent) execTool(ctx context.Context, call llm.Part) (res tools.Result) 
 		env.Host = waitHost{Host: env.Host, waits: &a.waits}
 	}
 	res = a.runWithTimeout(ctx, call.ToolName, t, &env, args)
+	*posted = true
 	if a.opts.Hooks != nil {
 		if extra := a.opts.Hooks.PostTool(ctx, call.ToolName, args, res); extra != "" {
 			res.Output += "\n\n" + extra

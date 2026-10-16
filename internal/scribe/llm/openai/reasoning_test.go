@@ -3,6 +3,7 @@ package openai
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
@@ -48,11 +49,84 @@ func TestReasoningEffortOnlyForEffortModelsOnOpenAI(t *testing.T) {
 
 func TestReasoningEffortKeptOnCompatibleEndpoints(t *testing.T) {
 	// Other OpenAI-compatible endpoints keep the send-when-set behaviour.
-	body := requestBody(t, "openrouter", llm.Request{
+	body := requestBody(t, "llmgateway", llm.Request{
 		Model: "some/model", Messages: []llm.Message{llm.UserText("x")}, Reasoning: "low",
 	})
 	if body["reasoning_effort"] != "low" {
 		t.Fatalf("reasoning_effort = %v", body["reasoning_effort"])
+	}
+}
+
+func TestOpenRouterReasoningObject(t *testing.T) {
+	msg := []llm.Message{llm.UserText("x")}
+	// Effort goes in the object, not as a top-level reasoning_effort.
+	body := requestBody(t, "openrouter", llm.Request{Model: "openai/o3", Messages: msg, Reasoning: "xhigh", ThinkingBudget: 4096, ReasoningExclude: true})
+	rr, _ := body["reasoning"].(map[string]any)
+	if rr["effort"] != "xhigh" || rr["exclude"] != true || rr["max_tokens"] != nil {
+		t.Fatalf("reasoning = %v, want effort xhigh and exclude, no max_tokens", rr)
+	}
+	if _, has := body["reasoning_effort"]; has {
+		t.Fatalf("top-level reasoning_effort must not be sent to OpenRouter: %v", body)
+	}
+	// A budget alone becomes max_tokens.
+	body = requestBody(t, "openrouter", llm.Request{Model: "anthropic/claude-sonnet-4.5", Messages: msg, ThinkingBudget: 8192})
+	rr, _ = body["reasoning"].(map[string]any)
+	if rr["max_tokens"] != float64(8192) || rr["effort"] != nil {
+		t.Fatalf("reasoning = %v, want max_tokens 8192", rr)
+	}
+	// Nothing set: no object at all.
+	body = requestBody(t, "openrouter", llm.Request{Model: "x/y", Messages: msg})
+	if _, has := body["reasoning"]; has {
+		t.Fatalf("reasoning sent with nothing set: %v", body["reasoning"])
+	}
+}
+
+func TestVerbositySentOnlyForGPT5OnOpenAI(t *testing.T) {
+	msg := []llm.Message{llm.UserText("x")}
+	cases := []struct {
+		provider, model string
+		want            bool
+	}{
+		{"openai", "gpt-5.4", true},
+		{"openai", "gpt-5-mini", true},
+		{"openai", "gpt-4.1", false},
+		{"openai", "gpt-5-chat-latest", false},
+		{"openai", "o3", false},
+		{"llmgateway", "openai/gpt-5", false},
+	}
+	for _, c := range cases {
+		body := requestBody(t, c.provider, llm.Request{Model: c.model, Messages: msg, Verbosity: "low"})
+		if _, has := body["verbosity"]; has != c.want {
+			t.Errorf("%s/%s: verbosity sent = %v, want %v", c.provider, c.model, has, c.want)
+		}
+	}
+}
+
+func TestXAIEffortOnlyForMiniModels(t *testing.T) {
+	msg := []llm.Message{llm.UserText("x")}
+	body := requestBody(t, "xai", llm.Request{Model: "grok-3-mini", Messages: msg, Reasoning: "high"})
+	if body["reasoning_effort"] != "high" {
+		t.Fatalf("grok-3-mini reasoning_effort = %v", body["reasoning_effort"])
+	}
+	if ReasoningStyle("grok-3-mini") != llm.ReasoningEffort || ReasoningStyle("grok-4") != llm.ReasoningNone {
+		t.Fatal("grok-3-mini should take effort, grok-4 should not")
+	}
+}
+
+func TestOpenRouterModelsReadReasoningFlag(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"openai/o3","supported_parameters":["reasoning","max_tokens"]},
+			{"id":"meta/llama","supported_parameters":["max_tokens"]}]}`))
+	}))
+	defer srv.Close()
+	ms, err := New(Options{ID: "openrouter", BaseURL: srv.URL}).Models(t.Context())
+	if err != nil || len(ms) != 2 {
+		t.Fatalf("models = %v, %v", ms, err)
+	}
+	if !ms[0].Reasoning || ms[1].Reasoning {
+		t.Fatalf("reasoning flags = %v, %v", ms[0].Reasoning, ms[1].Reasoning)
 	}
 }
 

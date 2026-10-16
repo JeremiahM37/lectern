@@ -123,6 +123,12 @@ type Request struct {
 	// which is the budget for Reasoning. Adapters ignore it where a budget is
 	// not part of the wire format.
 	ThinkingBudget int
+	// ReasoningExclude asks OpenRouter to leave the reasoning text out of the
+	// response (reasoning.exclude). Other adapters ignore it.
+	ReasoningExclude bool
+	// Verbosity is the answer length control (chat completions "verbosity":
+	// low, medium or high). The OpenAI adapter sends it only for GPT-5 models.
+	Verbosity string
 	// ServiceTier selects a provider processing tier (Anthropic service_tier,
 	// OpenAI service_tier). "" leaves the provider default; the value is sent
 	// verbatim when set.

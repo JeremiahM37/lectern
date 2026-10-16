@@ -131,7 +131,14 @@ func (t *projectTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessa
 		return tools.Errorf("%v", err)
 	}
 	timeout := clampTimeout(a.TimeoutMS, t.jobs.defaultTimeout(projectTimeout))
-	fg := runForegroundShaped(ctx, env, dir, cmd, timeout, append([]string{"FORCE_COLOR=0", "NO_COLOR=1"}, extra...), projectShape)
+	env0 := append([]string{"FORCE_COLOR=0", "NO_COLOR=1"}, extra...)
+	fg := runForegroundShaped(ctx, env, dir, cmd, timeout, env0, projectShape)
+	if a.Fix && fg.exit != 0 && fg.err == nil && !fg.timedOut && !fg.cancelled {
+		if legacy, ok := legacyFixCommand(cmd, fg.raw); ok {
+			fg = runForegroundShaped(ctx, env, dir, legacy, timeout, env0, projectShape)
+			cmd = legacy
+		}
+	}
 	return projectResult(action, cmd, fg, timeout)
 }
 
@@ -156,6 +163,9 @@ func envPairs(env map[string]string) ([]string, error) {
 // a target names a script (node) or a Makefile target.
 func commandFor(p Profile, action, target string) string {
 	cmd := p.Commands[action]
+	if action == "format" && p.Commands["formatAndLint"] != "" {
+		cmd = p.Commands["formatAndLint"]
+	}
 	if target == "" {
 		return cmd
 	}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
 )
@@ -19,7 +20,10 @@ import (
 // prompt, a subagent dispatch) and keeps just enough state for every screen to
 // work. It is used by the tests and by `lectern code --demo`.
 type FakeBackend struct {
-	mu sync.Mutex
+	// dirtyFiles are files the fake reports as changed in git, on top of the
+	// fixed list; a test that edits a file marks it here (markDirty).
+	dirtyFiles []string
+	mu         sync.Mutex
 
 	// Delay is the pause between scripted events (0 for tests).
 	Delay time.Duration
@@ -65,6 +69,9 @@ type FakeBackend struct {
 	mcpSpecs     []MCPServerSpec
 	activeSkills []string
 	installed    []string
+
+	// flat holds the flat settings the settings screen saves (fake_config.go).
+	flat config.Config
 
 	// ops records the optional-capability calls (git repo, context, config
 	// moves, staged commits) so tests can check what a command asked for.
@@ -220,6 +227,10 @@ func (f *FakeBackend) runTurn(turn int, prompt string) {
 		"package parser\n\nfunc ParseList(src string) ([]string, error) { ... }\n", "128 lines", "", nil, 14*time.Millisecond)
 	tool("c2", "grep", map[string]any{"pattern": "ParseList", "path": "."},
 		"internal/parser/parse.go:12: func ParseList\ncmd/app/main.go:31: parser.ParseList(src)\n", "2 matches in 2 files", "", nil, 38*time.Millisecond)
+	if path := demoImage(); path != "" {
+		text("The diagram in the docs shows the same flow. ")
+		f.imageRead("c5", "docs/parser-flow.png", path)
+	}
 	if aborted() {
 		f.finish(turn, stats, &answer, edited, now, true)
 		return
@@ -575,7 +586,8 @@ func (f *FakeBackend) DeleteMemory(id string) error { return nil }
 
 // Git implements Backend.
 func (f *FakeBackend) Git() GitStatus {
-	return GitStatus{Branch: "feature/parser", Dirty: true, Ahead: 1, Changed: []string{"internal/parser/parse.go"}}
+	changed := append([]string{"internal/parser/parse.go"}, f.dirtyFiles...)
+	return GitStatus{Branch: "feature/parser", Dirty: true, Ahead: 1, Changed: changed}
 }
 
 // GitDiff implements Backend.

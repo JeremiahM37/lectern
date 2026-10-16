@@ -367,19 +367,32 @@ func (r *Runner) PostTool(ctx context.Context, tool string, args json.RawMessage
 		}
 	}
 	if res.IsError {
-		// A failed call also fires PostToolUseFailure, with the error text.
-		fin := r.input(evPostToolFailure)
-		fin["tool_name"] = displayName(tool)
-		fin["tool_input"] = rawObject(args)
-		fin["tool_use_id"] = ""
-		fin["error"] = res.Output
-		for _, e := range r.entries {
-			if e.event != evPostToolFailure || !e.matches(names) || !r.take(e) || !e.cond.ok(displayName(tool), args) {
-				continue
-			}
-			if o := r.exec(ctx, e, fin); o.context != "" {
-				extra = append(extra, o.context)
-			}
+		if o := r.PostToolFailure(ctx, tool, args, res); o != "" {
+			extra = append(extra, o)
+		}
+	}
+	return strings.Join(extra, "\n")
+}
+
+// PostToolFailure runs the PostToolUseFailure hooks for a call that failed.
+// PostTool calls it for failed calls that reached the tool; the agent calls it
+// directly for a call refused before it ran (unknown tool, blocked by a hook,
+// not available for this step), so every failure is reported once. Extra text
+// is returned for the model, as PostTool's is.
+func (r *Runner) PostToolFailure(ctx context.Context, tool string, args json.RawMessage, res tools.Result) string {
+	names := toolNames(tool)
+	fin := r.input(evPostToolFailure)
+	fin["tool_name"] = displayName(tool)
+	fin["tool_input"] = rawObject(args)
+	fin["tool_use_id"] = ""
+	fin["error"] = res.Output
+	var extra []string
+	for _, e := range r.entries {
+		if e.event != evPostToolFailure || !e.matches(names) || !r.take(e) || !e.cond.ok(displayName(tool), args) {
+			continue
+		}
+		if o := r.exec(ctx, e, fin); o.context != "" {
+			extra = append(extra, o.context)
 		}
 	}
 	return strings.Join(extra, "\n")
@@ -617,7 +630,7 @@ func parseStdout(e entry, out []byte, event string) outcome {
 		}
 		return o
 	}
-	if event == evPrompt || event == evPostTool {
+	if event == evPrompt || event == evPostTool || event == evPostToolFailure {
 		return outcome{context: strings.TrimSpace(string(out))}
 	}
 	return outcome{}

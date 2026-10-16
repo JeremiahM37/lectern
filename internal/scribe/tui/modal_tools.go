@@ -10,7 +10,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/icons"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
 )
 
@@ -108,45 +107,30 @@ func (m *Model) openToolsModal() {
 		enabled := 0
 		items := make([]PickItem, 0, len(sorted))
 		for _, t := range sorted {
-			it := PickItem{Value: t.Name, Label: t.Name, Group: toolGroup(t), Desc: oneLine(t.Description)}
+			it := PickItem{Value: t.Name, Label: t.Name, Group: toolGroup(t), Desc: oneLine(t.Description),
+				Kind: PickToggle, On: t.Enabled}
 			if t.ReadOnly {
 				it.Desc = "read-only · " + it.Desc
 			}
 			if t.Enabled {
 				enabled++
-				it.Icon = icons.Icon("check")
-				it.Color = th.TextPrimary
-			} else {
-				it.Icon = icons.Icon("fail")
-				it.Color = th.TextDim
 			}
 			items = append(items, it)
 		}
 		p.Blurb = fmt.Sprintf("%d / %d enabled", enabled, len(sorted))
 		return items
 	}
-	toggle := func(it PickItem) {
-		t, ok := byName[it.Value]
-		if !ok {
-			return
-		}
-		be.SetToolEnabled(t.Name, !t.Enabled)
-		p.SetItems(build())
-	}
+	// The picker flips the switch (PickToggle) before OnSelect runs, so the
+	// row's On is the new state to save.
 	p.Items = build()
 	p.refilter()
 	p.OnSelect = func(it PickItem) tea.Cmd {
-		toggle(it)
+		if _, ok := byName[it.Value]; !ok {
+			return nil
+		}
+		be.SetToolEnabled(it.Value, it.On)
+		p.SetItems(build())
 		return nil
-	}
-	p.OnKey = func(key string) (tea.Cmd, bool) {
-		if key != " " || p.searching {
-			return nil, false
-		}
-		if it, ok := p.Selected(); ok && !it.Disabled {
-			toggle(it)
-		}
-		return nil, true
 	}
 	p.Preview = func(it PickItem) []string {
 		t, ok := byName[it.Value]

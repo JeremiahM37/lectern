@@ -71,6 +71,29 @@ func (a *App) tune(m agent.Model, r *llm.Request) {
 	a.mu.Unlock()
 	applyReasoning(r, rs, m.Info.ReasoningStyle)
 	applyPerformance(r, perf, rs, m.Info.ReasoningStyle)
+	applyProviderReasoning(r, provider, rs, m.Info.ReasoningStyle)
+}
+
+// applyProviderReasoning sets the controls that only one provider takes. The
+// OpenRouter tab's effort, token budget and hide-reasoning rows apply to every
+// model that lists reasoning (its style is not one of the controlled styles,
+// so the generic path above does not cover it). The OpenAI verbosity row
+// applies only to effort-style models, the same models the adapter sends it to.
+func applyProviderReasoning(r *llm.Request, provider string, rs config.Reasoning, style string) {
+	switch provider {
+	case "openrouter":
+		if rs.Effort != "" {
+			r.Reasoning = rs.Effort
+		}
+		if rs.Budget > 0 {
+			r.ThinkingBudget = rs.Budget
+		}
+		r.ReasoningExclude = rs.Exclude
+	case "openai":
+		if rs.Verbosity != "" && style == llm.ReasoningEffort {
+			r.Verbosity = rs.Verbosity
+		}
+	}
 }
 
 // applyWatchdog sets the stream watchdog thresholds from /watchdog. Zero

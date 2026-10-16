@@ -42,6 +42,8 @@ type View struct {
 	errShown   bool
 	calls      map[string]*Call
 	agents     map[string]*agent.AgentInfo
+	// images caches the half-block art of read results (tools_image.go).
+	images map[string][]string
 	// localPrompts are prompts AddUser added whose turn has not started yet.
 	localPrompts []string
 

@@ -36,6 +36,8 @@ type extensions struct {
 	hookR    *hooks.Runner
 	mcp      *mcp.Manager
 	cmap     *repomap.Map
+	// reindex batches file changes into one code map update (reindex10.go).
+	reindex *reindexer
 	// stopWatch ends the code map's file watcher; nil until it starts.
 	stopWatch context.CancelFunc
 	mapOK     chan struct{} // closed when the first code map build finishes
@@ -50,12 +52,13 @@ func (a *App) wire(ctx context.Context) error {
 	exec.Register(a.Tools, a.ext.jobs)
 	a.ext.lsp = lsp.NewManager(a.Workdir)
 	lsp.Register(a.Tools, a.ext.lsp)
+	a.ext.reindex = newReindexer(reindexDelay, a.reindexCodeMap)
 	// The editor tool answers from the editor the user has open; the write
 	// hook tells the code map and language server about the user's saves.
 	nvim.Register(a.Tools)
 	nvim.SetWriteHook(func(abs string) {
-		if rel, err := filepath.Rel(a.Workdir, abs); err == nil && !strings.HasPrefix(rel, "..") && a.ext.cmap != nil {
-			go a.ext.cmap.Update([]string{rel})
+		if rel, err := filepath.Rel(a.Workdir, abs); err == nil && !strings.HasPrefix(rel, "..") {
+			a.ext.reindex.Add(rel)
 		}
 		if a.ext.lsp != nil {
 			go a.ext.lsp.FileChanged(abs)
@@ -199,14 +202,8 @@ func (a *App) onFilesChanged(e agent.Event) {
 	if e.Kind != agent.EvToolResult || e.Result == nil || e.Result.IsError || len(e.Result.Files) == 0 {
 		return
 	}
-	var changed []string
-	defer func() {
-		if a.ext.cmap != nil && len(changed) > 0 {
-			go a.ext.cmap.Update(changed)
-		}
-	}()
 	for _, f := range e.Result.Files {
-		changed = append(changed, f)
+		a.ext.reindex.Add(f)
 		abs := f
 		if !filepath.IsAbs(abs) {
 			abs = filepath.Join(a.Workdir, f)
@@ -242,6 +239,9 @@ func (e *extensions) close(a *App) {
 	if e.hookR != nil {
 		e.hookR.SessionEnd(context.Background())
 	}
+	if e.reindex != nil {
+		e.reindex.Stop()
+	}
 	if e.mcp != nil {
 		_ = e.mcp.Close()
 	}
@@ -259,4 +259,13 @@ func (e *extensions) close(a *App) {
 	if e.lsp != nil {
 		e.lsp.Shutdown()
 	}
+}
+
+// reindexCodeMap is the debounced flush: it re-reads the files that changed
+// since the last flush. It runs on the timer's goroutine.
+func (a *App) reindexCodeMap(paths []string) {
+	if a.ext.cmap == nil {
+		return
+	}
+	_ = a.ext.cmap.Update(paths)
 }

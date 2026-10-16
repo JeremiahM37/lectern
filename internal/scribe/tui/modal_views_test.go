@@ -84,7 +84,7 @@ func TestToolsGroupedWithToggles(t *testing.T) {
 		t.Fatalf("/tools should open the tools modal, top=%q", topTitle(m))
 	}
 	s := screen(m)
-	mustContain(t, s, "Edit", "Run", "Read", "MCP: github", "✓ read_file", "✗ mcp__github__search", "3 / 4 enabled")
+	mustContain(t, s, "Edit", "Run", "Read", "MCP: github", "read_file", "[✓]", "mcp__github__search", "[ ]", "3 / 4 enabled")
 	mustContain(t, s, "read-only")
 }
 

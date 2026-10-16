@@ -234,12 +234,15 @@ func (b *scribeBackend) CheckUpdate() tui.UpdateStatus {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	tag, err := version.LatestTag(ctx, &http.Client{Timeout: 8 * time.Second}, url)
+	rel, err := fetchRelease(ctx, &http.Client{Timeout: 8 * time.Second}, url)
 	if err != nil {
 		st.Err = err.Error()
 		return st
 	}
+	tag := rel.Tag
 	st.Latest = tag
+	st.Notes = releaseNotes(rel.Body)
+	st.URL = rel.HTMLURL
 	// The same test lectern update uses: the same version with or without a
 	// leading v is current, whatever the comparison says.
 	if strings.TrimPrefix(st.Current, "v") == strings.TrimPrefix(tag, "v") {

@@ -424,8 +424,10 @@ func gate(ctx context.Context, env *tools.Env, p string) (string, string, error)
 			return "", "", fmt.Errorf("Refusing to write inside .git (%s). Git internals are not edited directly.", rel)
 		}
 	}
-	if isSecretName(filepath.Base(abs)) && !approve(ctx, env, "sensitive", "Edit sensitive file", rel) {
-		return "", "", fmt.Errorf("Denied: edit to sensitive file %s", rel)
+	// The forbidden-path and secret-file rules the fs edit tools use: secret
+	// names are refused, CI and container files need approval.
+	if err := fs.CheckWrite(ctx, env, "edit", abs); err != nil {
+		return "", "", err
 	}
 	if !within(realPath(wd), realPath(abs)) && env.Mode != "auto" && !approve(ctx, env, "write_outside", "Write outside project directory", abs) {
 		return "", "", fmt.Errorf("Denied: %s outside project directory → %s", toolName, rel)
@@ -437,7 +439,12 @@ func approve(ctx context.Context, env *tools.Env, kind, title, detail string) bo
 	if env.Host == nil {
 		return false
 	}
-	return env.Host.Approve(ctx, tools.Approval{Tool: toolName, Kind: kind, Title: title, Detail: detail}) != tools.Deny
+	rctx, reason := tools.WithReasonSlot(ctx)
+	if env.Host.Approve(rctx, tools.Approval{Tool: toolName, Kind: kind, Title: title, Detail: detail}) == tools.Deny {
+		return false
+	}
+	tools.NoteApproval(ctx, reason())
+	return true
 }
 
 // realPath resolves symlinks in p. A path that does not exist yet is judged

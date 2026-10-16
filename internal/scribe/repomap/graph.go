@@ -55,6 +55,7 @@ const (
 func (m *Map) recompute(files map[string]*fileInfo, cochange map[string][]Pair) {
 	m.files = files
 	m.cochange = cochange
+	m.generation.Add(1)
 	m.derived = nil // lazily built indexes are stale after any change
 	paths := make([]string, 0, len(files))
 	for p := range files {

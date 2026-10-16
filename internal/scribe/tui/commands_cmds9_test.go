@@ -288,3 +288,28 @@ func TestCommandOutputLeavesTheLandingPage(t *testing.T) {
 		t.Fatal("a command that printed nothing should not leave the landing page")
 	}
 }
+
+// Three quick Ctrl+C presses quit even while dialogs keep the earlier presses
+// busy.
+func TestThreeQuickCtrlCAlwaysQuit(t *testing.T) {
+	m, _ := newTestModel(t, 100, 30)
+	m.phase = phaseChat
+	m.openInfo("One", "", []string{"a"})
+	m.openInfo("Two", "", []string{"b"})
+	m.openInfo("Three", "", []string{"c"})
+	for i := 0; i < 3; i++ {
+		m.handleCtrlC()
+	}
+	if m.phase != phaseShutdown {
+		t.Fatalf("phase = %v after three quick Ctrl+C", m.phase)
+	}
+	m2, _ := newTestModel(t, 100, 30)
+	m2.phase = phaseChat
+	m2.openInfo("Open", "", []string{"a"})
+	m2.handleCtrlC()
+	m2.ctrlCAt = m2.ctrlCAt.Add(-2 * ctrlCBurst)
+	m2.handleCtrlC()
+	if m2.ctrlCs != 1 {
+		t.Fatalf("slow presses must not count as a burst: count %d", m2.ctrlCs)
+	}
+}

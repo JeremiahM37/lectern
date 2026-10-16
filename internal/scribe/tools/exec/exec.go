@@ -68,6 +68,7 @@ func gate(ctx context.Context, env *tools.Env, opts Options, tool, command, desc
 	if dec == tools.Deny {
 		return tools.Errorf("Denied: %s. Do not retry this command. Ask the user what they want, or use a narrower command.%s", desc, tools.DeniedWithReason(reason())), true
 	}
+	tools.NoteApproval(ctx, reason())
 	return tools.Result{}, false
 }
 
@@ -177,7 +178,7 @@ func (t *shellTool) Spec() llm.ToolSpec {
 	return llm.ToolSpec{
 		Name: "shell",
 		Description: "Run a shell command in the project directory (bash -c on unix, PowerShell or cmd on Windows). " +
-			"Output is streamed while it runs and capped at 30000 characters, keeping the head and tail; the exit code is appended. " +
+			"Output is streamed while it runs and capped at 16 KB, keeping the head and tail; the exit code is appended. " +
 			"Credentials are removed from the environment. Destructive commands ask the user first. " +
 			"Use background: true for servers, watchers or anything long-running: it returns a job id; read it with shell_output and stop it with shell_kill. " +
 			"Use the project tool for tests, lint and builds when the project has them.",
@@ -355,6 +356,7 @@ func approveOutsideCwd(ctx context.Context, env *tools.Env, what, command string
 		}
 		return deny, true
 	}
+	tools.NoteApproval(ctx, reason())
 	return tools.Result{}, false
 }
 

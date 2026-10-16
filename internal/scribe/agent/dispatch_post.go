@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
 )
 
 // The post-dispatch passes (agentFeatures.desloppify and verifyEdits). Both
@@ -28,6 +31,38 @@ Project check result:
 Read the changed files. Look for correctness bugs, broken call sites and problems the check would not catch. Do not edit files.
 
 End with one line, exactly "VERDICT: PASS" or "VERDICT: FAIL", then the reasons in under 150 words.`
+
+// lintFixTimeout bounds the deterministic lint fix after code tasks edit files
+// (spec 06 section 9.5: 30 seconds).
+const lintFixTimeout = 30 * time.Second
+
+// lintFixer is the file-scoped lint fix the project tool offers. It is an
+// optional interface on the tool: a registry without it skips the pass.
+type lintFixer interface {
+	LintFixFiles(ctx context.Context, env *tools.Env, files []string, timeout time.Duration) (string, bool)
+}
+
+// lintFix runs the project's lint auto-fix on the files code tasks changed.
+// It runs once per dispatch, before the cleanup and the check, so both see the
+// fixed files. It is deterministic and returns the report, or "" when the
+// registry has no project tool that can scope a fix.
+func lintFix(ctx context.Context, env *tools.Env, reg *tools.Registry, changed []string) string {
+	if reg == nil || len(changed) == 0 {
+		return ""
+	}
+	t, ok := reg.Get("project")
+	if !ok {
+		return ""
+	}
+	fx, ok := t.(lintFixer)
+	if !ok {
+		return ""
+	}
+	e := *env
+	e.CallID = env.CallID + "/lintfix"
+	report, _ := fx.LintFixFiles(ctx, &e, changed, lintFixTimeout)
+	return report
+}
 
 // sideTask runs one post-dispatch subagent and counts its spend toward the
 // dispatch. It does not run once the circuit breaker has opened.

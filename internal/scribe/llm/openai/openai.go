@@ -112,10 +112,20 @@ type wireRequest struct {
 	MaxCompletionTokens int             `json:"max_completion_tokens,omitempty"`
 	Temperature         *float64        `json:"temperature,omitempty"`
 	ReasoningEffort     string          `json:"reasoning_effort,omitempty"`
+	Reasoning           *wireReasoning  `json:"reasoning,omitempty"`
+	Verbosity           string          `json:"verbosity,omitempty"`
 	ParallelToolCalls   *bool           `json:"parallel_tool_calls,omitempty"`
 	ServiceTier         string          `json:"service_tier,omitempty"`
 	Stream              bool            `json:"stream"`
 	StreamOptions       *wireStreamOpts `json:"stream_options,omitempty"`
+}
+
+// wireReasoning is OpenRouter's unified reasoning object. Effort and
+// max_tokens are alternatives; the adapter sends effort when both are set.
+type wireReasoning struct {
+	Effort    string `json:"effort,omitempty"`
+	MaxTokens int    `json:"max_tokens,omitempty"`
+	Exclude   bool   `json:"exclude,omitempty"`
 }
 
 type wireStreamOpts struct {
@@ -173,8 +183,18 @@ func ReasoningStyle(model string) string {
 		return llm.ReasoningEffort
 	case strings.HasPrefix(m, "gpt-5") && !strings.HasPrefix(m, "gpt-5-chat"):
 		return llm.ReasoningEffort
+	case strings.HasPrefix(m, "grok-3-mini"):
+		// xAI: reasoning_effort low or high on grok-3-mini only (grok-4 rejects it).
+		return llm.ReasoningEffort
 	}
 	return llm.ReasoningNone
+}
+
+// sendsVerbosity decides whether verbosity goes on the wire. Only GPT-5 models
+// take it on api.openai.com; the other families reject the parameter.
+func sendsVerbosity(provider, model string) bool {
+	return provider == "openai" && ReasoningStyle(model) == llm.ReasoningEffort &&
+		strings.HasPrefix(strings.ToLower(path.Base(model)), "gpt-5")
 }
 
 // sendsReasoningEffort decides whether reasoning_effort goes on the wire. On
@@ -221,14 +241,38 @@ func (p *Provider) buildBody(req llm.Request) ([]byte, error) {
 		off := false
 		w.ParallelToolCalls = &off
 	}
-	if req.Reasoning != "" && sendsReasoningEffort(p.opts.ID, req.Model) {
+	if p.opts.ID == "openrouter" {
+		// OpenRouter takes one reasoning object for every model family.
+		if rr := openRouterReasoning(req); rr != nil {
+			w.Reasoning = rr
+		}
+	} else if req.Reasoning != "" && sendsReasoningEffort(p.opts.ID, req.Model) {
 		w.ReasoningEffort = req.Reasoning
+	}
+	if req.Verbosity != "" && sendsVerbosity(p.opts.ID, req.Model) {
+		w.Verbosity = req.Verbosity
 	}
 	w.ServiceTier = req.ServiceTier
 	if !p.opts.NoStreamUsage {
 		w.StreamOptions = &wireStreamOpts{IncludeUsage: true}
 	}
 	return json.Marshal(w)
+}
+
+// openRouterReasoning builds the reasoning object from the request, or nil
+// when there is nothing to say. Effort wins over a token budget.
+func openRouterReasoning(req llm.Request) *wireReasoning {
+	rr := &wireReasoning{Exclude: req.ReasoningExclude}
+	switch {
+	case req.Reasoning != "":
+		rr.Effort = req.Reasoning
+	case req.ThinkingBudget > 0:
+		rr.MaxTokens = req.ThinkingBudget
+	}
+	if rr.Effort == "" && rr.MaxTokens == 0 && !rr.Exclude {
+		return nil
+	}
+	return rr
 }
 
 // translate maps llm messages to chat-completions messages. Reasoning parts
@@ -1000,6 +1044,9 @@ type remoteModel struct {
 	InputPerMTok  float64
 	OutputPerMTok float64
 	Priced        bool
+	// Reasoning is true when the server lists reasoning among the parameters
+	// the model takes (OpenRouter supported_parameters).
+	Reasoning bool
 }
 
 // Models lists models from GET {base}/models. When that fails or returns
@@ -1030,6 +1077,7 @@ func (p *Provider) Models(ctx context.Context) ([]llm.ModelInfo, error) {
 			InputPerMTok:  m.InputPerMTok,
 			OutputPerMTok: m.OutputPerMTok,
 			CatalogPriced: m.Priced,
+			Reasoning:     m.Reasoning,
 		})
 	}
 	return out, nil
@@ -1076,10 +1124,11 @@ func (p *Provider) fetchModels(ctx context.Context) ([]remoteModel, error) {
 // fields are the names used by OpenAI-compatible servers (LM Studio and
 // others use context_length, llama.cpp style servers n_ctx_train).
 type wireModel struct {
-	ID               string `json:"id"`
-	ContextLength    int    `json:"context_length"`
-	MaxContextLength int    `json:"max_context_length"`
-	ModelInfo        struct {
+	ID                  string   `json:"id"`
+	SupportedParameters []string `json:"supported_parameters"`
+	ContextLength       int      `json:"context_length"`
+	MaxContextLength    int      `json:"max_context_length"`
+	ModelInfo           struct {
 		MaxInputTokens int `json:"max_input_tokens"`
 	} `json:"model_info"`
 	Meta struct {
@@ -1093,6 +1142,11 @@ type wireModel struct {
 
 func (w wireModel) remote() remoteModel {
 	m := remoteModel{ID: w.ID}
+	for _, p := range w.SupportedParameters {
+		if p == "reasoning" {
+			m.Reasoning = true
+		}
+	}
 	for _, n := range []int{w.ContextLength, w.MaxContextLength, w.ModelInfo.MaxInputTokens, w.Meta.NCtxTrain} {
 		if n > 0 {
 			m.ContextWindow = n

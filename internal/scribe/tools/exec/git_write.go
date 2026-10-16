@@ -308,7 +308,8 @@ func approveGit(ctx context.Context, env *tools.Env, title string, argv []string
 	if env.Host == nil {
 		return tools.Errorf("Denied: %s. No one is available to approve it. Pick a narrower command.", title), true
 	}
-	dec := env.Host.Approve(ctx, tools.Approval{
+	rctx, reason := tools.WithReasonSlot(ctx)
+	dec := env.Host.Approve(rctx, tools.Approval{
 		Tool:   "git",
 		Kind:   "destructive",
 		Title:  title,
@@ -316,8 +317,9 @@ func approveGit(ctx context.Context, env *tools.Env, title string, argv []string
 		Danger: true,
 	})
 	if dec == tools.Deny {
-		return tools.Errorf("Denied: %s. Do not retry this command. Ask the user what they want, or use a narrower command.", title), true
+		return tools.Errorf("Denied: %s. Do not retry this command. Ask the user what they want, or use a narrower command.%s", title, tools.DeniedWithReason(reason())), true
 	}
+	tools.NoteApproval(ctx, reason())
 	return tools.Result{}, false
 }
 

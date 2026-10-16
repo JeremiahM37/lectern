@@ -42,12 +42,16 @@ func (t *remoteTool) Run(ctx context.Context, env *tools.Env, args json.RawMessa
 		if env == nil || env.Host == nil {
 			return tools.Errorf("%s needs the user's approval, but no way to ask is available.", t.name)
 		}
-		d := env.Host.Approve(ctx, tools.Approval{
+		rctx, reason := tools.WithReasonSlot(ctx)
+		d := env.Host.Approve(rctx, tools.Approval{
 			Tool:   t.name,
 			Kind:   "mcp",
 			Title:  fmt.Sprintf("Use %s tool %s", t.server, t.remote),
 			Detail: truncate(string(args), 400),
 		})
+		if d != tools.Deny {
+			tools.NoteApproval(ctx, reason())
+		}
 		switch d {
 		case tools.AllowSession:
 			t.m.allowSession(t.name)

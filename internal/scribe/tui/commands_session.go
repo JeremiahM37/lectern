@@ -33,6 +33,9 @@ func (m *Model) sessionCommand(args string) tea.Cmd {
 		m.openSessionPicker()
 		return nil
 	}
+	if strings.EqualFold(strings.TrimSpace(args), "clear") {
+		return clearViewCommand(m, true)
+	}
 	c, rest := findCommand(args)
 	if c == nil || c.Name == "session" {
 		return cmdErrText("Usage: /session continue, history, new, clear, rename or export")

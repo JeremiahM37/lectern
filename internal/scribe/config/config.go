@@ -187,6 +187,13 @@ type Config struct {
 	// Nil or zero means no limit. A pointer so a project file can switch
 	// off a global budget with an explicit 0. See DailyBudget.
 	DailyTokenBudget *int `json:"daily_token_budget,omitempty"`
+	// Theme style (wave 10): transparency, message and diff background
+	// opacity (percent, 0 to 100) and border strength ("", default, strong or
+	// op). Applied at startup and by the settings screen.
+	ThemeTransparent    *bool  `json:"theme_transparent,omitempty"`
+	ThemeMessageOpacity *int   `json:"theme_message_opacity,omitempty"`
+	ThemeDiffOpacity    *int   `json:"theme_diff_opacity,omitempty"`
+	ThemeBorder         string `json:"theme_border,omitempty"`
 	// Performance holds per-provider request options that change the wire
 	// format. Unset fields keep the adapter's default.
 	Performance Performance `json:"performance,omitempty"`
@@ -209,6 +216,8 @@ type Reasoning struct {
 	Effort      string `json:"effort,omitempty"`       // low | medium | high | ...
 	Budget      int    `json:"budget,omitempty"`       // thinking tokens; 0 = provider default
 	ServiceTier string `json:"service_tier,omitempty"` // e.g. auto, priority, flex
+	Verbosity   string `json:"verbosity,omitempty"`    // OpenAI GPT-5: low, medium, high
+	Exclude     bool   `json:"exclude,omitempty"`      // OpenRouter: hide reasoning text
 }
 
 // IsZero reports whether no reasoning control is set.
@@ -318,6 +327,14 @@ func Merge(base, o Config) Config {
 	if o.DailyTokenBudget != nil {
 		r.DailyTokenBudget = o.DailyTokenBudget
 	}
+	bp(&r.ThemeTransparent, o.ThemeTransparent)
+	if o.ThemeMessageOpacity != nil {
+		r.ThemeMessageOpacity = o.ThemeMessageOpacity
+	}
+	if o.ThemeDiffOpacity != nil {
+		r.ThemeDiffOpacity = o.ThemeDiffOpacity
+	}
+	str(&r.ThemeBorder, o.ThemeBorder)
 	bp(&r.NerdFont, o.NerdFont)
 	bp(&r.ShowReasoning, o.ShowReasoning)
 	bp(&r.Verbose, o.Verbose)
@@ -401,6 +418,12 @@ func mergeReasoning(base, o map[string]Reasoning) map[string]Reasoning {
 		}
 		if v.ServiceTier != "" {
 			m.ServiceTier = v.ServiceTier
+		}
+		if v.Verbosity != "" {
+			m.Verbosity = v.Verbosity
+		}
+		if v.Exclude {
+			m.Exclude = true
 		}
 		out[k] = m
 	}
@@ -550,6 +573,18 @@ func (c *Config) SetReasoningField(key string, v any) (bool, error) {
 		r.Effort = strings.TrimSpace(fmt.Sprint(v))
 	case "service_tier":
 		r.ServiceTier = strings.TrimSpace(fmt.Sprint(v))
+	case "verbosity":
+		r.Verbosity = strings.TrimSpace(fmt.Sprint(v))
+	case "exclude":
+		s := strings.TrimSpace(fmt.Sprint(v))
+		if s == "" {
+			s = "false"
+		}
+		b, err := strconv.ParseBool(s)
+		if err != nil {
+			return true, fmt.Errorf("%s must be true or false", key)
+		}
+		r.Exclude = b
 	case "budget":
 		n, err := strconv.Atoi(strings.TrimSpace(fmt.Sprint(v)))
 		if err != nil || n < 0 {
@@ -557,7 +592,7 @@ func (c *Config) SetReasoningField(key string, v any) (bool, error) {
 		}
 		r.Budget = n
 	default:
-		return true, fmt.Errorf("unknown reasoning field %q (use effort, budget or service_tier)", field)
+		return true, fmt.Errorf("unknown reasoning field %q (use effort, budget, service_tier, verbosity or exclude)", field)
 	}
 	if c.ReasoningByProvider == nil {
 		c.ReasoningByProvider = map[string]Reasoning{}

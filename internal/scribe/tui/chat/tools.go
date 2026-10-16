@@ -209,6 +209,7 @@ func (v *View) singleRow(c *Call, now time.Time, cw int) rowT {
 	r := rowT{call: c, calls: []*Call{c}}
 	r.lines = append(r.lines, v.callHeader(c, now))
 	r.lines = append(r.lines, v.agentLines(c, now)...)
+	r.lines = append(r.lines, v.readImageLines(c, cw)...)
 	if v.expandedFor(c) {
 		r.lines = append(r.lines, v.callDetails(c, cw)...)
 	} else if line := v.compactEdit(c); line != "" {

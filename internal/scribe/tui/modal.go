@@ -212,6 +212,12 @@ type PickItem struct {
 	Current  bool   // marked with a check
 	Disabled bool   // shown dim, cannot be selected
 	Color    lipgloss.TerminalColor
+	// Kind makes the row a toggle (On) or a selector (Options, Choice); see
+	// modal_control.go. The picker flips the state before OnSelect runs.
+	Kind    PickKind
+	On      bool
+	Options []string
+	Choice  int
 }
 
 // Picker is a fuzzy-filtered, grouped list.
@@ -237,6 +243,10 @@ type Picker struct {
 	// folded group shows as one row in place of its items. Filtering shows
 	// every match, folded or not.
 	Collapsible bool
+	// ScopeOptions adds a "Save to" bar (for example project, global). Ctrl+O
+	// cycles it and calls OnScope with the new name; Scope reads it back.
+	ScopeOptions []string
+	OnScope      func(scope string) tea.Cmd
 
 	OnSelect func(PickItem) tea.Cmd
 	OnCursor func(PickItem) tea.Cmd
@@ -247,6 +257,7 @@ type Picker struct {
 	query     string
 	searching bool
 	cursor    int // index into visible
+	scopeIdx  int // index into ScopeOptions
 	visible   []int
 	off       int
 	// folded holds the groups a Collapsible picker has folded.
@@ -524,6 +535,9 @@ func (p *Picker) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 		if !ok || it.Disabled || p.OnSelect == nil {
 			return p, nil, false
 		}
+		if it.Kind != PickPlain {
+			it, _ = p.activate()
+		}
 		cmd := p.OnSelect(it)
 		return p, cmd, !p.KeepOpen
 	case key == "up" || key == "ctrl+k":
@@ -543,6 +557,14 @@ func (p *Picker) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 			p.toggleFold(!p.folded[it.Group])
 		}
 		return p, p.fireCursor(), false
+	case key == scopeKey && len(p.ScopeOptions) > 0:
+		return p, p.cycleScope(), false
+	case key == " " && !p.searching && !p.TypeToFilter && p.controlActive():
+		it, _ := p.activate()
+		if p.OnSelect == nil {
+			return p, p.fireCursor(), false
+		}
+		return p, p.OnSelect(it), false
 	case key == "pgup":
 		for i := 0; i < 8; i++ {
 			p.move(-1)
@@ -607,6 +629,9 @@ func (p *Picker) View(w, h int) string {
 	th := p.th
 	var lines []string
 	lines = append(lines, p.searchBox(w)...)
+	if bar := p.scopeBar(); bar != "" {
+		lines = append(lines, bar)
+	}
 	if p.Blurb != "" {
 		lines = append(lines, fg(th.TextMuted).Render(p.Blurb))
 	}
@@ -776,6 +801,13 @@ func (p *Picker) renderRows(w int) []string {
 		line := marker + labelStyle.Render(label)
 		if it.Desc != "" {
 			line = marker + labelStyle.Render(padRight(label, labelW)) + "  " + fg(th.TextDim).Render(it.Desc)
+		}
+		if it.Kind != PickPlain {
+			// the control leads, so the switches line up down the list
+			line = marker + controlText(th, it) + "  " + labelStyle.Render(padRight(label, labelW))
+			if it.Desc != "" {
+				line += "  " + fg(th.TextDim).Render(it.Desc)
+			}
 		}
 		if it.Current {
 			line += " " + fg(th.Success).Render("✓")

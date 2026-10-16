@@ -37,6 +37,7 @@ var settings7Keys = []string{
 	"performance.thinking", "performance.effort", "performance.speed",
 	"performance.cache_ttl", "performance.tool_streaming",
 	"performance.send_reasoning", "performance.disable_parallel_tool_use",
+	themeTransparentKey, themeMessageKey, themeDiffKey, themeBorderKey,
 	"compact_keep_recent", "watchdog.first_token", "watchdog.inter_token", "watchdog.step",
 	keyEditorIntPrefix,
 }
@@ -195,6 +196,8 @@ func (c *Config) setScalar(key string, v any) (bool, error) {
 		c.KeyPriority = s
 	case "forbidden":
 		c.Forbidden = toList(v)
+	case themeTransparentKey, themeMessageKey, themeDiffKey, themeBorderKey:
+		return true, c.setThemeStyle(key, v)
 	default:
 		return false, nil
 	}

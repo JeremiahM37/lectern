@@ -17,16 +17,7 @@ func init() {
 	// /clear asks first (spec: "Clear conversation?", default No). It clears
 	// the view only; the saved session is kept.
 	overrideCommands(&command{Name: "clear", Desc: "Clear the view; the session is kept (asks first)", Group: "Session",
-		Run: func(m *Model, _ string) tea.Cmd {
-			t := m.cur()
-			m.pushModal(NewConfirm(m.th, "Clear conversation?",
-				"The messages on screen are cleared. The saved session is kept.", true, func() tea.Cmd {
-					t.chat.Clear()
-					t.steerQ = nil // queued steering messages go with the view
-					return nil
-				}))
-			return nil
-		}})
+		Run: func(m *Model, _ string) tea.Cmd { return clearViewCommand(m, false) }})
 
 	registerCommands(
 		&command{Name: "stash", Aliases: []string{"drafts"}, Desc: "Stashed drafts for this folder: restore, delete or clear", Group: "Session",

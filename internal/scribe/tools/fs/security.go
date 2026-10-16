@@ -100,7 +100,12 @@ func approve(ctx context.Context, env *tools.Env, toolName, kind, title, detail 
 	if env.Host == nil {
 		return false
 	}
-	return env.Host.Approve(ctx, tools.Approval{Tool: toolName, Kind: kind, Title: title, Detail: detail}) != tools.Deny
+	rctx, reason := tools.WithReasonSlot(ctx)
+	if env.Host.Approve(rctx, tools.Approval{Tool: toolName, Kind: kind, Title: title, Detail: detail}) == tools.Deny {
+		return false
+	}
+	tools.NoteApproval(ctx, reason())
+	return true
 }
 
 // realPath resolves symlinks in p. For a path that does not exist yet, it

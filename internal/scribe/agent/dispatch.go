@@ -343,6 +343,12 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 		}
 	}
 	changed = sortedUnique(changed)
+	// Deterministic lint fix on the changed files, once, before the cleanup and
+	// the check read them.
+	lint := ""
+	if len(changed) > 0 {
+		lint = lintFix(callerCtx, env, reg, changed)
+	}
 	// Optional passes (agentFeatures): a cleanup over the edited files
 	// before the project check, and a read-only review after it.
 	feats := d.features()
@@ -393,6 +399,9 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 	}
 	if run.tripped() {
 		fmt.Fprintf(&b, "## Circuit breaker\nOpened after %d provider failures; tasks that had not started were not run.\n\n", run.failureCount())
+	}
+	if lint != "" {
+		fmt.Fprintf(&b, "## Lint fix\n%s\n\n", lint)
 	}
 	if cleanup != "" {
 		fmt.Fprintf(&b, "## Cleanup\n%s\n\n", cleanup)

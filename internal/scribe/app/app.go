@@ -92,6 +92,8 @@ type App struct {
 	turn      int
 	instr     []agent.Instruction
 	codeMap   string
+	mapMu     sync.Mutex // guards mapGen
+	mapGen    uint64     // the repomap generation codeMap was rendered at
 	date      string
 	branch    string
 	pending   strings.Builder // coalesced text deltas for the transcript
@@ -367,6 +369,7 @@ var coreToolNames = []string{
 
 func (a *App) systemPrompt(sub string) func(string) string {
 	return func(mode string) string {
+		a.refreshCodeMap()
 		a.mu.Lock()
 		in := agent.PromptInput{
 			Workdir: a.Workdir, Date: a.date, Branch: a.branch,
@@ -496,7 +499,7 @@ func (a *App) agentOptions(model agent.Model, mode string) agent.Options {
 	}
 	if a.Memory != nil {
 		o.Recall = func(_ context.Context, prompt string) string {
-			return a.Memory.Inject(prompt, a.editedFilesSnapshot())
+			return a.Memory.Inject(prompt, a.recallFiles(prompt))
 		}
 	}
 	if !a.opts.Ephemeral {

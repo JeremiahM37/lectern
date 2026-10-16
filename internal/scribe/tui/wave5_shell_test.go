@@ -28,6 +28,7 @@ func (f fixedServers) Servers() []ServerStatus { return f.list }
 // editFile records one file change in the transcript the way a turn does.
 func editFile(m *Model, path string, created bool) {
 	t := m.cur()
+	markDirty(t, path)
 	id := fmt.Sprintf("c%d", len(path))
 	diff := "--- a/" + path + "\n+++ b/" + path + "\n@@ -1 +1 @@\n-a\n+b\n"
 	if created {
@@ -373,6 +374,7 @@ func TestTabLabelScrollsWhenActive(t *testing.T) {
 // giveChange records one finished edit in the current tab, so the side
 // panels (which stay hidden while there is nothing to show) appear.
 func giveChange(m *Model) {
+	markDirty(m.cur(), "main.go")
 	c := m.cur().chat
 	now := time.Now()
 	c.Apply(agent.Event{Kind: agent.EvTurnStart, Prompt: "edit", At: now})

@@ -289,8 +289,8 @@ func humanBytes(n int64) string {
 }
 
 // checkpointCommand is /checkpoint: list, undo [n], redo, live, and a turn
-// number to jump to it. save needs a git tag per checkpoint, which checkpoints
-// do not have yet, so it says so.
+// number to jump to it. save records the working tree as a git ref (see
+// checkpointSaveCommand).
 func checkpointCommand(m *Model, args string) tea.Cmd {
 	t := m.cur()
 	f := strings.Fields(args)
@@ -315,7 +315,7 @@ func checkpointCommand(m *Model, args string) tea.Cmd {
 		t.chat.Bottom()
 		return flashCmd("info", "Live view")
 	case "save":
-		return cmdErrText("/checkpoint save is not available yet: checkpoints are not git commits, so there is no tag to write")
+		return checkpointSaveCommand(m, f[1:])
 	}
 	turn, err := strconv.Atoi(f[0])
 	if err != nil {
