@@ -14,7 +14,10 @@ var (
 )
 
 // shellArgv returns the argv that runs command through the platform shell:
-// bash -lc when bash is installed, otherwise sh -c.
+// bash -c when bash is installed, otherwise sh -c. Not a login shell: Scribe
+// runs from the user's terminal and inherits its environment, and a login
+// shell re-reads /etc/profile, which on Debian and Ubuntu resets PATH and
+// drops tools the user added to it (Go under /usr/local/go/bin, for one).
 func shellArgv(command string) []string {
 	bashOnce.Do(func() {
 		if p, err := exec.LookPath("bash"); err == nil {
@@ -22,7 +25,7 @@ func shellArgv(command string) []string {
 		}
 	})
 	if bashPath != "" {
-		return []string{bashPath, "-lc", command}
+		return []string{bashPath, "-c", command}
 	}
 	return []string{"sh", "-c", command}
 }

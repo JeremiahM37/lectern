@@ -156,7 +156,7 @@ type shellArgs struct {
 func (t *shellTool) Spec() llm.ToolSpec {
 	return llm.ToolSpec{
 		Name: "shell",
-		Description: "Run a shell command in the project directory (bash -lc on unix, PowerShell or cmd on Windows). " +
+		Description: "Run a shell command in the project directory (bash -c on unix, PowerShell or cmd on Windows). " +
 			"Output is streamed while it runs and capped at 30000 characters, keeping the head and tail; the exit code is appended. " +
 			"Credentials are removed from the environment. Destructive commands ask the user first. " +
 			"Use background: true for servers, watchers or anything long-running: it returns a job id; read it with shell_output and stop it with shell_kill. " +

@@ -379,8 +379,16 @@ func defaultAgentMenu(specs []sessions.Spec) []string {
 		builtinNames[b.Name] = true
 	}
 	var installed, named []string
+	scribe := false
 	for _, spec := range specs {
 		if !builtinNames[spec.Name] {
+			continue
+		}
+		// Scribe is this binary, so it is always installed; counting it would
+		// turn "none of the external agents is installed" into a menu holding
+		// Scribe alone. It joins whichever list is shown, last.
+		if spec.Name == sessions.ScribeAgent {
+			scribe = true
 			continue
 		}
 		named = append(named, spec.Name)
@@ -388,10 +396,14 @@ func defaultAgentMenu(specs []sessions.Spec) []string {
 			installed = append(installed, spec.Name)
 		}
 	}
+	out := named
 	if len(installed) > 0 {
-		return installed
+		out = installed
 	}
-	return named
+	if scribe {
+		out = append(out, sessions.ScribeAgent)
+	}
+	return out
 }
 
 // agentMenu is the ordered list of agent names a picker shows before "More

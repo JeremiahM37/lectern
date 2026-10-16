@@ -1264,7 +1264,7 @@ func (b *scribeBackend) Shell(ctx context.Context, command string) (string, int,
 	}
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
-	cmd := osexec.CommandContext(ctx, "bash", "-lc", command)
+	cmd := osexec.CommandContext(ctx, "bash", "-c", command) // not a login shell: keep the inherited PATH
 	cmd.Dir = b.current().Workdir
 	cmd.Env = exec.ScrubEnv(os.Environ()) // same credential scrubbing as the shell tool
 	cmd.WaitDelay = 2 * time.Second

@@ -118,11 +118,13 @@ func locationBadge(workdir string, paths ...string) string {
 		if rel, err := filepath.Rel(workdir, p); err == nil && !strings.HasPrefix(rel, "..") {
 			continue
 		}
-		if under(p, os.TempDir()) {
-			return "tmp"
-		}
+		// The config dir is checked first: it is the more specific place,
+		// and a home under the temp dir (sandboxes, CI) holds both.
 		if cfg, err := os.UserConfigDir(); err == nil && under(p, cfg) {
 			return "config"
+		}
+		if under(p, os.TempDir()) {
+			return "tmp"
 		}
 		return "outside"
 	}

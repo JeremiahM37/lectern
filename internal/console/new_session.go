@@ -204,7 +204,16 @@ func (m *dashboard) agentChoices(target, project string, taskOnly bool) ([]choic
 	}
 	if def == "" || states[def] == "missing" || !hasChoice(all, def) {
 		def = ""
-		if len(all) > 0 {
+		// Scribe is always installed (it is this binary), so it would win
+		// whenever the others are unchecked; it is the default only when no
+		// other agent can be picked.
+		for _, c := range all {
+			if c.Value != scribeAgent {
+				def = c.Value
+				break
+			}
+		}
+		if def == "" && len(all) > 0 {
 			def = all[0].Value
 		}
 	}
@@ -385,3 +394,7 @@ func (m *dashboard) unusedName(base string) string {
 		}
 	}
 }
+
+// scribeAgent is the agent registry name of Lectern's own coding agent
+// (sessions.ScribeAgent; the console does not import that package).
+const scribeAgent = "scribe"

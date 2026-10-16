@@ -28,7 +28,7 @@ func autoVerify(workdir string) func(context.Context) (string, bool, string) {
 		}
 		tctx, cancel := context.WithTimeout(ctx, autoCheckTimeout)
 		defer cancel()
-		c := osexec.CommandContext(tctx, "bash", "-lc", cmd)
+		c := osexec.CommandContext(tctx, "bash", "-c", cmd) // not a login shell: keep the inherited PATH
 		c.Dir = workdir
 		c.Env = append(exec.ScrubEnv(os.Environ()), "FORCE_COLOR=0", "NO_COLOR=1")
 		c.WaitDelay = 2 * time.Second
