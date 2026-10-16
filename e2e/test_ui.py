@@ -623,8 +623,9 @@ def test_any_agent_can_be_defined_and_picked(page, server):
     ])
     page.goto(server + "/#sessions")
     page.click("#sess-new")
-    # the agent list is fetched, so wait for it rather than racing it
-    expect(page.locator("#ns-agent option")).to_have_count(4, timeout=10000)
+    # the agent list is fetched, so wait for it rather than racing it:
+    # claude, codex, gemini, scribe (Lectern's own agent) and "More agents…"
+    expect(page.locator("#ns-agent option")).to_have_count(5, timeout=10000)
     options = page.locator("#ns-agent option").all_inner_texts()
     assert any("claude" in o for o in options), options
     assert any("More agents" in o for o in options), options

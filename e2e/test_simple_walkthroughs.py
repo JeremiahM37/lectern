@@ -408,7 +408,8 @@ def test_only_installed_agents_start_and_the_demo_stands_in(page, server, size):
     is, with a one-line hint, and Start works."""
     page.set_viewport_size(size)
     page.route("**/api/targets/*/agents", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps([
-        {"name": n, "state": "missing"} for n in ("claude", "codex", "gemini")])))
+        # scribe too: a machine without Lectern on it has none of them
+        {"name": n, "state": "missing"} for n in ("claude", "codex", "gemini", "scribe")])))
     page.goto(server + "/#sessions")
     page.locator("#sess-new").click()
     sheet = page.get_by_role("dialog", name="Start an agent", exact=True)
