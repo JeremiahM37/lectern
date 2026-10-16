@@ -930,3 +930,28 @@ command, searched by plain words: try `end`, `past conversation`, `running
 agents` or `closed`. A label word that starts with what you typed ranks first,
 so `end` finds End session before Send message. **Enter** runs the highlighted
 item; arrow keys move the highlight. **Esc** clears the search, then closes.
+
+## Favorites
+
+Star the sessions you are working on, then open them all in one go.
+
+- **`*`** stars or unstars the selected session. Starred rows show **★** before
+  the name. A star works on ended sessions too.
+- **`5`** opens the **★ Favorites** tab. It lists starred sessions only, ended
+  ones included and marked as ended. Live, ready favorites are selected when
+  the tab opens.
+- **Space** unselects the ones you do not want right now. **Enter** opens the
+  rest, all at once.
+- Ended favorites that can be restored are tracked again first, the same as
+  **r**, then opened with the live ones. Ones that cannot be restored are
+  skipped, and the notice says how many. Press **r** to open the Restore list
+  for those.
+- **1** goes back to all sessions.
+
+The star is stored on the session (`favorite_at` in the session JSON, set with
+`PUT /api/sessions/{id}/favorite`), so it survives the session ending. It is
+per session, not per device. It is not the same as the per-device favorite
+models in the web client.
+
+Not included: favorites do not sort to the top of the Sessions list, and
+favoriting does not start or restore anything by itself.

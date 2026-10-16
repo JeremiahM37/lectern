@@ -159,6 +159,9 @@ func (m *dashboard) keyBar() []keyHint {
 }
 
 func (m *dashboard) sessionKeys() []keyHint {
+	if m.batchOpen && m.favoritesOnly {
+		return []keyHint{{"Space", "select"}, {"Enter", "open all"}, {"1", "sessions"}, {"b", "done"}}
+	}
 	if m.batchOpen {
 		return []keyHint{{"Space", "select"}, {"Enter", "open selected"}, {"b", "done"}}
 	}
@@ -180,11 +183,11 @@ func (m *dashboard) sessionKeys() []keyHint {
 	case agentExited(r):
 		return []keyHint{{"r", "start agent again"}, {"Enter", "attach"}, {"x", "end"}, {"n", "new"}, {":", "commands"}}
 	case r["ended_at"] != nil:
-		return []keyHint{{"r", "restore"}, {"m", "more"}, {"n", "new"}, {":", "commands"}}
+		return []keyHint{{"r", "restore"}, {"m", "more"}, {"n", "new"}, {":", "commands"}, {"*", "favorite"}}
 	}
 	// The search line above the list already says "/ Search", so the bar
 	// spends its room on keys that are not visible anywhere else.
-	return []keyHint{{"Enter", "attach"}, {"n", "new"}, {"x", "end"}, {"r", "restore"}, {":", "commands"}, {"m", "menu"}}
+	return []keyHint{{"Enter", "attach"}, {"n", "new"}, {"x", "end"}, {"r", "restore"}, {":", "commands"}, {"m", "menu"}, {"*", "favorite"}}
 }
 
 // renderKeyBar fits as many hints as the width allows, in order. A final
@@ -253,7 +256,7 @@ func (m *dashboard) helpLines() []string {
 	}
 	add("This view: "+m.helpContext, m.helpFor(m.helpContext))
 	add("Everywhere", []keyHint{
-		{"1 2 3 4", "Sessions, Approvals, Projects, Tasks"},
+		{"1 2 3 4 5", "Sessions, Approvals, Projects, Tasks, Favorites"},
 		{"Tab / ←→", "next pane (Shift+Tab goes back)"},
 		{"↑↓ / j k", "move"},
 		{"/", "filter the list; start with @ at its prompt · ! running · # quiet · & failed"},
@@ -281,7 +284,8 @@ func (m *dashboard) helpLines() []string {
 		{"r → Ctrl+R", "refresh (r now restores on Sessions)"},
 		{"Tab → p", "focus the preview (Tab now switches panes)"},
 		{"2 3 4", "now Approvals, Projects, Tasks; Routines and Machines are in :"},
-		{"5 6", "still Machines and Approvals"},
+		{"5", "was Machines; now Favorites, and Machines is in :"},
+		{"6", "still Approvals"},
 		{"U F H O P Q S G A", "undo, search, saved conversations, older messages, profiles, agent runners, shell, group, archive: also in :"},
 		{"7 8 9", "settings, usage, API: also in :"},
 		{"q in review", "goes back instead of quitting"},
@@ -310,6 +314,8 @@ func (m *dashboard) helpFor(context string) []keyHint {
 			{"Enter / click", "attach here (Ctrl+] d comes back)"},
 			{"o / right-click", "open in a new terminal window"},
 			{"b, Space", "select several, Enter opens them all"},
+			{"*", "add to or remove from favorites (★)"},
+			{"5", "Favorites: starred sessions, ended ones too; Enter opens them all"},
 			{"n", "new session"},
 			{"x / d / Delete", "end the session (asks first; r restores it)"},
 			{"r", "restore: start an exited agent again, or open the Restore list"},

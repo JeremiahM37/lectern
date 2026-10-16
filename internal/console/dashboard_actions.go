@@ -176,6 +176,9 @@ func (m *dashboard) choose(a dashboardAction) tea.Cmd {
 	if strings.HasPrefix(a.Operation, "mod:") || strings.HasPrefix(a.Operation, "mod-button:") {
 		return m.chooseMod(a)
 	}
+	if a.Operation == "favorites" {
+		return m.enterFavorites()
+	}
 	if strings.HasPrefix(a.Operation, "pane:") {
 		n, _ := strconv.Atoi(strings.TrimPrefix(a.Operation, "pane:"))
 		return m.switchSection(n)

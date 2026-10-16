@@ -69,11 +69,13 @@ func (m *dashboard) updateTopLevel(v tea.KeyMsg) tea.Cmd {
 		return m.loadRecentSessions()
 	case "x", "d", "delete":
 		return m.endSelected()
-	case "1", "2", "3", "4", "5", "6":
+	case "5":
+		// 5 is the Favorites tab; Machines moved to the palette.
+		return m.enterFavorites()
+	case "*":
+		return m.toggleFavorite()
+	case "1", "2", "3", "4", "6":
 		n := int(k[0] - '1')
-		if k == "5" {
-			n = 5 // Machines, where 5 always led.
-		}
 		if k == "6" {
 			n = 1 // Approvals, where 6 always led.
 		}
@@ -156,6 +158,9 @@ func (m *dashboard) updateTopLevel(v tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		if m.batchOpen && m.section == 0 {
+			if m.favoritesOnly {
+				return m.openFavorites()
+			}
 			return m.openSelectedBatch()
 		}
 		if m.selectedGroup() != nil {

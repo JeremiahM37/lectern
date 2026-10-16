@@ -297,3 +297,12 @@ viewport/keyboard numbers this device is reporting — for pasting into a bug
 report when the phone keyboard covers the prompt in a way no emulator has
 reproduced (see the keyboard-coverage history in
 [Mobile terminal testing](internal/testing/mobile-terminal.md)).
+
+## Favorites
+
+Each session card has a star button (**Add to favorites** / **Remove from
+favorites**). The sessions list has a **Favorites** filter, so a phone can show
+only the starred sessions. The star is the same one the terminal client sets
+with `*` (see [terminal-client.md](terminal-client.md#favorites)), and it
+survives the session ending. Opening several favorites at once is a terminal
+client feature; on the phone you open them one at a time.

@@ -245,6 +245,13 @@ type dashboard struct {
 	pendingFocus *dashboardFocus
 	// mods are the plugin mods running in this console (mods.go).
 	mods *modState
+	// Favorites (favorites.go): favoritesOnly narrows the Sessions pane to
+	// starred sessions; favoritesPreselect marks the live favorites once the
+	// tab loads; favoriteCount feeds the tab label; favoriteSkipNote is said
+	// again after the batch opens, which would otherwise replace it.
+	favoritesOnly, favoritesPreselect bool
+	favoriteCount                     int
+	favoriteSkipNote                  string
 }
 
 // dashboardFocus is the row a controls popup was opened for. It is resolved
@@ -429,7 +436,9 @@ func (m *dashboard) refresh() tea.Cmd {
 	if section == "sessions" {
 		if m.archived {
 			path += "?archived=true"
-		} else if m.ended {
+		} else if m.ended || m.favoritesOnly {
+			// A favorite stays a favorite after it ends, so the Favorites
+			// tab lists ended ones too.
 			path += "?all=true"
 		} else {
 			path += "?include_setup_failures=true"
@@ -507,6 +516,9 @@ func (m *dashboard) filter() {
 	m.visible = nil
 	for _, r := range m.rows {
 		if m.modHidden(r) {
+			continue
+		}
+		if m.favoritesOnly && r["favorite"] != true {
 			continue
 		}
 		s := str(r["status"])
@@ -781,8 +793,14 @@ func (m *dashboard) updatePreview() {
 		m.preview.SetYOffset(offset)
 	}
 }
-func pretty(v any) string { b, _ := json.MarshalIndent(v, "", "  "); return string(b) }
-func (m *dashboard) switchSection(i int) tea.Cmd {
+func pretty(v any) string                        { b, _ := json.MarshalIndent(v, "", "  "); return string(b) }
+func (m *dashboard) switchSection(i int) tea.Cmd { return m.openSection(i, false) }
+
+// openSection moves to a pane. favorites narrows the Sessions pane to starred
+// sessions; leaving that view turns batch mode off, since its selection was
+// made for the favorites.
+func (m *dashboard) openSection(i int, favorites bool) tea.Cmd {
+	wasFavorites := m.favoritesOnly
 	m.groupingBySection[sections[m.section]] = m.grouping
 	m.section = (i + len(sections)) % len(sections)
 	m.grouping = m.groupingBySection[sections[m.section]]
@@ -795,6 +813,15 @@ func (m *dashboard) switchSection(i int) tea.Cmd {
 	m.query.SetValue("")
 	m.attention = false
 	m.previewFocus = false
+	m.favoritesOnly = favorites && m.section == 0
+	m.favoritesPreselect = m.favoritesOnly
+	if m.favoritesOnly {
+		m.batchOpen = true
+		m.batchSelected = map[string]bool{}
+	} else if wasFavorites {
+		m.batchOpen = false
+		m.batchSelected = map[string]bool{}
+	}
 	return m.refresh()
 }
 func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -879,6 +906,11 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if v.section == "sessions" {
 			m.modSessionEvents(v.rows)
 			m.renderMods()
+			m.favoriteCount = countFavorites(v.rows)
+			if m.favoritesOnly && m.favoritesPreselect {
+				m.favoritesPreselect = false
+				m.preselectFavorites()
+			}
 		}
 		m.filter()
 		if m.focusSessionID != "" && v.section == "sessions" {
@@ -1065,6 +1097,7 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// section, archive view, or filtered session list is visible.
 				// Return to the live Sessions list before the auto-attach pass.
 				m.section = 0
+				m.favoritesOnly = false
 				m.rows = nil
 				m.visible = nil
 				m.selected = 0
@@ -1154,8 +1187,15 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.adoptForm(v.rows)
+	case favoriteMsg:
+		m.receiveFavorite(v)
+		return m, nil
+	case favoritesRestoredMsg:
+		return m, m.receiveFavoritesRestored(v)
 	case batchOpenedMsg:
 		m.busy = false
+		skipNote := m.favoriteSkipNote
+		m.favoriteSkipNote = ""
 		if v.err != nil {
 			m.notice = "Open terminals: " + clean(v.err.Error())
 		} else {
@@ -1163,6 +1203,9 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				delete(m.batchSelected, id)
 			}
 			m.notice = fmt.Sprintf("Opened %d terminals", len(v.ids))
+			if skipNote != "" {
+				m.notice += " · " + skipNote
+			}
 			if v.exit {
 				return m, tea.Quit
 			}
@@ -1548,6 +1591,9 @@ func (m *dashboard) tabsView() string {
 		if m.section < numberedPanes {
 			current = label(m.section)
 		}
+		if m.favoritesOnly {
+			current = favoritesTab(m.favoriteCount)
+		}
 		out := chosen.Render(" ‹ " + current + " › ")
 		if len(m.approvals) > 0 && sections[m.section] != "approvals" {
 			out += needsStyle.Render(fmt.Sprintf(" 2 Approvals (%d)", len(m.approvals)))
@@ -1560,14 +1606,20 @@ func (m *dashboard) tabsView() string {
 	for i := 0; i < numberedPanes; i++ {
 		text := " " + label(i) + " "
 		switch {
-		case i == m.section:
+		case i == m.section && !m.favoritesOnly:
 			text = chosen.Render(text)
 		case sections[i] == "approvals" && len(m.approvals) > 0:
 			text = needsStyle.Render(text)
 		}
 		tabs = append(tabs, text)
 	}
-	if m.section >= numberedPanes {
+	fav := " " + favoritesTab(m.favoriteCount) + " "
+	if m.favoritesOnly {
+		tabs = append(tabs, chosen.Render(fav))
+	} else {
+		tabs = append(tabs, fav)
+	}
+	if m.section >= numberedPanes && !m.favoritesOnly {
 		tabs = append(tabs, chosen.Render(" "+paneTitle(sections[m.section])+" "))
 	}
 	return strings.Join(tabs, " ")
@@ -1622,9 +1674,9 @@ func (m *dashboard) listView(height int) string {
 				s = "disabled"
 			}
 		}
-		line := "  " + oneLine(m.rowTitle(r))
+		line := "  " + oneLine(m.rowLabel(r))
 		if i == m.selected {
-			line = "› " + oneLine(m.rowTitle(r))
+			line = "› " + oneLine(m.rowLabel(r))
 		}
 		// What mods append to a session card goes after the title, which
 		// gives up room first.
@@ -1642,7 +1694,7 @@ func (m *dashboard) listView(height int) string {
 			if i == m.selected {
 				prefix = "› "
 			}
-			line = prefix + marker + oneLine(m.rowTitle(r))
+			line = prefix + marker + oneLine(m.rowLabel(r))
 		}
 		line = clip(line, lw)
 		if m.batchOpen && m.batchSelected[id(r)] && i != m.selected {
@@ -1703,13 +1755,28 @@ func (m *dashboard) openSelectedBatch() tea.Cmd {
 	if m.busy || m.controlOnly {
 		return nil
 	}
+	ids := m.batchReadyIDs()
+	if len(ids) == 0 {
+		m.notice = "Select sessions with click or Space first"
+		return nil
+	}
+	return m.openBatchIDs(ids)
+}
+
+// batchReadyIDs is the selected sessions that can be attached now. It uses
+// the refreshed rows, including selected rows outside the current search.
+func (m *dashboard) batchReadyIDs() []string {
 	ids := []string{}
-	// Use refreshed rows, including selected rows outside the current search.
 	for _, r := range m.rows {
-		if m.batchSelected[id(r)] && r["ended_at"] == nil && r["setup_state"] != "creating" && r["setup_state"] != "failed" {
+		if m.batchSelected[id(r)] && readyLive(r) {
 			ids = append(ids, id(r))
 		}
 	}
+	return ids
+}
+
+// openBatchIDs opens a terminal for each id through the batch launcher.
+func (m *dashboard) openBatchIDs(ids []string) tea.Cmd {
 	if len(ids) == 0 {
 		m.notice = "Select sessions with click or Space first"
 		return nil
