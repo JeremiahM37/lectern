@@ -308,3 +308,13 @@ sessions. The star is the same one the terminal client sets
 with `*` (see [terminal-client.md](terminal-client.md#favorites)), and it
 survives the session ending. Opening several favorites at once is a terminal
 client feature; on the phone you open them one at a time.
+
+## Remote Control: the Claude app as another window
+
+A claude session can also be opened from claude.ai/code or the Code tab of the
+Claude mobile app: tick *Also open in the Claude app (Remote Control)* when
+starting it, or use **⋯ → Enable Remote Control** on a running one. A card with
+it shows a small **⌁** by its name, and **⋯ → Open in Claude** opens it there.
+It is the same session, so approvals and messages from Lectern keep working.
+See [remote-control.md](remote-control.md) for requirements, the one-time
+consent and what happens on restore, fork, switch and account swap.

@@ -43,6 +43,10 @@ started automatically if it isn't already up (see
   (default yes). `--new` always starts a fresh one; `--attach` always reuses
   (and errors if there is nothing to reuse). A non-interactive caller (a
   script, a pipe) defaults to reuse.
+- `--remote-control` (or `--rc`, claude only) also opens the session in
+  claude.ai/code and the Claude app, and turns it on for a session it reuses.
+  The dashboard's session menu has the same *Enable Remote Control* entry. See
+  [remote-control.md](remote-control.md).
 - Attaches your terminal to it with the same native attach `lectern attach
   session ID` uses. The bar at the top says `Ctrl+] menu · Ctrl+] d leave ·
   Ctrl+\\ send file · double-click opens paths`. **Ctrl+], then d** leaves

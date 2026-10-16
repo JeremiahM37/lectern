@@ -73,6 +73,16 @@ than one open session, or none, errors with the candidates — call
 at this" instead of queuing behind the current turn. Refused for a session
 that has ended.
 
+## `enable_remote_control`
+
+Turns on Claude Remote Control for a running claude session, so it can also be
+opened from claude.ai/code and the Claude app ([remote-control.md](remote-control.md)).
+`session` is an id or exact/unique name. Refused, with the reason, for other
+agents, for an environment that cannot use it, while the agent is busy, or when
+Claude Code still wants its one-time consent for that login. `start_session`
+takes `remote_control: true` to start with it on, and `list_sessions` and
+`read_session` report `remote_control` (and `remote_control_url` once known).
+
 ## `end_session`
 
 Ends an interactive session a conversation no longer needs, such as the test

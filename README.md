@@ -244,6 +244,7 @@ listens on 127.0.0.1 only).
 | [Terminal client](docs/terminal-client.md) | Dashboard keys, multi-window, `lectern claude`, send-file |
 | [Agents](docs/agents.md) | Catalog, capabilities per agent, custom agents |
 | [Mobile sessions](docs/mobile-sessions.md) | Chat cards, approvals, voice mode |
+| [Remote Control](docs/remote-control.md) | Open a claude session in claude.ai/code and the Claude app too |
 | [Browser](docs/browser.md) | Browser pane, Design Mode, agent browser tools, computer use |
 | [Remote access](docs/remote-access.md) | Phone pairing and tunnels without Tailscale |
 | [Local runtime](docs/local.md) · [Shared server](docs/quickstart.md) · [Docker](docs/docker.md) | How the private runtime works, building from source, a server for several machines, containers |
