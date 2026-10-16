@@ -187,4 +187,4 @@ func (m *dashboard) reportSkipped(n int) {
 }
 
 // favoritesTab is the label of the Favorites tab, shown on every pane.
-func favoritesTab(n int) string { return fmt.Sprintf("5 ★ Favorites (%d)", n) }
+func favoritesTab(n int) string { return fmt.Sprintf("0 ★ Favorites (%d)", n) }

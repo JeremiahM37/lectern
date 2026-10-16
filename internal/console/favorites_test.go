@@ -73,10 +73,10 @@ func TestStarKeyTogglesFavoriteAndCallsTheAPI(t *testing.T) {
 func TestFavoritesTabShowsOnlyStarredAndPreselectsLiveOnes(t *testing.T) {
 	srv, _ := recordingServer(t, 200, rowsJSON(t, favoriteRows()))
 	m := favoriteDashboard(t, srv.URL)
-	_, cmd := m.Update(key("5"))
+	_, cmd := m.Update(key("0"))
 	run(m, cmd)
 	if !m.favoritesOnly || !m.batchOpen {
-		t.Fatalf("5 did not open favorites: favoritesOnly=%v batchOpen=%v", m.favoritesOnly, m.batchOpen)
+		t.Fatalf("0 did not open favorites: favoritesOnly=%v batchOpen=%v", m.favoritesOnly, m.batchOpen)
 	}
 	if len(m.visible) != 3 {
 		t.Fatalf("favorites view shows %d rows, want the 3 starred sessions", len(m.visible))
@@ -85,7 +85,7 @@ func TestFavoritesTabShowsOnlyStarredAndPreselectsLiveOnes(t *testing.T) {
 		t.Fatalf("pre-selection: %v", m.batchSelected)
 	}
 	view := ansi.Strip(m.View())
-	for _, want := range []string{"5 ★ Favorites (3)", "Old docs", "Enter open all"} {
+	for _, want := range []string{"0 ★ Favorites (3)", "Old docs", "Enter open all"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("favorites view missing %q:\n%s", want, view)
 		}
@@ -103,7 +103,7 @@ func TestFavoritesEnterRestoresEndedThenOpensAll(t *testing.T) {
 	m := favoriteDashboard(t, srv.URL)
 	var opened []string
 	m.openBatch = func(ids []string) error { opened = append(opened, ids...); return nil }
-	_, cmd := m.Update(key("5"))
+	_, cmd := m.Update(key("0"))
 	run(m, cmd)
 
 	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -141,7 +141,7 @@ func TestFavoritesEnterRestoresEndedThenOpensAll(t *testing.T) {
 func TestOneKeyLeavesFavoritesTab(t *testing.T) {
 	srv, _ := recordingServer(t, 200, rowsJSON(t, favoriteRows()))
 	m := favoriteDashboard(t, srv.URL)
-	_, cmd := m.Update(key("5"))
+	_, cmd := m.Update(key("0"))
 	run(m, cmd)
 	_, cmd = m.Update(key("1"))
 	run(m, cmd)

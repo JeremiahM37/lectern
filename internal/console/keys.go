@@ -256,7 +256,8 @@ func (m *dashboard) helpLines() []string {
 	}
 	add("This view: "+m.helpContext, m.helpFor(m.helpContext))
 	add("Everywhere", []keyHint{
-		{"1 2 3 4 5", "Sessions, Approvals, Projects, Tasks, Favorites"},
+		{"1 2 3 4", "Sessions, Approvals, Projects, Tasks"},
+		{"0", "Favorites"},
 		{"Tab / ←→", "next pane (Shift+Tab goes back)"},
 		{"↑↓ / j k", "move"},
 		{"/", "filter the list; start with @ at its prompt · ! running · # quiet · & failed"},
@@ -284,8 +285,7 @@ func (m *dashboard) helpLines() []string {
 		{"r → Ctrl+R", "refresh (r now restores on Sessions)"},
 		{"Tab → p", "focus the preview (Tab now switches panes)"},
 		{"2 3 4", "now Approvals, Projects, Tasks; Routines and Machines are in :"},
-		{"5", "was Machines; now Favorites, and Machines is in :"},
-		{"6", "still Approvals"},
+		{"5 6", "still Machines and Approvals"},
 		{"U F H O P Q S G A", "undo, search, saved conversations, older messages, profiles, agent runners, shell, group, archive: also in :"},
 		{"7 8 9", "settings, usage, API: also in :"},
 		{"q in review", "goes back instead of quitting"},
@@ -315,7 +315,7 @@ func (m *dashboard) helpFor(context string) []keyHint {
 			{"o / right-click", "open in a new terminal window"},
 			{"b, Space", "select several, Enter opens them all"},
 			{"*", "add to or remove from favorites (★)"},
-			{"5", "Favorites: starred sessions, ended ones too; Enter opens them all"},
+			{"0", "Favorites: starred sessions, ended ones too; Enter opens them all"},
 			{"n", "new session"},
 			{"x / d / Delete", "end the session (asks first; r restores it)"},
 			{"r", "restore: start an exited agent again, or open the Restore list"},

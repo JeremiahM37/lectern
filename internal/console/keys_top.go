@@ -69,13 +69,17 @@ func (m *dashboard) updateTopLevel(v tea.KeyMsg) tea.Cmd {
 		return m.loadRecentSessions()
 	case "x", "d", "delete":
 		return m.endSelected()
-	case "5":
-		// 5 is the Favorites tab; Machines moved to the palette.
+	case "0":
+		// 0 is the Favorites tab: every other digit already had a meaning
+		// people rely on (5 Machines, 6 Approvals, 7-9 settings/usage/API).
 		return m.enterFavorites()
 	case "*":
 		return m.toggleFavorite()
-	case "1", "2", "3", "4", "6":
+	case "1", "2", "3", "4", "5", "6":
 		n := int(k[0] - '1')
+		if k == "5" {
+			n = 5 // Machines, where 5 always led.
+		}
 		if k == "6" {
 			n = 1 // Approvals, where 6 always led.
 		}

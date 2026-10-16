@@ -937,7 +937,7 @@ Star the sessions you are working on, then open them all in one go.
 
 - **`*`** stars or unstars the selected session. Starred rows show **★** before
   the name. A star works on ended sessions too.
-- **`5`** opens the **★ Favorites** tab. It lists starred sessions only, ended
+- **`0`** opens the **★ Favorites** tab. It lists starred sessions only, ended
   ones included and marked as ended. Live, ready favorites are selected when
   the tab opens.
 - **Space** unselects the ones you do not want right now. **Enter** opens the

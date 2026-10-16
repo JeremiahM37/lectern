@@ -215,7 +215,7 @@ func TestEscAndQStepBackOneLevel(t *testing.T) {
 
 func TestPaneNumbersAndTab(t *testing.T) {
 	m := sampleDashboard()
-	for k, want := range map[string]string{"2": "approvals", "3": "projects", "4": "tasks", "5": "sessions", "6": "approvals", "1": "sessions"} {
+	for k, want := range map[string]string{"2": "approvals", "3": "projects", "4": "tasks", "5": "targets", "6": "approvals", "1": "sessions"} {
 		m.Update(key(k))
 		if sections[m.section] != want {
 			t.Fatalf("%s opened %s, want %s", k, sections[m.section], want)
