@@ -11,6 +11,9 @@ import (
 // inside the project ("$HOME/x" joined to the working dir), so it ran with no
 // approval while rm -rf of the same path asked.
 func TestOutsideWritesSeesHomeTargetsAndPlainRm(t *testing.T) {
+	// Pin HOME outside the exempt temp directory: an isolated test runner
+	// may point HOME under /tmp, where writes need no approval.
+	t.Setenv("HOME", "/home/scribe-test-user")
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Skip("no home directory")
@@ -42,6 +45,7 @@ func TestOutsideWritesSeesHomeTargetsAndPlainRm(t *testing.T) {
 }
 
 func TestRmDescriptionQuotedHomeTarget(t *testing.T) {
+	t.Setenv("HOME", "/home/scribe-test-user")
 	desc, ok, severe := classifySeverity(`rm -rf "$HOME/.cache/x"`, t.TempDir())
 	if !ok || !severe || !strings.Contains(desc, "home") {
 		t.Fatalf("got %q ok=%v severe=%v", desc, ok, severe)
