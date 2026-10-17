@@ -111,6 +111,8 @@ type DB struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	bg       sync.WaitGroup
+	// base holds the per-model similarity baselines; see embed_calibrate.go.
+	base baselineCache
 }
 
 // live is the SQL filter for records that recall, search, list and dedupe

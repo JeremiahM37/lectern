@@ -22,8 +22,9 @@ import (
 //	0.6*text + 0.25*file + 0.3*similar + 0.15*decay + 0.1*pinned
 //
 // where text = x/(1+x) for x = BM25 from FTS5, file is 1 when the record
-// names a file passed in, similar is the cosine of the hashed embeddings,
-// and decay blends recency of use with the use count.
+// names a file passed in, similar is the hash cosine (or, with a provider, the
+// provider cosine rescaled by calibrate so its unrelated level is 0), and
+// decay blends recency of use with the use count.
 const (
 	wText    = 0.6
 	wFile    = 0.25
@@ -293,6 +294,14 @@ func (d *DB) recallWith(query string, files []string, limit int, qProv []float32
 		}
 	}
 
+	// A provider's cosines are rescaled against its model's baseline before
+	// they meet the hash-tuned floors. Measured before the row query opens.
+	provBase := 0.0
+	if qProv != nil {
+		stored := d.baselineFor(provModel)
+		provBase = math.Min(stored, d.queryBaseline(qProv, provModel, stored))
+	}
+
 	// Every row, light columns only; bodies are loaded for the winners.
 	type cand struct {
 		id     string
@@ -321,7 +330,7 @@ func (d *DB) recallWith(query string, files []string, limit int, qProv []float32
 		if v := decodeVec(emb); v != nil {
 			switch {
 			case qProv != nil && model == provModel:
-				sim = math.Max(0, dot(qProv, v))
+				sim = calibrate(dot(qProv, v), provBase)
 			case qProv == nil && model == HashModel:
 				sim = math.Max(0, dot(qVec, v))
 			}

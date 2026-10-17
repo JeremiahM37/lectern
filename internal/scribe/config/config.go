@@ -116,7 +116,11 @@ type Config struct {
 	AutoCompact          *bool   `json:"auto_compact,omitempty"` // default on
 	CompactAt            float64 `json:"compact_at,omitempty"`   // fraction of window, default 0.8
 	Memory               *bool   `json:"memory,omitempty"`       // recall + memory tool (default on)
-	Checkpoints          *bool   `json:"checkpoints,omitempty"`  // default on
+	// MemoryEmbeddingModel is a provider/model id (e.g. ollama/nomic-embed-text)
+	// for memory recall. Empty means the local hash embedding, and nothing
+	// calls a network for memory.
+	MemoryEmbeddingModel string `json:"memory_embedding_model,omitempty"`
+	Checkpoints          *bool  `json:"checkpoints,omitempty"` // default on
 	// DeferredTools sends only core tools each step; other tools load on
 	// request_tools (default on). AutoCheck runs the project's typecheck or
 	// build after a turn that edited files and ended without a check
@@ -362,6 +366,7 @@ func Merge(base, o Config) Config {
 	bp(&r.SemanticAutoRegen, o.SemanticAutoRegen)
 	bp(&r.AutoCompact, o.AutoCompact)
 	bp(&r.Memory, o.Memory)
+	str(&r.MemoryEmbeddingModel, o.MemoryEmbeddingModel)
 	bp(&r.Checkpoints, o.Checkpoints)
 	bp(&r.DeferredTools, o.DeferredTools)
 	bp(&r.AutoCheck, o.AutoCheck)

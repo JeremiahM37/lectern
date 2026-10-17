@@ -282,6 +282,27 @@ func Open(ctx context.Context, o Options) (*App, error) {
 			a.Memory = nil // memory is optional; never block a session on it
 		} else {
 			a.bindMemorySession()
+			// A provider embedder is opt-in. With no model set nothing here
+			// touches the network, and recall keeps the local hash.
+			if id := cfg.MemoryEmbeddingModel; id != "" {
+				var e memory.Embedder
+				provider, _, err := memory.ParseEmbeddingModel(id)
+				var base, key string
+				if err == nil {
+					base, key, err = a.Registry.EmbeddingCredentials(provider)
+				}
+				if err == nil {
+					e, err = memory.NewEmbedder(id, base, key)
+				}
+				if err == nil {
+					// SetEmbedder smoke-tests the provider, then backfills in the background.
+					err = a.Memory.SetEmbedder(e)
+				}
+				if err != nil {
+					// Recall stays on the hash; the user sees why once, at backend start.
+					a.ConfigWarning = joinWarnings(a.ConfigWarning, "memory embeddings off: "+err.Error())
+				}
+			}
 		}
 	}
 	if set, err := skills.Discover(a.Workdir); err == nil {
