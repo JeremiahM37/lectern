@@ -133,9 +133,9 @@ func prereqLines(th theme.Theme, ps []prereqStatus, goos string, width int) []st
 	// One line for the language servers: those found, else a hint.
 	switch {
 	case len(langs) > 0:
-		out = append(out, fg(th.Success).Render(render.Wrap("  ✓ Language servers  "+strings.Join(langs, ", "), width)))
+		out = append(out, fg(th.Success).Render(hangWrap("  ✓ Language servers  "+strings.Join(langs, ", "), width, 4)))
 	default:
-		out = append(out, fg(th.TextMuted).Render(render.Wrap("  – Language servers  none found (optional): code intelligence for Go, TypeScript, Python or Rust", width)))
+		out = append(out, fg(th.TextMuted).Render(hangWrap("  – Language servers  none found (optional): code intelligence for Go, TypeScript, Python or Rust", width, 4)))
 	}
 	return out
 }
@@ -249,4 +249,20 @@ func (w *wizard) copyInstalls() {
 	}
 	copyToTerminal(strings.Join(lines, "\n") + "\n")
 	w.note = fmt.Sprintf("Copied %d install command(s) to the clipboard. Nothing was run.", len(lines))
+}
+
+// hangWrap wraps s to width and indents the continuation lines by indent
+// spaces, so a wrapped row stays under its own bullet.
+func hangWrap(s string, width, indent int) string {
+	lines := strings.Split(render.Wrap(s, width), "\n")
+	if len(lines) <= 1 {
+		return s
+	}
+	pad := strings.Repeat(" ", indent)
+	rest := render.Wrap(strings.Join(lines[1:], " "), max(10, width-indent))
+	out := []string{lines[0]}
+	for _, l := range strings.Split(rest, "\n") {
+		out = append(out, pad+strings.TrimLeft(l, " "))
+	}
+	return strings.Join(out, "\n")
 }

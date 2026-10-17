@@ -434,7 +434,7 @@ func detailLines(d MapDetail, label func(string) string, th theme.Theme, w int) 
 	}
 	lines := []string{
 		label("Cache") + primary(cache),
-		label("AI summary") + primary(ai),
+		label("Summaries") + primary(ai),
 	}
 	if d.Warning != "" {
 		lines = append(lines, label("Warning")+faint(render.Truncate(d.Warning, max(4, w-12))))

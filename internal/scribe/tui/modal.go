@@ -107,7 +107,7 @@ func modalFrame(md Modal, th theme.Theme, cols, rows int) []string {
 	}
 	footer := ""
 	if f, ok := md.(Footered); ok {
-		footer = f.Footer()
+		footer = fitHint(f.Footer(), w-6)
 	}
 	body := strings.Split(md.View(w-4, h-2), "\n")
 	body = fitLines(body, w-4, h-2)
@@ -1294,4 +1294,23 @@ func itoa(n int) string {
 		b[i] = '-'
 	}
 	return string(b[i:])
+}
+
+// fitHint shortens a "key action · key action · …" hint to w columns by
+// dropping hints from the middle, keeping the first ones and the last (which
+// is usually how to close). A hint that already fits is returned unchanged.
+func fitHint(h string, w int) string {
+	if w <= 0 || lipgloss.Width(h) <= w {
+		return h
+	}
+	parts := strings.Split(h, " · ")
+	if len(parts) < 2 {
+		return h
+	}
+	last := parts[len(parts)-1]
+	keep := parts[:len(parts)-1]
+	for len(keep) > 1 && lipgloss.Width(strings.Join(append(append([]string{}, keep...), last), " · ")) > w {
+		keep = keep[:len(keep)-1]
+	}
+	return strings.Join(append(append([]string{}, keep...), last), " · ")
 }
