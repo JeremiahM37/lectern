@@ -103,13 +103,17 @@ type tab struct {
 	// costShown is the cost the header draws; it eases toward cost (spec
 	// 01 §9) so the figure counts up instead of jumping.
 	costShown float64
-	ctxUsed   int
-	ctxWin    int
-	ctxEst    bool       // ctxUsed is estimated from characters, not reported by the provider
-	panels    panelState // model-log recording for this tab's session (not saved)
-	cost      float64
-	local     bool // provider runs locally: show "Local" instead of cost
-	model     string
+	// turnErrLogged is set when a turn's error reached the error log as it
+	// happened, so the same error in the turn's final stats is not logged
+	// a second time.
+	turnErrLogged bool
+	ctxUsed       int
+	ctxWin        int
+	ctxEst        bool       // ctxUsed is estimated from characters, not reported by the provider
+	panels        panelState // model-log recording for this tab's session (not saved)
+	cost          float64
+	local         bool // provider runs locally: show "Local" instead of cost
+	model         string
 
 	lastPhrase string   // last readable busy-line word, shown when a frame is garbled
 	steerQ     []string // steering messages sent but not yet consumed
@@ -658,6 +662,7 @@ func (m *Model) onEvent(msg eventMsg) tea.Cmd {
 		t.compacting = false
 	case agent.EvError:
 		m.logErrorFrom(t, srcTurn, ev.Text)
+		t.turnErrLogged = true
 		m.showTurnError(t, ev.Text)
 	case agent.EvToolResult:
 		if r := ev.Result; r != nil && r.IsError {
@@ -682,9 +687,10 @@ func (m *Model) onEvent(msg eventMsg) tea.Cmd {
 		if t != m.cur() {
 			t.unread = true
 		}
-		if ev.Stats != nil && ev.Stats.Error != "" {
+		if ev.Stats != nil && ev.Stats.Error != "" && !t.turnErrLogged {
 			m.logErrorFrom(t, srcTurn, ev.Stats.Error)
 		}
+		t.turnErrLogged = false
 		t.chat.Apply(ev)
 		return tea.Batch(next, gitCmd(t.id, t.be))
 	}

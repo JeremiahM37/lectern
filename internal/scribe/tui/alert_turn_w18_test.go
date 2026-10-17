@@ -103,3 +103,14 @@ func TestEmptyTurnErrorOpensNoAlert(t *testing.T) {
 		t.Fatal("an empty error opened an alert with no message")
 	}
 }
+
+// A failed turn reports its error as it happens and again in its final
+// stats; the log shows it once, not as a repeat.
+func TestTurnErrorIsLoggedOnceWithTheTurnsStats(t *testing.T) {
+	m, _ := newTestModel(t, 120, 30)
+	m.onEvent(eventMsg{tab: m.cur().id, ev: turnError("connection refused")})
+	m.onEvent(eventMsg{tab: m.cur().id, ev: agent.Event{Kind: agent.EvTurnDone, Stats: &agent.TurnStats{Error: "connection refused"}}})
+	if len(m.errLog) != 1 || m.errLog[0].Count != 1 {
+		t.Fatalf("errLog = %+v, want one entry seen once", m.errLog)
+	}
+}

@@ -99,12 +99,13 @@ func compactionLine(h contextHistory) string {
 }
 
 // modelTableLines is the per-model table: calls, tokens, cache hit and cost
-// for each model the main agent answered with.
+// for each model the main agent answered with. It is 61 columns wide so it
+// fits the /context overlay on an 80-column terminal.
 func modelTableLines(models []modelUsage) []string {
 	if len(models) == 0 {
 		return []string{"  No model calls in this session's transcript yet."}
 	}
-	lines := []string{fmt.Sprintf("  %-30s %5s %7s %7s %9s %8s", "Model", "Calls", "Input", "Output", "Cache hit", "Cost")}
+	lines := []string{fmt.Sprintf("  %-22s %5s %7s %7s %5s %8s", "Model", "Calls", "Input", "Output", "Hit", "Cost")}
 	shown := models
 	if len(shown) > maxModelRows {
 		shown = shown[:maxModelRows]
@@ -114,8 +115,8 @@ func modelTableLines(models []modelUsage) []string {
 		if pct, ok := cacheHitPercent(m.Usage); ok {
 			hit = fmt.Sprintf("%d%%", pct)
 		}
-		lines = append(lines, fmt.Sprintf("  %-30s %5d %7s %7s %9s %8s",
-			render.Truncate(m.Ref, 30), m.Calls,
+		lines = append(lines, fmt.Sprintf("  %-22s %5d %7s %7s %5s %8s",
+			render.Truncate(m.Ref, 22), m.Calls,
 			render.HumanTokens(m.Usage.InputTokens), render.HumanTokens(m.Usage.OutputTokens), hit, usd(m.CostUSD)))
 	}
 	if rest := models[len(shown):]; len(rest) > 0 {
@@ -127,7 +128,7 @@ func modelTableLines(models []modelUsage) []string {
 			u.Add(m.Usage)
 			cost += m.CostUSD
 		}
-		lines = append(lines, fmt.Sprintf("  %-30s %5d %7s %7s %9s %8s",
+		lines = append(lines, fmt.Sprintf("  %-22s %5d %7s %7s %5s %8s",
 			fmt.Sprintf("+%d more models", len(rest)), calls,
 			render.HumanTokens(u.InputTokens), render.HumanTokens(u.OutputTokens), "-", usd(cost)))
 	}

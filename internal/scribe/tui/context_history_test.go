@@ -195,8 +195,10 @@ func TestModelTableShowsCostPerModel(t *testing.T) {
 		if strings.Contains(line, "qwen") && !strings.HasSuffix(strings.TrimSpace(line), "-") {
 			t.Fatalf("a free local model should show -: %q", line)
 		}
-		if n := len([]rune(line)); n > 80 {
-			t.Fatalf("line is %d columns: %q", n, line)
+		// The /context overlay on an 80-column terminal has about 66
+		// columns inside its border.
+		if n := len([]rune(line)); n > 64 {
+			t.Fatalf("line is %d columns, too wide for the overlay at 80: %q", n, line)
 		}
 	}
 }
