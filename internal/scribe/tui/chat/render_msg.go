@@ -201,6 +201,10 @@ func (v *View) renderSystem(i int, rec *Record, w int, now time.Time) builder {
 		railCol = th.Warning
 		head = bold(th.Warning, "⚠ Warning")
 		body = cleanBody(rec.Text)
+	case "notice":
+		// One line: an information note is not worth a header and a body.
+		railCol = th.Info
+		head = fg(th.Info, "ⓘ "+strings.TrimSpace(cleanBody(rec.Text)))
 	case "compact":
 		railCol = th.Info
 		if rec.Done {

@@ -420,6 +420,10 @@ func (v *View) Apply(e agent.Event) {
 		v.addRecord(&Record{Role: roleSystem, Kind: "switch", Model: e.Model, Text: e.Text, At: e.At})
 	case agent.EvWarning:
 		v.addRecord(&Record{Role: roleSystem, Kind: "warning", Text: e.Text, At: e.At})
+	case agent.EvNotice:
+		// Notices (plan approval switching mode, budget notes, a restored
+		// session's repair) were emitted but never drawn.
+		v.addRecord(&Record{Role: roleSystem, Kind: "notice", Text: e.Text, At: e.At})
 	case agent.EvError:
 		cat := string(e.Category)
 		if cat == "" {

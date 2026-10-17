@@ -455,7 +455,7 @@ func (m *Model) planLines(ui *promptUI, w int) []string {
 func planHeader(th theme.Theme, title string, steps int, path string, w int) string {
 	sep := fg(th.TextFaint).Render(" │ ")
 	head := fg(th.Info).Render(icons.Icon("plan")+" ") + fgb(th.Info).Render(render.Truncate(title, max(10, w/2)))
-	head += sep + fg(th.TextDim).Render(fmt.Sprintf("%d steps", steps))
+	head += sep + fg(th.TextDim).Render(fmt.Sprintf("%d %s", steps, plural(steps, "step", "steps")))
 	if path != "" {
 		room := w - ansi.StringWidth(head) - ansi.StringWidth(" │ ")
 		if room > 4 {

@@ -246,7 +246,12 @@ func (t planTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage)
 			}
 			path := filepath.Join(dir, slug+".md")
 			if os.WriteFile(path, []byte(md), 0o644) == nil {
+				// Shown in the review card and transcript: relative to the
+				// project reads better than an absolute path cut short.
 				pl.Path = path
+				if rel, err := filepath.Rel(t.p.Dir, path); err == nil {
+					pl.Path = rel
+				}
 			}
 		}
 	}

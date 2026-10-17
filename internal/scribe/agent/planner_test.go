@@ -117,7 +117,7 @@ func TestPlanExecuteLiftsRestrictionsAndSavesPlan(t *testing.T) {
 		t.Fatalf("saved plan = %s", b)
 	}
 	pl := h.planner.Plan()
-	if pl == nil || pl.Path != saved || len(pl.Steps) != 2 || pl.Steps[0].Status != "pending" {
+	if pl == nil || pl.Path != filepath.Join(".scribe", "plans", "add-parser-tests.md") || len(pl.Steps) != 2 || pl.Steps[0].Status != "pending" {
 		t.Fatalf("planner plan = %+v", pl)
 	}
 	if len(h.log.of(EvPlan)) == 0 {

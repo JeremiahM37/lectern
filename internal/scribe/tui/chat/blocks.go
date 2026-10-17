@@ -399,7 +399,7 @@ func (v *View) renderPlanTasks(s *Segment, tasks []agent.Task, cw int, now time.
 		// Approved, and no step has reported yet: the approved summary.
 		files := planFileList(p)
 		line := fg(v.th.Success, icons.Icon("success")) + " " + bold(v.th.TextPrimary, p.Title) +
-			fg(v.th.TextMuted, fmt.Sprintf(" (%d files, %d steps)", len(files), len(p.Steps)))
+			fg(v.th.TextMuted, " ("+fmt.Sprintf("%d %s", len(files), plural(len(files), "file", "files"))+", "+fmt.Sprintf("%d %s", len(p.Steps), plural(len(p.Steps), "step", "steps"))+")")
 		if p.Path != "" {
 			line += fg(v.th.TextFaint, " ─ ") + fg(v.th.TextMuted, p.Path)
 		}
@@ -429,7 +429,7 @@ func (v *View) renderPlanTasks(s *Segment, tasks []agent.Task, cw int, now time.
 	files := planFileList(p)
 	if allDone && !s.Toggled && !v.expanded {
 		line := fg(th.Success, icons.Icon("success")) + " " + bold(th.TextPrimary, p.Title) +
-			fg(th.TextMuted, fmt.Sprintf(" (%d files, %d steps)", len(files), total))
+			fg(th.TextMuted, " ("+fmt.Sprintf("%d %s", len(files), plural(len(files), "file", "files"))+", "+fmt.Sprintf("%d %s", total, plural(total, "step", "steps"))+")")
 		if p.Path != "" {
 			line += fg(th.TextFaint, " ─ ") + fg(th.TextMuted, p.Path)
 		}

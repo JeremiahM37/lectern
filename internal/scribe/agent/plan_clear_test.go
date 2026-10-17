@@ -42,7 +42,7 @@ func TestPlanClearContextLeavesOnlyThePlanMessage(t *testing.T) {
 	saved := filepath.Join(h.dir, ".scribe", "plans", "add-parser-tests.md")
 	b, err := os.ReadFile(saved)
 	must(t, err)
-	if !strings.Contains(first, saved) || !strings.Contains(first, string(b)) {
+	if !strings.Contains(first, filepath.Join(".scribe", "plans", "add-parser-tests.md")) || !strings.Contains(first, string(b)) {
 		t.Fatalf("plan message lacks the saved path or content:\n%s", first)
 	}
 	if !strings.Contains(first, "Implement the plan now") {
