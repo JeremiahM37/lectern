@@ -96,8 +96,14 @@ func (e *editor) apply(text string, o op) (string, string, string, error) {
 		out, msg, err = e.setInitializer(text, idx, masked, s, "", true)
 	case "rename":
 		out, msg, err = e.renameDecl(text, idx, masked, s, o.NewName)
-	case "add_method", "add_property":
+	case "add_method", "add_property", "add_getter", "add_setter", "add_constructor":
 		out, msg, err = e.addMember(idx, masked, s, o.NewCode)
+	case "set_static":
+		out, msg, err = e.setStatic(text, idx, masked, s, staticRemoves(o.NewCode))
+	case "add_decorator":
+		out, msg, err = e.addDecorator(idx, s, o.NewCode)
+	case "remove_decorator":
+		out, msg, err = e.removeDecorator(idx, s, o.NewCode)
 	case "remove_member":
 		out, msg, err = e.removeMember(idx, s)
 	case "set_extends":

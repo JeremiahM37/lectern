@@ -378,9 +378,9 @@ func undoMany(m *Model, count string) tea.Cmd {
 func redoCommand(m *Model) tea.Cmd {
 	cp, err := m.cur().be.Redo()
 	if err != nil {
-		return cmdErrText(err.Error())
+		return cmdErr(err)
 	}
-	return flashCmd("ok", fmt.Sprintf("Redid turn %d", cp.Turn))
+	return redone(m, cp)
 }
 
 // hookCommand is /hooks: a list of events with their switch state, and

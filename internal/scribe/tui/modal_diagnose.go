@@ -59,6 +59,9 @@ func (p *diagnosePopup) run() tea.Cmd {
 	return func() tea.Msg { return diagnoseDone{checks: be.Diagnose()} }
 }
 
+// Busy implements busyModal: keys wait while the checks run.
+func (p *diagnosePopup) Busy() bool { return p.loading }
+
 // Title implements Modal.
 func (p *diagnosePopup) Title() string { return "Diagnose" }
 

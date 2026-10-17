@@ -498,7 +498,7 @@ func renderTaskReports(tasks []subTask, plan dispatchPlan, results []taskResult)
 		case r.err != nil && r.report == "":
 			fmt.Fprintf(&b, "%s\n", failureLine(r))
 		case r.err != nil:
-			fmt.Fprintf(&b, "(stopped early: %v)\n%s\n", r.err, report)
+			fmt.Fprintf(&b, "(stopped early%s: %v)\n%s\n", attemptsSuffix(r.attempts), r.err, report)
 		default:
 			fmt.Fprintf(&b, "%s\n", report)
 		}
@@ -511,6 +511,18 @@ func renderTaskReports(tasks []subTask, plan dispatchPlan, results []taskResult)
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// attemptsSuffix names how many provider attempts a stopped task made, so a
+// partial report says how hard the task was tried.
+func attemptsSuffix(n int) string {
+	switch {
+	case n <= 0:
+		return ""
+	case n == 1:
+		return " after 1 attempt"
+	}
+	return fmt.Sprintf(" after %d attempts", n)
 }
 
 // failureLine says how a task with no report failed. A task the breaker kept

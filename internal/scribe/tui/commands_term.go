@@ -68,9 +68,8 @@ func init() {
 				case "open":
 					return cmdErrText("Usage: /editor open <file[:line]>")
 				case "settings":
-					// The integration toggles live on the Tools tab, under
-					// "Editor integrations".
-					return m.openSettingsTab(stTools)
+					m.openEditorSettings()
+					return nil
 				case "access":
 					m.setFlash("info", "Agent editor access: "+nvim.GetAccess().Label()+" (on, when-open or off)")
 					return nil

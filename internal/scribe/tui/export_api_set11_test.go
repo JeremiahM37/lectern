@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
 )
 
 func TestExportAPIToggleFlipsTheDump(t *testing.T) {
@@ -60,12 +62,17 @@ func TestPresetRemoveArgs(t *testing.T) {
 func TestEditorSettingsOpensTheIntegrationToggles(t *testing.T) {
 	m, _ := newTestModel(t, 100, 40)
 	m.runCommand("/editor settings")
-	s, ok := m.modals[len(m.modals)-1].(*settings)
+	p, ok := m.modals[len(m.modals)-1].(*Picker)
 	if !ok {
-		t.Fatalf("top modal = %T, want the settings screen", m.modals[len(m.modals)-1])
+		t.Fatalf("top modal = %T, want the editor integrations picker", m.modals[len(m.modals)-1])
 	}
-	if s.tab != stTools {
-		t.Fatalf("settings tab = %d, want the Tools tab (%d)", s.tab, stTools)
+	if p.Title() != "Editor integrations" || len(p.Items) != len(config.EditorIntegrationKeys) {
+		t.Fatalf("picker %q with %d rows, want the %d integration toggles", p.Title(), len(p.Items), len(config.EditorIntegrationKeys))
+	}
+	for _, it := range p.Items {
+		if it.Kind != PickToggle {
+			t.Fatalf("row %q is not a toggle", it.Label)
+		}
 	}
 }
 

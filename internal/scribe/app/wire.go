@@ -50,7 +50,13 @@ func (a *App) wire(ctx context.Context) error {
 	a.ext.undo = fs.NewUndoStack()
 	fs.RegisterWithUndo(a.Tools, a.ext.undo)
 	symedit.Register(a.Tools)
-	a.ext.jobs = exec.NewJobs(exec.Options{Allow: a.Cfg.Allow, Deny: a.Cfg.Deny, ToolTimeout: a.toolTimeout()})
+	// Background jobs are recorded under the Scribe home, so the next start
+	// stops jobs left behind by a Scribe that crashed.
+	jobDir := ""
+	if !a.opts.Ephemeral {
+		jobDir = filepath.Join(config.Home(), "jobs")
+	}
+	a.ext.jobs = exec.NewJobs(exec.Options{Allow: a.Cfg.Allow, Deny: a.Cfg.Deny, ToolTimeout: a.toolTimeout(), StateDir: jobDir})
 	exec.Register(a.Tools, a.ext.jobs)
 	a.ext.lsp = lsp.NewManager(a.Workdir)
 	a.ext.lsp.SetDisabled(a.Cfg.DisabledLSPServers)

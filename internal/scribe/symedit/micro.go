@@ -463,6 +463,10 @@ var actionTargets = map[string][]string{
 	"add_method":         {"class", "struct", "interface", "trait"},
 	"add_property":       {"class", "struct", "interface"},
 	"set_extends":        {"class", "interface"},
+	"set_static":         {"method", "property", "field"},
+	"add_getter":         {"class", "struct"},
+	"add_setter":         {"class", "struct"},
+	"add_constructor":    {"class", "struct"},
 }
 
 // checkTarget reports when a symbol-addressed operation cannot apply to the

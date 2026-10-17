@@ -195,7 +195,10 @@ type Agent struct {
 	planExec bool // carrying out a plan approved this turn (plan_exec.go)
 	running  bool
 	stopTurn bool
-	cancel   context.CancelFunc
+	// premature is why the turn is ending before the model finished (set by
+	// loop, read by Run for the notice and the Notification hook).
+	premature string
+	cancel    context.CancelFunc
 
 	// retries counts transient and stall retries in model calls this turn.
 	retries int
@@ -572,6 +575,7 @@ func (a *Agent) Run(ctx context.Context, prompt string, images []llm.Part) (Turn
 		return TurnStats{}, errors.New("agent is already running")
 	}
 	a.running, a.cancel, a.stopTurn = true, cancel, false
+	a.premature = ""
 	a.checkRounds = 0
 	a.retries = 0
 	mode := a.mode
@@ -619,7 +623,11 @@ func (a *Agent) Run(ctx context.Context, prompt string, images []llm.Part) (Turn
 	a.mu.Lock()
 	stats.Tokens, stats.CostUSD = a.total, a.cost
 	stats.Retries = a.retries
+	premature := a.premature
 	a.mu.Unlock()
+	if premature != "" && err == nil {
+		a.emit(Event{Kind: EvNotice, Text: prematureNotice(premature)})
+	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			stats.Aborted = true
@@ -630,8 +638,13 @@ func (a *Agent) Run(ctx context.Context, prompt string, images []llm.Part) (Turn
 	}
 	if a.opts.Hooks != nil {
 		a.opts.Hooks.Stop(context.WithoutCancel(ctx), stats)
-		if n, ok := a.opts.Hooks.(notifier); ok && stats.Error != "" && !stats.Aborted {
-			n.Notification(context.WithoutCancel(ctx), dispatchFailedNotice(stats))
+		if n, ok := a.opts.Hooks.(notifier); ok {
+			switch {
+			case stats.Error != "" && !stats.Aborted:
+				n.Notification(context.WithoutCancel(ctx), dispatchFailedNotice(stats))
+			case premature != "" && err == nil:
+				n.Notification(context.WithoutCancel(ctx), prematureNotice(premature))
+			}
 		}
 	}
 	a.emit(Event{Kind: EvTurnDone, Text: final, Stats: &stats})
@@ -693,6 +706,9 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 				a.appendUser("<system-reminder>Your last response was cut off by the output limit. Continue exactly where you stopped.</system-reminder>")
 				continue
 			}
+			if finish == llm.FinishLength {
+				a.setPremature("the reply was cut off by the output limit three times in a row")
+			}
 			if q, imgs := a.drainSteering(); q != "" {
 				a.appendSteering(q, imgs)
 				continue
@@ -728,6 +744,11 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 				hints = append(hints, fresh)
 			}
 		}
+		if sn, ok := a.opts.Hooks.(stepNoticer); ok {
+			if note := sn.StepNotice(ctx, step+1); note != "" {
+				hints = append(hints, note)
+			}
+		}
 		q, imgs := a.drainSteering()
 		if q != "" {
 			hints = append(hints, q)
@@ -744,9 +765,25 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 			return msg.Text(), nil
 		}
 		if stopNow {
+			a.setPremature("the context budget was used up before the task finished")
 			return msg.Text(), nil
 		}
 	}
+}
+
+// setPremature records why the turn is ending early. The first reason wins.
+func (a *Agent) setPremature(why string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.premature == "" {
+		a.premature = why
+	}
+}
+
+// prematureNotice is the text shown and sent to Notification hooks when a
+// turn stops before the model finished on its own.
+func prematureNotice(why string) string {
+	return "Stopped early: " + why + ". The answer may be incomplete; ask to continue."
 }
 
 // setPolicy records the step policy for step before the model is called.

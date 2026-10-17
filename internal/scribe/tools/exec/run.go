@@ -31,8 +31,9 @@ type procSpec struct {
 	argv         []string
 	dir          string
 	env          []string
-	onLine       func(string) // called per complete line; may be nil
-	collectBytes int          // > 0 keeps output for the caller
+	onLine       func(string)  // called per complete line; may be nil
+	collectBytes int           // > 0 keeps output for the caller
+	onStart      func(pid int) // called once the process has started; may be nil
 }
 
 // procResult is the outcome of runProcess.
@@ -63,6 +64,9 @@ func runProcess(ctx context.Context, spec procSpec) procResult {
 		return procResult{exitCode: -1, err: err}
 	}
 	pid := cmd.Process.Pid
+	if spec.onStart != nil {
+		spec.onStart(pid)
+	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 

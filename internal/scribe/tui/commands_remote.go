@@ -92,9 +92,17 @@ func (m *Model) remoteCommand(args string) tea.Cmd {
 		}
 		return nil
 	case "pairings":
+		if rest == "" {
+			m.openPairingsView()
+			return nil
+		}
 		say("info", pairingsReport())
 		return nil
 	case "logs":
+		if rest == "" {
+			m.openLogsView()
+			return nil
+		}
 		say("info", logsReport())
 		return nil
 	}

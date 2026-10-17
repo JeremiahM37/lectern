@@ -193,8 +193,8 @@ func TestServersRestartsSelectedMCPServer(t *testing.T) {
 		t.Fatalf("r should return a restart command")
 	}
 	msg := cmd()
-	fm, ok := msg.(flashMsg)
-	if !ok || fm.kind != "ok" {
+	rd, ok := msg.(restartDone)
+	if !ok || rd.err != nil || rd.name != "postgres" {
 		t.Fatalf("restart should report ok, got %#v", msg)
 	}
 	if len(b.restarted) != 1 || b.restarted[0] != "postgres" {

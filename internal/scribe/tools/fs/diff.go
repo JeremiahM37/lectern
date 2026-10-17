@@ -29,16 +29,7 @@ type diffOp struct {
 func UnifiedDiff(path, old, new string) (string, int, int) {
 	a := splitDiffLines(old)
 	b := splitDiffLines(new)
-	ops, ok := myersDiff(a, b)
-	if !ok {
-		ops = ops[:0]
-		for _, l := range a {
-			ops = append(ops, diffOp{opDel, l})
-		}
-		for _, l := range b {
-			ops = append(ops, diffOp{opIns, l})
-		}
-	}
+	ops := diffLines(a, b)
 	added, removed := 0, 0
 	for _, op := range ops {
 		switch op.kind {
@@ -69,6 +60,119 @@ func splitDiffLines(s string) []string {
 	}
 	s = strings.TrimSuffix(s, "\n")
 	return strings.Split(s, "\n")
+}
+
+// diffLines aligns a and b. Lines that occur exactly once on each side are
+// anchors: the longest run of anchors that keeps their order is kept as
+// equal lines, and Myers aligns only the gaps between them. A block moved
+// within a file therefore stays aligned at its unique lines, and a large
+// edit no longer collapses to a whole-file rewrite: only the gap that is
+// too large for Myers is shown as removed and added.
+func diffLines(a, b []string) []diffOp {
+	p := 0
+	for p < len(a) && p < len(b) && a[p] == b[p] {
+		p++
+	}
+	s := 0
+	for s < len(a)-p && s < len(b)-p && a[len(a)-1-s] == b[len(b)-1-s] {
+		s++
+	}
+	out := make([]diffOp, 0, len(a)+len(b))
+	for _, l := range a[:p] {
+		out = append(out, diffOp{opEq, l})
+	}
+	out = append(out, patienceGaps(a[p:len(a)-s], b[p:len(b)-s])...)
+	for _, l := range a[len(a)-s:] {
+		out = append(out, diffOp{opEq, l})
+	}
+	return out
+}
+
+// patienceGaps is diffLines for the middle part, after trimming.
+func patienceGaps(a, b []string) []diffOp {
+	countA := map[string]int{}
+	for _, l := range a {
+		countA[l]++
+	}
+	posB := map[string]int{}
+	countB := map[string]int{}
+	for j, l := range b {
+		countB[l]++
+		posB[l] = j
+	}
+	type pair struct{ i, j int }
+	var pairs []pair
+	for i, l := range a {
+		if countA[l] == 1 && countB[l] == 1 {
+			pairs = append(pairs, pair{i, posB[l]})
+		}
+	}
+	anchors := longestIncreasing(pairs, func(p pair) int { return p.j })
+
+	var out []diffOp
+	pi, pj := 0, 0
+	for _, k := range anchors {
+		ai, bj := pairs[k].i, pairs[k].j
+		out = append(out, gapDiff(a[pi:ai], b[pj:bj])...)
+		out = append(out, diffOp{opEq, a[ai]})
+		pi, pj = ai+1, bj+1
+	}
+	return append(out, gapDiff(a[pi:], b[pj:])...)
+}
+
+// gapDiff aligns one gap with Myers. A gap Myers cannot align within its
+// budget is shown whole as removed and added.
+func gapDiff(a, b []string) []diffOp {
+	if ops, ok := myersDiff(a, b); ok {
+		return ops
+	}
+	ops := make([]diffOp, 0, len(a)+len(b))
+	for _, l := range a {
+		ops = append(ops, diffOp{opDel, l})
+	}
+	for _, l := range b {
+		ops = append(ops, diffOp{opIns, l})
+	}
+	return ops
+}
+
+// longestIncreasing returns the indexes of the longest subsequence of items
+// whose key is strictly increasing, in order (patience sorting, O(n log n)).
+func longestIncreasing[T any](items []T, key func(T) int) []int {
+	var tails []int // tails[k] is the index of the smallest-key item ending a run of length k+1
+	prev := make([]int, len(items))
+	for idx, it := range items {
+		k := key(it)
+		lo, hi := 0, len(tails)
+		for lo < hi {
+			mid := (lo + hi) / 2
+			if key(items[tails[mid]]) < k {
+				lo = mid + 1
+			} else {
+				hi = mid
+			}
+		}
+		if lo > 0 {
+			prev[idx] = tails[lo-1]
+		} else {
+			prev[idx] = -1
+		}
+		if lo == len(tails) {
+			tails = append(tails, idx)
+		} else {
+			tails[lo] = idx
+		}
+	}
+	if len(tails) == 0 {
+		return nil
+	}
+	out := make([]int, len(tails))
+	idx := tails[len(tails)-1]
+	for k := len(tails) - 1; k >= 0; k-- {
+		out[k] = idx
+		idx = prev[idx]
+	}
+	return out
 }
 
 // myersDiff is the greedy O(ND) Myers algorithm. It returns ok=false when the

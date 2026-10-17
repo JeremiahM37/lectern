@@ -23,6 +23,11 @@ const (
 type Jobs struct {
 	opts Options
 
+	// recordDir is Options.StateDir; empty disables the job records.
+	recordDir string
+	// recMu serialises writes of this process's record file.
+	recMu sync.Mutex
+
 	mu   sync.Mutex
 	seq  int
 	jobs map[string]*Job
@@ -45,7 +50,35 @@ const NoTimeout = 1000 * time.Hour
 
 // NewJobs returns an empty job table that applies opts to shell commands.
 func NewJobs(opts Options) *Jobs {
-	return &Jobs{opts: opts, jobs: map[string]*Job{}}
+	j := &Jobs{opts: opts, jobs: map[string]*Job{}, recordDir: opts.StateDir}
+	if j.recordDir != "" {
+		// Stop jobs left by a Scribe process that died. Runs in the background
+		// and is bounded by reapBudget, so startup does not wait for it.
+		go reapOrphans(j.recordDir)
+	}
+	return j
+}
+
+// persist rewrites this process's job record from the jobs running now.
+func (j *Jobs) persist() {
+	if j.recordDir == "" {
+		return
+	}
+	j.recMu.Lock()
+	defer j.recMu.Unlock()
+	j.mu.Lock()
+	jobs := make([]*Job, 0, len(j.order))
+	for _, id := range j.order {
+		jobs = append(jobs, j.jobs[id])
+	}
+	j.mu.Unlock()
+	var recs []jobRecord
+	for _, job := range jobs {
+		if rec, ok := job.record(); ok {
+			recs = append(recs, rec)
+		}
+	}
+	persistRecord(j.recordDir, recs)
 }
 
 // Job is one background process.
@@ -59,6 +92,8 @@ type Job struct {
 	done   chan struct{}
 
 	mu       sync.Mutex
+	pid      int    // process group leader, 0 until started
+	startTk  uint64 // /proc start time of pid, 0 when unknown
 	status   string
 	exitCode int
 	killed   bool
@@ -175,11 +210,34 @@ func (j *Jobs) start(parent context.Context, command, dir string, env []string, 
 			dir:    dir,
 			env:    env,
 			onLine: job.append,
+			onStart: func(pid int) {
+				job.setPID(pid)
+				j.persist()
+			},
 		})
 		cancel()
 		job.finish(res)
+		j.persist()
 	}()
 	return job
+}
+
+// setPID records the process group leader and its start time, for the record.
+func (job *Job) setPID(pid int) {
+	tk := procStartTicks(pid)
+	job.mu.Lock()
+	defer job.mu.Unlock()
+	job.pid, job.startTk = pid, tk
+}
+
+// record returns the job's record while it is running with a known pid.
+func (job *Job) record() (jobRecord, bool) {
+	job.mu.Lock()
+	defer job.mu.Unlock()
+	if job.status != StatusRunning || job.pid <= 0 {
+		return jobRecord{}, false
+	}
+	return jobRecord{ID: job.ID, Pid: job.pid, Start: job.startTk, Command: job.Command}, true
 }
 
 // kill cancels the job. The runner terminates the process group.

@@ -51,6 +51,13 @@ type compactObserver interface {
 	PreCompact(ctx context.Context)
 }
 
+// stepNoticer is implemented by hooks that add a note to the hints of each
+// model step after the first, so news that arrives mid-turn (another tab's
+// file claims) reaches the model without waiting for the next prompt.
+type stepNoticer interface {
+	StepNotice(ctx context.Context, step int) string
+}
+
 // notifier is implemented by hooks that receive Notification events, sent
 // when a turn ends in an error the user should see.
 type notifier interface {

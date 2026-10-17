@@ -416,6 +416,13 @@ func (s *settings) agentRows() []setRow {
 		"a stream that stops; 0 keeps the default"))
 	rows = append(rows, s.numRow7("Messages kept when compacting", "compact_keep_recent", c.CompactKeepRecent,
 		"the newest messages kept verbatim; 0 keeps the default"))
+	rows = append(rows, setRow{label: "Tools", header: true})
+	rows = append(rows, s.flagRow7("Format on edit", "format_on_edit", config.Bool(c.FormatOnEdit, true),
+		"run the project formatter on files an edit changed"))
+	rows = append(rows, s.flagRow7("Deferred tools", "deferred_tools", config.Bool(c.DeferredTools, true),
+		"send only core tools each step; others load on demand"))
+	rows = append(rows, s.numRow7("Concurrent subagents", "router.max_agents", c.Router.MaxAgents,
+		"2 to 8; 0 keeps the default (3)"))
 	rows = append(rows, s.toolTimeoutRow(c))
 	return rows
 }

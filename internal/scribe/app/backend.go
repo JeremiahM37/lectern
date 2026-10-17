@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	osexec "os/exec"
@@ -191,10 +192,13 @@ type scribeBackend struct {
 	gen  atomic.Uint64 // bumped on every App swap; stale listeners drop events
 	errs errorSink     // faults outside a turn, for the error log (backend_data8.go)
 
-	mu        sync.Mutex
-	app       *App
-	turn      bool // a turn goroutine is running (includes the epilogue)
-	turnDone  bool // the main agent has emitted turn_done for the current turn
+	mu       sync.Mutex
+	app      *App
+	turn     bool // a turn goroutine is running (includes the epilogue)
+	turnDone bool // the main agent has emitted turn_done for the current turn
+	// turns tracks the goroutine running turns, so Close can let a finished
+	// turn save its session before the app closes.
+	turns     sync.WaitGroup
 	queued    []queuedTurn
 	reasoning string
 	closed    bool
@@ -333,11 +337,13 @@ func (b *scribeBackend) Submit(prompt string, images []llm.Part) {
 	}
 	b.turn, b.turnDone = true, false
 	a := b.app
+	b.turns.Add(1)
 	b.mu.Unlock()
 	go b.runTurns(a, prompt, images)
 }
 
 func (b *scribeBackend) runTurns(a *App, prompt string, images []llm.Part) {
+	defer b.turns.Done()
 	for {
 		stats, err := a.Run(context.Background(), prompt, images)
 		if turnFailed(stats, err) {
@@ -450,12 +456,57 @@ func (b *scribeBackend) NeedsSetup() bool {
 		}
 	}
 	reg := b.current().Registry
+	prov, name := llm.SplitModelRef(b.Model())
+	if !b.current().chosenModel() && prov == "ollama" {
+		// Nothing was chosen and the default is a local model: it must be
+		// installed, or the first message fails with "model not found".
+		if installed, ok := ollamaModels(reg); ok {
+			return !installed[name] && !installed[name+":latest"]
+		}
+	}
 	for _, p := range reg.List() {
 		if p.HasKey {
 			return false
 		}
 	}
 	return !ollamaReachable(reg)
+}
+
+// ollamaModels lists the models the local Ollama server has installed. ok is
+// false when the server does not answer within a short timeout.
+func ollamaModels(reg *registry.Registry) (map[string]bool, bool) {
+	info, found := reg.Lookup("ollama")
+	if !found || info.BaseURL == "" {
+		return nil, false
+	}
+	root := strings.TrimSuffix(strings.TrimRight(info.BaseURL, "/"), "/v1")
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, root+"/api/tags", nil)
+	if err != nil {
+		return nil, false
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, false
+	}
+	var tags struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&tags) != nil {
+		return nil, false
+	}
+	out := map[string]bool{}
+	for _, m := range tags.Models {
+		out[m.Name] = true
+	}
+	return out, true
 }
 
 // ollamaReachable asks the local Ollama server for its model list with a short
@@ -1508,6 +1559,15 @@ func (b *scribeBackend) Close() error {
 	b.mu.Unlock()
 	// Phone approvals waiting on this tab are denied before the app closes.
 	telegram.Default.CloseTab(b)
+	// Stop a running turn and let it finish saving the session (it reports
+	// done a moment before the save), so closing never races that write.
+	a.Agent.Abort()
+	done := make(chan struct{})
+	go func() { b.turns.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+	}
 	return a.Close()
 }
 

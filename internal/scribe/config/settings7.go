@@ -28,6 +28,7 @@ const (
 // screen to show what is editable. Prefixed keys are listed with their prefix.
 var settings7Keys = []string{
 	"diff_style", "collapse_diffs", "compact_strategy", "tool_timeout",
+	"format_on_edit", "deferred_tools", "router.max_agents",
 	"retry.transient", "retry.stall",
 	"router.default", "router.desloppify", "router.verify", "router.semantic",
 	keyFallbackByModel, keyContextWindow, keyAgentFeature,
@@ -188,6 +189,24 @@ func (c *Config) setScalar(key string, v any) (bool, error) {
 		c.Router.Verify = toString(v)
 	case "router.semantic":
 		c.Router.Semantic = toString(v)
+	case "router.max_agents":
+		n, err := toInt(v)
+		if err != nil || (n != 0 && (n < 2 || n > 8)) {
+			return true, fmt.Errorf("router.max_agents must be a whole number from 2 to 8, 0 for the default (3)")
+		}
+		c.Router.MaxAgents = n
+	case "format_on_edit":
+		b, err := toBool(v)
+		if err != nil {
+			return true, err
+		}
+		c.FormatOnEdit = &b
+	case "deferred_tools":
+		b, err := toBool(v)
+		if err != nil {
+			return true, err
+		}
+		c.DeferredTools = &b
 	case "key_priority":
 		s := toString(v)
 		if !oneOf(s, keyPriorities) {
@@ -336,6 +355,12 @@ func (c *Config) ClearField(key string) bool {
 		c.Router.Verify = ""
 	case "router.semantic":
 		c.Router.Semantic = ""
+	case "router.max_agents":
+		c.Router.MaxAgents = 0
+	case "format_on_edit":
+		c.FormatOnEdit = nil
+	case "deferred_tools":
+		c.DeferredTools = nil
 	case "key_priority":
 		c.KeyPriority = ""
 	case "forbidden":

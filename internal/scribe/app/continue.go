@@ -76,6 +76,7 @@ func (b *scribeBackend) Continue() (bool, error) {
 		return false, errTurnRunning
 	}
 	b.turn, b.turnDone = true, false
+	b.turns.Add(1)
 	b.mu.Unlock()
 	go b.runContinue(a)
 	return true, nil
@@ -84,6 +85,7 @@ func (b *scribeBackend) Continue() (bool, error) {
 // runContinue runs the continued turn, then any prompts that were submitted
 // while it ran, using the same queue Submit uses.
 func (b *scribeBackend) runContinue(a *App) {
+	defer b.turns.Done()
 	stats, err := a.ContinueTurn(context.Background())
 	if turnFailed(stats, err) {
 		a.emit(agent.Event{Kind: agent.EvError, Text: err.Error()})
@@ -98,6 +100,7 @@ func (b *scribeBackend) runContinue(a *App) {
 	next := b.queued[0]
 	b.queued = b.queued[1:]
 	b.turnDone = false
+	b.turns.Add(1) // runTurns releases its own count
 	b.mu.Unlock()
 	b.runTurns(a, next.prompt, next.images)
 }

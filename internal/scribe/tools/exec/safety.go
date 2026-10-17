@@ -22,6 +22,9 @@ type Options struct {
 	Allow       []string
 	Deny        []string
 	ToolTimeout time.Duration
+	// StateDir, when set, is where running background jobs are recorded so a
+	// later Scribe process can stop them if this one dies without KillAll.
+	StateDir string
 }
 
 // refusal explains why a command is refused without asking. These are not

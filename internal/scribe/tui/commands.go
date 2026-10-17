@@ -266,7 +266,7 @@ func init() {
 				if err != nil {
 					return cmdErr(err)
 				}
-				return flashCmd("ok", fmt.Sprintf("Redid turn %d", cp.Turn))
+				return redone(m, cp)
 			}},
 		&command{Name: "checkpoints", Desc: "List turns that changed files", Group: "Session",
 			Run: func(m *Model, _ string) tea.Cmd { m.openCheckpoints(); return nil }},
@@ -618,4 +618,14 @@ func (m *Model) copyLastAnswer() tea.Cmd {
 // beginShutdown starts the quit sequence.
 func (m *Model) beginShutdown() tea.Cmd {
 	return m.startShutdown()
+}
+
+// redone records a redo in the transcript, as an undo is recorded, so the
+// last word there is not "Undid" after the turn came back.
+func redone(m *Model, cp CheckpointInfo) tea.Cmd {
+	t := m.cur()
+	m.enterChat()
+	t.chat.AddSystem("info", fmt.Sprintf("Redid turn %d: %s restored.", cp.Turn, filesLabel(len(cp.Files))))
+	m.syncRail(t)
+	return flashCmd("ok", fmt.Sprintf("Redid turn %d", cp.Turn))
 }

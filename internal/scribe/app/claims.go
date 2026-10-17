@@ -47,9 +47,10 @@ type claimRegistry struct {
 	ttl    time.Duration
 	claims map[string]fileClaim // absolute path -> claim
 
-	turnGen     map[string]uint64 // owner -> bumped when a main turn starts
-	dispatching map[string]int    // owner -> dispatch agents running now
-	dispLabel   map[string]string // owner -> label, for the git refusal
+	turnGen     map[string]uint64          // owner -> bumped when a main turn starts
+	dispatching map[string]int             // owner -> dispatch agents running now
+	dispLabel   map[string]string          // owner -> label, for the git refusal
+	announced   map[string]map[string]bool // owner -> claimed paths already told to it this turn
 }
 
 var fileClaims = newClaimRegistry(time.Now, claimTTL)
@@ -58,6 +59,7 @@ func newClaimRegistry(now func() time.Time, ttl time.Duration) *claimRegistry {
 	return &claimRegistry{
 		now: now, ttl: ttl, claims: map[string]fileClaim{},
 		turnGen: map[string]uint64{}, dispatching: map[string]int{}, dispLabel: map[string]string{},
+		announced: map[string]map[string]bool{},
 	}
 }
 
@@ -165,6 +167,45 @@ func (r *claimRegistry) turnStarted(owner string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.turnGen[owner]++
+	delete(r.announced, owner)
+}
+
+// announce records that owner has been told about these claimed paths this
+// turn, so StepNotice does not repeat them.
+func (r *claimRegistry) announce(owner string, paths []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.announced[owner] == nil {
+		r.announced[owner] = map[string]bool{}
+	}
+	for _, p := range paths {
+		r.announced[owner][p] = true
+	}
+}
+
+// freshOtherClaims returns the live claims of other owners that owner has
+// not been told about this turn, and marks them as told.
+func (r *claimRegistry) freshOtherClaims(owner string) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []string
+	for p := range r.claims {
+		c, ok := r.liveLocked(p)
+		if !ok || c.owner == owner || r.announced[owner][p] {
+			continue
+		}
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	if len(out) > 0 {
+		if r.announced[owner] == nil {
+			r.announced[owner] = map[string]bool{}
+		}
+		for _, p := range out {
+			r.announced[owner][p] = true
+		}
+	}
+	return out
 }
 
 // turnGeneration returns owner's current turn generation.
@@ -322,6 +363,7 @@ func (h claimHooks) Prompt(ctx context.Context, prompt string) (string, string) 
 		h.reg.turnStarted(h.owner)
 	}
 	if others := h.reg.otherClaims(h.owner); len(others) > 0 {
+		h.reg.announce(h.owner, others)
 		rels := make([]string, len(others))
 		for i, p := range others {
 			rels[i] = h.rel(p)
@@ -334,6 +376,63 @@ func (h claimHooks) Prompt(ctx context.Context, prompt string) (string, string) 
 		extra += note
 	}
 	return extra, block
+}
+
+// StepNotice tells the model about files other tabs claimed since the turn
+// started or since the last step that mentioned them. Prompt already reports
+// the claims in force at the start, so this is only the new ones.
+func (h claimHooks) StepNotice(ctx context.Context, step int) string {
+	var extra string
+	if sn, ok := h.inner.(interface {
+		StepNotice(context.Context, int) string
+	}); ok && h.inner != nil {
+		extra = sn.StepNotice(ctx, step)
+	}
+	fresh := h.reg.freshOtherClaims(h.owner)
+	if len(fresh) == 0 {
+		return extra
+	}
+	rels := make([]string, len(fresh))
+	for i, p := range fresh {
+		rels[i] = h.rel(p)
+	}
+	note := "Other Scribe sessions have just claimed these files (avoid them or coordinate with the user):\n- " + strings.Join(rels, "\n- ")
+	if extra != "" {
+		return extra + "\n\n" + note
+	}
+	return note
+}
+
+// The optional observer hooks below are forwarded to the inner chain. The
+// agent finds them by type assertion on its own Hooks, which is this wrapper,
+// so without these the Runner's PreCompact, PostCompact, PostToolFailure and
+// Notification events never ran in the app.
+
+func (h claimHooks) PreCompact(ctx context.Context) {
+	if o, ok := h.inner.(interface{ PreCompact(context.Context) }); ok {
+		o.PreCompact(ctx)
+	}
+}
+
+func (h claimHooks) PostCompact(ctx context.Context) {
+	if o, ok := h.inner.(interface{ PostCompact(context.Context) }); ok {
+		o.PostCompact(ctx)
+	}
+}
+
+func (h claimHooks) PostToolFailure(ctx context.Context, tool string, args json.RawMessage, res tools.Result) string {
+	if o, ok := h.inner.(interface {
+		PostToolFailure(context.Context, string, json.RawMessage, tools.Result) string
+	}); ok {
+		return o.PostToolFailure(ctx, tool, args, res)
+	}
+	return ""
+}
+
+func (h claimHooks) Notification(ctx context.Context, msg string) {
+	if o, ok := h.inner.(interface{ Notification(context.Context, string) }); ok {
+		o.Notification(ctx, msg)
+	}
 }
 
 // Stop ends a turn. A dispatch subagent only leaves the dispatch count. A

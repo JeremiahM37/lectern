@@ -42,6 +42,18 @@ type serversView struct {
 	note     string
 	noteKind string
 	width    int // the frame width Size chose; the footer follows it
+	// working names the server a ping or restart is running for; keys are
+	// held until its result arrives (busyModal).
+	working string
+}
+
+// Busy implements busyModal: keys wait while a ping or restart runs.
+func (v *serversView) Busy() bool { return v.working != "" }
+
+// restartDone is the result of a background restart, returned to the view.
+type restartDone struct {
+	name string
+	err  error
 }
 
 // ServerToolLister is optionally implemented by a Backend that can list the
@@ -157,7 +169,21 @@ func (v *serversView) Size(cols, rows int) (int, int) {
 
 // Update implements Modal.
 func (v *serversView) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
+	if done, ok := msg.(restartDone); ok {
+		if v.working == done.name {
+			v.working = ""
+		}
+		if done.err != nil {
+			v.say("err", "Restart of "+done.name+" failed: "+done.err.Error())
+		} else {
+			v.say("ok", "Restarted "+done.name)
+		}
+		return v, nil, false
+	}
 	if done, ok := msg.(mcpPingDone); ok {
+		if v.working == done.name {
+			v.working = ""
+		}
 		if v.pings == nil {
 			v.pings = map[string]mcpPingResult{}
 		}
@@ -257,6 +283,7 @@ func (v *serversView) ping() tea.Cmd {
 	}
 	name := list[v.cursor].Name
 	v.say("info", "Pinging "+name+"…")
+	v.working = name
 	return func() tea.Msg {
 		took, err := pg.PingMCP(name)
 		return mcpPingDone{name: name, took: took, err: err}
@@ -403,11 +430,9 @@ func (v *serversView) restart() tea.Cmd {
 	}
 	be, name := v.be, s.Name
 	v.say("info", "Restarting "+name+"…")
+	v.working = name
 	return func() tea.Msg {
-		if err := be.RestartServer(name); err != nil {
-			return flashMsg{kind: "err", text: "Restart of " + name + " failed: " + err.Error()}
-		}
-		return flashMsg{kind: "ok", text: "Restarted " + name}
+		return restartDone{name: name, err: be.RestartServer(name)}
 	}
 }
 

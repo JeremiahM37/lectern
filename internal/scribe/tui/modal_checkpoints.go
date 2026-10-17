@@ -195,6 +195,7 @@ func (b *cpBrowser) redo() {
 		b.m.setFlash("info", "Nothing to redo")
 		return
 	}
+	b.m.cur().chat.AddSystem("info", fmt.Sprintf("Redid %s: %s restored.", turnList(turns), filesLabel(len(files))))
 	b.m.setFlash("ok", fmt.Sprintf("Redid %s (%s)", turnList(turns), filesLabel(len(files))))
 }
 
