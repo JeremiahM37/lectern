@@ -326,6 +326,8 @@ func Open(ctx context.Context, o Options) (*App, error) {
 	a.Dispatch = &agent.Dispatcher{New: a.newSubagent, MaxConcurrent: cfg.Router.MaxAgents, Sink: a.emit,
 		// Long subagent reports are archived here, beside the session state.
 		ArchiveDir: filepath.Join(config.Home(), "agent-reports")}
+	// A dispatch task that names a task-list item marks it done or blocked.
+	a.Dispatch.TaskStatus = a.Planner.MarkTask
 	if a.ext.hookR != nil {
 		a.Dispatch.Hooks = a.ext.hookR // SubagentStart and SubagentStop
 	}

@@ -188,12 +188,27 @@ func mergeOverLimit(tasks []subTask, limit int) ([]subTask, []string, error) {
 		dst := out[target]
 		dst.Task += "\n\nAlso: " + src.Task
 		dst.Files = append(slices.Clone(dst.Files), src.Files...)
+		// The absorbed task's item is marked with the outcome of the task that
+		// runs its work, so it keeps its id too (see Planner.MarkTask).
+		dst.TaskID = joinTaskIDs(dst.TaskID, src.TaskID)
 		out[target] = dst
 		label := taskLabel(dst, target)
 		out = slices.Delete(out, from, from+1)
 		notes = append(notes, fmt.Sprintf("merged an explore task into the explore task %s (the dispatch allows %d tasks)", label, limit))
 	}
 	return out, notes, nil
+}
+
+// joinTaskIDs combines the task-list ids of two merged dispatch tasks into
+// one comma-separated taskId. Empty ids are dropped.
+func joinTaskIDs(a, b string) string {
+	var ids []string
+	for _, id := range []string{a, b} {
+		if id = strings.TrimSpace(id); id != "" && !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	return strings.Join(ids, ",")
 }
 
 // taskLabel names a task for a note: its id if it has one, else its position.

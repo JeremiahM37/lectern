@@ -764,7 +764,7 @@ func (taskTool) Spec() llm.ToolSpec {
 			"tasks":    tools.Arr("For set: the task texts in order", map[string]any{"type": "string"}),
 			"step_ids": tools.Arr("For set: the plan step id each task belongs to, in the same order as tasks (empty string for none)", map[string]any{"type": "string"}),
 			"id":       tools.Str("For update: task id"),
-			"status":   tools.Enum("For update: new status", "pending", "in_progress", "done", "cancelled"),
+			"status":   tools.Enum("For update: new status", "pending", "in_progress", "done", "blocked", "cancelled"),
 		}, "action"),
 	}
 }
