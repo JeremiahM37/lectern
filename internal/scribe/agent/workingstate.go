@@ -78,7 +78,7 @@ func BuildWorkingState(msgs []llm.Message) WorkingState {
 	failed := map[string]bool{}
 	for _, m := range msgs {
 		for _, p := range m.Parts {
-			if p.Type == llm.PartToolResult && p.IsError {
+			if p.Type == llm.PartToolResult && p.IsError && !shellRan(p.Result) {
 				failed[p.ToolCallID] = true
 			}
 		}
@@ -106,8 +106,9 @@ func BuildWorkingState(msgs []llm.Message) WorkingState {
 			case llm.PartToolCall:
 				names[p.ToolCallID] = p.ToolName
 				// A failed file operation changed nothing. A shell command
-				// ran even when it exited non-zero, so it is always recorded.
-				if failed[p.ToolCallID] && p.ToolName != "shell" {
+				// that exited non-zero still ran and is recorded; one that was
+				// denied or refused never started (see shellRan).
+				if failed[p.ToolCallID] {
 					continue
 				}
 				recordCall(p, addAction, &ws)
@@ -129,6 +130,13 @@ func BuildWorkingState(msgs []llm.Message) WorkingState {
 		ws.Files = append(ws.Files, *files[path])
 	}
 	return ws
+}
+
+// shellRan reports whether a failed tool result is a command that started:
+// a finished command ends with its exit footer, a stopped one says its
+// process group was killed. Denials and refusals have neither.
+func shellRan(result string) bool {
+	return strings.Contains(result, "[exit ") || strings.Contains(result, "process group was killed]")
 }
 
 // recordCall turns one successful tool call into state: files touched, and

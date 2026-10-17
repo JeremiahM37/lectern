@@ -10,13 +10,16 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -364,6 +367,7 @@ type streamer struct {
 	id         string
 	stopped    bool
 	calls      int
+	callPrefix string // random per response, so ids never repeat across steps
 	sawCalls   bool
 	usage      llm.Usage
 	doneReason string
@@ -372,7 +376,7 @@ type streamer struct {
 func (p *Provider) read(ctx context.Context, body io.ReadCloser, ch chan<- llm.Event) {
 	defer close(ch)
 	defer body.Close()
-	s := &streamer{ctx: ctx, ch: ch, id: p.opts.ID}
+	s := &streamer{ctx: ctx, ch: ch, id: p.opts.ID, callPrefix: newCallPrefix()}
 
 	br := bufio.NewReaderSize(body, 64<<10)
 	for {
@@ -474,10 +478,22 @@ func (s *streamer) chunk(payload []byte) (bool, error) {
 	return true, nil
 }
 
+// newCallPrefix returns a short random tag for this response's call ids.
+// Ollama sends no ids, and the agent, the transcript and the TUI key tool
+// rows by id, so a counter that restarts each response made later calls
+// overwrite earlier ones.
+func newCallPrefix() string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	return hex.EncodeToString(b[:])
+}
+
 // toolCall emits one whole tool call as start, argument text and end. Ollama
 // sends each call complete, so the id is generated per response.
 func (s *streamer) toolCall(tc wireCallLine) bool {
-	id := fmt.Sprintf("call_%d", s.calls)
+	id := fmt.Sprintf("call_%s_%d", s.callPrefix, s.calls)
 	s.calls++
 	s.sawCalls = true
 	args := argsObject(tc.Function.Arguments)

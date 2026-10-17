@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -187,12 +188,8 @@ func (t planTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage)
 	var in struct {
 		Title   string     `json:"title"`
 		Summary string     `json:"summary"`
-		Files   []PlanFile `json:"files"`
-		Steps   []struct {
-			Text    string       `json:"text"`
-			Files   []stepFile   `json:"files"`
-			Symbols []PlanSymbol `json:"symbols"`
-		} `json:"steps"`
+		Files   flexList[planFileIn] `json:"files"`
+		Steps   flexList[planStepIn] `json:"steps"`
 		Verification []string `json:"verification"`
 		Body         string   `json:"body"`
 	}
@@ -203,7 +200,7 @@ func (t planTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage)
 		return tools.Errorf("plan needs a title and at least one step")
 	}
 	pl := &Plan{Title: in.Title, Summary: in.Summary, Body: in.Body, Verification: in.Verification}
-	pl.Files = cleanPlanFiles(in.Files)
+	pl.Files = cleanPlanFiles(t.fileActions(in.Files))
 	pl.Depth = t.depth()
 	ex := planExtras{symbols: map[string][]PlanSymbol{}, verification: in.Verification}
 	listed := map[string]bool{}
@@ -389,6 +386,114 @@ func stripLeadingStepNumber(t string) string {
 		return out
 	}
 	return t
+}
+
+// flexList is a list argument that also accepts the shapes models send in
+// its place: one item instead of a list, or one string holding an item per
+// line. Live qwen sent "steps": ["a", "b"] and a step-per-line string and
+// gave up after the decode errors, so the plan never reached review.
+type flexList[T any] []T
+
+func (l *flexList[T]) UnmarshalJSON(b []byte) error {
+	b = bytes.TrimSpace(b)
+	if len(b) == 0 || string(b) == "null" {
+		*l = nil
+		return nil
+	}
+	if b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		var out []T
+		for _, line := range strings.Split(s, "\n") {
+			if line = strings.TrimSpace(line); line == "" {
+				continue
+			}
+			q, _ := json.Marshal(line)
+			var v T
+			if err := json.Unmarshal(q, &v); err != nil {
+				return err
+			}
+			out = append(out, v)
+		}
+		*l = out
+		return nil
+	}
+	if b[0] == '{' {
+		var v T
+		if err := json.Unmarshal(b, &v); err != nil {
+			return err
+		}
+		*l = []T{v}
+		return nil
+	}
+	var out []T
+	if err := json.Unmarshal(b, &out); err != nil {
+		return err
+	}
+	*l = out
+	return nil
+}
+
+// planStepIn is one step of the plan tool's input: an object with text, or
+// just the text.
+type planStepIn struct {
+	Text    string       `json:"text"`
+	Files   []stepFile   `json:"files"`
+	Symbols []PlanSymbol `json:"symbols"`
+}
+
+func (st *planStepIn) UnmarshalJSON(b []byte) error {
+	var s string
+	if json.Unmarshal(b, &s) == nil {
+		st.Text = strings.TrimSpace(s)
+		return nil
+	}
+	type plain planStepIn
+	var v plain
+	if err := json.Unmarshal(b, &v); err != nil {
+		return fmt.Errorf("each step is an object with text, or the step text as a string")
+	}
+	*st = planStepIn(v)
+	return nil
+}
+
+// planFileIn is one entry of the plan's files: an object with path and
+// action, or just the path (the action is then read from the disk).
+type planFileIn struct{ PlanFile }
+
+func (f *planFileIn) UnmarshalJSON(b []byte) error {
+	var s string
+	if json.Unmarshal(b, &s) == nil {
+		f.Path = strings.TrimSpace(s)
+		return nil
+	}
+	if err := json.Unmarshal(b, &f.PlanFile); err != nil {
+		return fmt.Errorf("each file is an object with path and action, or a path string")
+	}
+	return nil
+}
+
+// fileActions fills the action of files given as a bare path: modify when
+// the file exists in the project, create when it does not.
+func (t planTool) fileActions(in []planFileIn) []PlanFile {
+	out := make([]PlanFile, 0, len(in))
+	for _, f := range in {
+		pf := f.PlanFile
+		if strings.TrimSpace(pf.Action) == "" && strings.TrimSpace(pf.Path) != "" {
+			pf.Action = "create"
+			p := strings.TrimSpace(pf.Path)
+			if !filepath.IsAbs(p) && t.p.Dir != "" {
+				p = filepath.Join(t.p.Dir, p)
+			}
+			if _, err := os.Stat(p); err == nil {
+				pf.Action = "modify"
+			}
+		}
+		out = append(out, pf)
+	}
+	return out
 }
 
 // stepFile is one entry of a step's files. The schema asks for a path, but

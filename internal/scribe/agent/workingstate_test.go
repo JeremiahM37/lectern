@@ -19,7 +19,9 @@ func TestWorkingStateExtractsFilesCommandsAndFailures(t *testing.T) {
 		callMsg("e2", "write_file", `{"path":"refused.go","content":"x"}`),
 		resultMsg("e2", "write_file", "permission denied", true),
 		callMsg("s1", "shell", `{"command":"go test ./..."}`),
-		resultMsg("s1", "shell", "FAIL", true),
+		resultMsg("s1", "shell", "FAIL\n[exit 1]", true),
+		callMsg("s2", "shell", `{"command":"rm -rf /elsewhere"}`),
+		resultMsg("s2", "shell", "Denied: the user chose Deny when asked to delete files", true),
 	}
 	ws := BuildWorkingState(msgs)
 	if ws.Task != "Refactor the lexer please" {
@@ -35,6 +37,11 @@ func TestWorkingStateExtractsFilesCommandsAndFailures(t *testing.T) {
 	for _, r := range ws.ToolResults {
 		if r.Tool == "shell" && r.Summary == "ran: go test ./..." {
 			ran = true // a failed command still ran
+		}
+	}
+	for _, r := range ws.ToolResults {
+		if strings.Contains(r.Summary, "rm -rf") {
+			t.Fatalf("a denied command is recorded as run: %+v", r)
 		}
 	}
 	for _, f := range ws.Failures {

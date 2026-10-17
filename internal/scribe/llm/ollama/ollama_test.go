@@ -208,13 +208,13 @@ func TestStreamTextThinkingToolCallAndUsage(t *testing.T) {
 	if evs[0].Text != "plan " || evs[1].Text != "Listing" {
 		t.Fatalf("text deltas = %q / %q", evs[0].Text, evs[1].Text)
 	}
-	if evs[2].ToolCallID != "call_0" || evs[2].ToolName != "list_files" {
+	if !strings.HasPrefix(evs[2].ToolCallID, "call_") || evs[2].ToolName != "list_files" {
 		t.Fatalf("first call start = %+v", evs[2])
 	}
 	if string(evs[4].Args) != `{"path":"pkg"}` {
 		t.Fatalf("first call args = %s", evs[4].Args)
 	}
-	if evs[5].ToolCallID != "call_1" || evs[7].ToolName != "read_file" {
+	if evs[5].ToolCallID == evs[2].ToolCallID || evs[7].ToolName != "read_file" {
 		t.Fatalf("second call = %+v / %+v", evs[5], evs[7])
 	}
 	fin := evs[8]
