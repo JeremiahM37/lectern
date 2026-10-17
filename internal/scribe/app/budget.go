@@ -35,6 +35,16 @@ type dailyUse struct {
 	Date   string `json:"date"`
 	Tokens int    `json:"tokens"`
 	Warned bool   `json:"warned,omitempty"`
+	// Chats is the same count per chat, keyed by chatKey, for the per-chat
+	// budget (chat_daily_token_budget). Chats counts every chat's turns, so
+	// a budget set later starts from the real figure, as the global one does.
+	Chats map[string]chatUse `json:"chats,omitempty"`
+}
+
+// chatUse is one chat's share of the day's budget file.
+type chatUse struct {
+	Tokens int  `json:"tokens"`
+	Warned bool `json:"warned,omitempty"`
 }
 
 func budgetPath() string { return filepath.Join(config.Home(), "budget.json") }
@@ -91,22 +101,40 @@ func (a *App) liveConfig() config.Config {
 	return c
 }
 
+// chatKey names this chat in the budget file: the session id, so a resumed
+// session keeps its count. A chat that is not saved uses the App's own id,
+// which lasts as long as the chat does.
+func (a *App) chatKey() string {
+	if a.Meta.ID != "" {
+		return a.Meta.ID
+	}
+	return a.claimOwner
+}
+
 // dailyBudgetGate returns the refusal when today's spending has reached the
-// budget, and nil otherwise (including when no budget is set).
+// global budget or this chat's budget, and nil otherwise (including when no
+// budget is set).
 func (a *App) dailyBudgetGate() error {
-	limit := a.liveConfig().DailyBudget()
-	if limit <= 0 {
+	cfg := a.liveConfig()
+	limit, chatLimit := cfg.DailyBudget(), cfg.ChatDailyBudget()
+	if limit <= 0 && chatLimit <= 0 {
 		return nil
 	}
 	budgetMu.Lock()
 	u := loadDailyUse(budgetNow())
 	budgetMu.Unlock()
-	if u.Tokens < limit {
-		return nil
+	if limit > 0 && u.Tokens >= limit {
+		return fmt.Errorf("daily token budget reached: %s of %s tokens used today. Scribe starts again at local midnight. "+
+			"To keep working today, raise daily_token_budget in %s (or set it to 0 for no limit)",
+			groupInt(u.Tokens), groupInt(limit), config.GlobalPath())
 	}
-	return fmt.Errorf("daily token budget reached: %s of %s tokens used today. Scribe starts again at local midnight. "+
-		"To keep working today, raise daily_token_budget in %s (or set it to 0 for no limit)",
-		groupInt(u.Tokens), groupInt(limit), config.GlobalPath())
+	if spent := u.Chats[a.chatKey()].Tokens; chatLimit > 0 && spent >= chatLimit {
+		return fmt.Errorf("daily token budget reached for this chat: %s of %s tokens used in this chat today. "+
+			"This chat starts again at local midnight. To keep working in it today, raise chat_daily_token_budget in %s "+
+			"(or set it to 0 for no limit)",
+			groupInt(spent), groupInt(chatLimit), config.GlobalPath())
+	}
+	return nil
 }
 
 // refuseTurn ends a turn that was never started. The TUI clears its busy
@@ -121,13 +149,15 @@ func (a *App) refuseTurn(err error) (agent.TurnStats, error) {
 // recordDailyTokens adds a finished turn to today's total and shows the
 // warning once per day when the total passes budgetWarnAt of the budget.
 func (a *App) recordDailyTokens(stats agent.TurnStats) {
-	limit := a.liveConfig().DailyBudget()
+	cfg := a.liveConfig()
+	limit, chatLimit := cfg.DailyBudget(), cfg.ChatDailyBudget()
 	n := turnTokens(stats)
 	// Spend is counted even without a budget, so /context can show today's
 	// total and a budget set later starts from the real figure.
 	if n <= 0 {
 		return
 	}
+	key := a.chatKey()
 	budgetMu.Lock()
 	u := loadDailyUse(budgetNow())
 	u.Tokens += n
@@ -135,6 +165,16 @@ func (a *App) recordDailyTokens(stats agent.TurnStats) {
 	if warn {
 		u.Warned = true
 	}
+	if u.Chats == nil {
+		u.Chats = map[string]chatUse{}
+	}
+	c := u.Chats[key]
+	c.Tokens += n
+	chatWarn := chatLimit > 0 && !c.Warned && float64(c.Tokens) >= budgetWarnAt*float64(chatLimit)
+	if chatWarn {
+		c.Warned = true
+	}
+	u.Chats[key] = c
 	err := saveDailyUse(u)
 	budgetMu.Unlock()
 	if err != nil {
@@ -145,6 +185,11 @@ func (a *App) recordDailyTokens(stats agent.TurnStats) {
 		a.emit(agent.Event{Kind: agent.EvNotice, Text: fmt.Sprintf(
 			"Daily token budget: %s of %s tokens used today (%d%%). Scribe stops starting new turns at %s.",
 			groupInt(u.Tokens), groupInt(limit), u.Tokens*100/limit, groupInt(limit))})
+	}
+	if chatWarn {
+		a.emit(agent.Event{Kind: agent.EvNotice, Text: fmt.Sprintf(
+			"This chat's daily token budget: %s of %s tokens used today (%d%%). Scribe stops starting new turns in this chat at %s.",
+			groupInt(c.Tokens), groupInt(chatLimit), c.Tokens*100/chatLimit, groupInt(chatLimit))})
 	}
 }
 
@@ -158,6 +203,7 @@ func (a *App) runTurnBudgeted(ctx context.Context, prompt string, images []llm.P
 	}
 	live := a.liveConfig()
 	a.Agent.SetCompaction(live.CompactStrategy, live.CompactKeepRecent)
+	a.Agent.SetMaxToolResults(live.ToolResultsKept())
 	stats, err := agent.RunClearing(ctx, a.Agent, a.Planner, prompt, images)
 	a.recordDailyTokens(stats)
 	return stats, err

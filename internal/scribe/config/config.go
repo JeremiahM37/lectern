@@ -203,6 +203,14 @@ type Config struct {
 	// Nil or zero means no limit. A pointer so a project file can switch
 	// off a global budget with an explicit 0. See DailyBudget.
 	DailyTokenBudget *int `json:"daily_token_budget,omitempty"`
+	// ChatDailyTokenBudget caps the tokens one chat (one session) may spend
+	// in one local day, on top of the global cap. Nil or zero means no
+	// per-chat limit. See ChatDailyBudget.
+	ChatDailyTokenBudget *int `json:"chat_daily_token_budget,omitempty"`
+	// MaxToolResults is how many recent tool-result summaries compaction
+	// keeps in the working state. Zero means the default (30), which is also
+	// the most the working state holds. See ToolResultsKept.
+	MaxToolResults int `json:"max_tool_results,omitempty"`
 	// Theme style (wave 10): transparency, message and diff background
 	// opacity (percent, 0 to 100) and border strength ("", default, strong or
 	// op). Applied at startup and by the settings screen.
@@ -234,6 +242,7 @@ type Reasoning struct {
 	ServiceTier string `json:"service_tier,omitempty"` // e.g. auto, priority, flex
 	Verbosity   string `json:"verbosity,omitempty"`    // OpenAI GPT-5: low, medium, high
 	Exclude     bool   `json:"exclude,omitempty"`      // OpenRouter: hide reasoning text
+	Thinking    string `json:"thinking,omitempty"`     // DeepSeek V4: on | off; "" = provider default (on)
 }
 
 // IsZero reports whether no reasoning control is set.
@@ -342,6 +351,12 @@ func Merge(base, o Config) Config {
 	}
 	if o.DailyTokenBudget != nil {
 		r.DailyTokenBudget = o.DailyTokenBudget
+	}
+	if o.ChatDailyTokenBudget != nil {
+		r.ChatDailyTokenBudget = o.ChatDailyTokenBudget
+	}
+	if o.MaxToolResults != 0 {
+		r.MaxToolResults = o.MaxToolResults
 	}
 	bp(&r.ThemeTransparent, o.ThemeTransparent)
 	if o.ThemeMessageOpacity != nil {
@@ -601,6 +616,12 @@ func (c *Config) SetReasoningField(key string, v any) (bool, error) {
 		r.ServiceTier = strings.TrimSpace(fmt.Sprint(v))
 	case "verbosity":
 		r.Verbosity = strings.TrimSpace(fmt.Sprint(v))
+	case "thinking":
+		s := strings.ToLower(strings.TrimSpace(fmt.Sprint(v)))
+		if s != "" && s != "on" && s != "off" {
+			return true, fmt.Errorf("%s must be on, off or default", key)
+		}
+		r.Thinking = s
 	case "exclude":
 		s := strings.TrimSpace(fmt.Sprint(v))
 		if s == "" {
@@ -637,4 +658,22 @@ func (c Config) DailyBudget() int {
 		return 0
 	}
 	return *c.DailyTokenBudget
+}
+
+// ChatDailyBudget is the per-chat daily token limit, or 0 when there is none.
+func (c Config) ChatDailyBudget() int {
+	if c.ChatDailyTokenBudget == nil || *c.ChatDailyTokenBudget < 0 {
+		return 0
+	}
+	return *c.ChatDailyTokenBudget
+}
+
+// ToolResultsKept is how many tool-result summaries compaction keeps. Unset
+// or negative means the default of 30; the working state never holds more
+// than 30, so larger values are not honoured (see agent.SummaryCompactor).
+func (c Config) ToolResultsKept() int {
+	if c.MaxToolResults <= 0 {
+		return 0
+	}
+	return c.MaxToolResults
 }

@@ -30,7 +30,16 @@ type SummaryCompactor struct {
 	// instead of the KeepTokens budget (spec 03 section 8.3). The cut moves
 	// back so a tool result never separates from its call.
 	KeepRecent int
+	// MaxToolResults is how many of the newest tool-result summaries the
+	// working state keeps (spec 03 section 8.5). Zero means the default of
+	// 30. The working state holds at most 30, so a larger value cannot add
+	// entries; see keepToolResults.
+	MaxToolResults int
 }
+
+// defaultMaxToolResults is the working state's own cap, used when no
+// MaxToolResults is set.
+const defaultMaxToolResults = 30
 
 // ErrNotEnoughHistory is returned when fewer than two messages are older
 // than the kept tail, so there is nothing worth compacting.
@@ -225,6 +234,7 @@ func (c SummaryCompactor) summarise(ctx context.Context, old []llm.Message) (str
 		return c.batchSummary(ctx, old)
 	}
 	ws := BuildWorkingState(old)
+	ws.ToolResults = keepToolResults(ws.ToolResults, c.MaxToolResults)
 	if ws.Slots() == 0 {
 		return c.batchSummary(ctx, old)
 	}
@@ -237,6 +247,20 @@ func (c SummaryCompactor) summarise(ctx context.Context, old []llm.Message) (str
 		return state, nil // a failed gap fill falls back to the state alone
 	}
 	return state + "\n\n## Additional Details\n" + strings.TrimSpace(extra), nil
+}
+
+// keepToolResults keeps the newest n tool-result summaries. Zero or negative
+// means the default. The working state already holds at most
+// defaultMaxToolResults, so a larger n keeps them all: raising the count past
+// that needs the working state itself to collect more (workingstate.go).
+func keepToolResults(xs []toolSummary, n int) []toolSummary {
+	if n <= 0 {
+		n = defaultMaxToolResults
+	}
+	if len(xs) <= n {
+		return xs
+	}
+	return xs[len(xs)-n:]
 }
 
 // summaryDegradeLevels is how many times a summary request is retried with a

@@ -1,6 +1,9 @@
 package chat
 
-import "strings"
+import (
+	"path/filepath"
+	"strings"
+)
 
 // SetSessionHeader sets the line shown above the transcript of a foreign
 // session (one saved from another project or client). Restore sets its own
@@ -9,6 +12,21 @@ import "strings"
 func (v *View) SetSessionHeader(text string) {
 	v.header = text
 	v.gen++
+}
+
+// ForeignSessionHeader is the header text for a session saved in project
+// savedIn when it is opened in project here. It is "" when the two are the
+// same folder, which is the normal case and gets no header. An unknown
+// folder on either side gets none either: saying "from another project" when
+// it is only unknown would be wrong.
+func ForeignSessionHeader(savedIn, here string) string {
+	if savedIn == "" || here == "" {
+		return ""
+	}
+	if filepath.Clean(savedIn) == filepath.Clean(here) {
+		return ""
+	}
+	return "from another project: " + savedIn
 }
 
 // SessionHeader is the header currently shown, or "".

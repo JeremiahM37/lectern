@@ -1,12 +1,6 @@
 package app
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
-
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
@@ -75,63 +69,23 @@ func readOnlyProjectTool(jobs *exec.Jobs) tools.Tool {
 	return exec.NewProjectCheck(jobs)
 }
 
-// withReadCache returns reg with its read tool wrapped in readCache, so the
-// subagents of one dispatch share file reads through bus.
+// withReadCache returns reg with its read tool wrapped in the bus cache, so
+// the subagents of one dispatch share file reads through bus. Reads made this
+// way are not attributed to a subagent; withReadCacheFor names one.
 func withReadCache(reg *tools.Registry, bus *agent.AgentBus) *tools.Registry {
+	return withReadCacheFor(reg, bus, "")
+}
+
+// withReadCacheFor is withReadCache for the subagent id. The id is what the
+// cache notes name, so the subagent's row can show its cache state.
+func withReadCacheFor(reg *tools.Registry, bus *agent.AgentBus, id string) *tools.Registry {
 	out := tools.NewRegistry()
 	for _, n := range reg.Names() {
 		t, _ := reg.Get(n)
 		if n == "read" {
-			t = readCache{Tool: t, bus: bus}
+			t = agent.ReadCacheTool(t, bus, id)
 		}
 		out.Register(t)
 	}
 	return out
-}
-
-// readCache serves a repeated read of an unchanged file from the dispatch's
-// bus. The stamp is the file's size and modification time, so an edit makes
-// the next read a miss. Reads with paths, lines or symbols, and reads that
-// ask to force, go straight to the tool. A cache hit still marks the file read
-// for the edit guard, because the agent did see it.
-type readCache struct {
-	tools.Tool
-	bus *agent.AgentBus
-}
-
-func (t readCache) Run(ctx context.Context, env *tools.Env, raw json.RawMessage) tools.Result {
-	var args map[string]json.RawMessage
-	if env == nil || json.Unmarshal(raw, &args) != nil {
-		return t.Tool.Run(ctx, env, raw)
-	}
-	for _, k := range []string{"paths", "lines", "symbol", "force"} {
-		if _, set := args[k]; set {
-			return t.Tool.Run(ctx, env, raw)
-		}
-	}
-	var path string
-	if json.Unmarshal(args["path"], &path) != nil || path == "" {
-		return t.Tool.Run(ctx, env, raw)
-	}
-	abs := path
-	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(env.Workdir, path)
-	}
-	info, err := os.Stat(abs)
-	if err != nil {
-		return t.Tool.Run(ctx, env, raw)
-	}
-	stamp := fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
-	key := abs + "\x00" + string(raw)
-	if out, ok := t.bus.CachedRead(key, stamp); ok {
-		if env.Files != nil {
-			env.Files.MarkRead(abs)
-		}
-		return tools.Result{Output: out, Summary: "read (cached in this dispatch)"}
-	}
-	res := t.Tool.Run(ctx, env, raw)
-	if !res.IsError {
-		t.bus.StoreRead(key, stamp, res.Output)
-	}
-	return res
 }

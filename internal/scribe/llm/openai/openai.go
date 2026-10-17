@@ -113,6 +113,7 @@ type wireRequest struct {
 	Temperature         *float64        `json:"temperature,omitempty"`
 	ReasoningEffort     string          `json:"reasoning_effort,omitempty"`
 	Reasoning           *wireReasoning  `json:"reasoning,omitempty"`
+	Thinking            *wireThinking   `json:"thinking,omitempty"`
 	Verbosity           string          `json:"verbosity,omitempty"`
 	ParallelToolCalls   *bool           `json:"parallel_tool_calls,omitempty"`
 	ServiceTier         string          `json:"service_tier,omitempty"`
@@ -126,6 +127,13 @@ type wireReasoning struct {
 	Effort    string `json:"effort,omitempty"`
 	MaxTokens int    `json:"max_tokens,omitempty"`
 	Exclude   bool   `json:"exclude,omitempty"`
+}
+
+// wireThinking is DeepSeek's thinking switch: {"type": "enabled"} or
+// {"type": "disabled"}. DeepSeek thinks by default, so the field is sent only
+// when the user has chosen one of the two.
+type wireThinking struct {
+	Type string `json:"type"`
 }
 
 type wireStreamOpts struct {
@@ -193,8 +201,48 @@ func ReasoningStyle(model string) string {
 		// a gateway id such as "deepseek/deepseek-v4-pro" keeps its own reasoning
 		// object, so the Think tab's DeepSeek rows never reach other providers.
 		return llm.ReasoningEffort
+	case strings.HasPrefix(strings.ToLower(model), "gemini-"):
+		// Gemini's OpenAI-compatible endpoint takes reasoning_effort (minimal,
+		// low, medium, high). Bare ids only, for the same reason as DeepSeek:
+		// a gateway id such as "google/gemini-2.5-pro" is not matched here.
+		return llm.ReasoningEffort
 	}
 	return llm.ReasoningNone
+}
+
+// geminiEffort maps a reasoning level to the values Gemini's compatible
+// endpoint takes: minimal, low, medium and high. xhigh, max and ultra have no
+// Gemini level, so they map to high, the top level. none and anything else
+// return "", so the field is left out. Gemini 2.5 Pro and Gemini 3 cannot turn
+// reasoning off, so none is not sent to them.
+func geminiEffort(v string) string {
+	switch v {
+	case "minimal", "low", "medium", "high":
+		return v
+	case "xhigh", "max", "ultra":
+		return "high"
+	}
+	return ""
+}
+
+// deepSeekThinkingType maps the Think tab's on/off choice to DeepSeek's wire
+// value. Unset returns "", so the thinking field is left out and the request
+// keeps DeepSeek's default, which is on.
+func deepSeekThinkingType(v string) string {
+	switch v {
+	case "on":
+		return "enabled"
+	case "off":
+		return "disabled"
+	}
+	return ""
+}
+
+// sendsDeepSeekThinking reports whether the thinking field goes on the wire.
+// DeepSeek documents it for the V4 family only, so other DeepSeek ids (and
+// gateway ids) never get it, whatever the caller sets.
+func sendsDeepSeekThinking(provider, model string) bool {
+	return provider == "deepseek" && strings.HasPrefix(strings.ToLower(model), "deepseek-v4")
 }
 
 // xaiEffortModel reports the grok ids that take reasoning_effort, per xAI's
@@ -291,11 +339,17 @@ func (p *Provider) buildBody(req llm.Request) ([]byte, error) {
 	} else if p.opts.ID == "deepseek" && ReasoningStyle(req.Model) == llm.ReasoningEffort {
 		// DeepSeek V4 takes only high or max, so other levels are mapped.
 		w.ReasoningEffort = deepSeekEffort(req.Reasoning)
+	} else if p.opts.ID == "gemini" && ReasoningStyle(req.Model) == llm.ReasoningEffort {
+		// Gemini's compatible endpoint takes four levels; the rest are mapped.
+		w.ReasoningEffort = geminiEffort(req.Reasoning)
 	} else if req.Reasoning != "" && sendsReasoningEffort(p.opts.ID, req.Model) {
 		w.ReasoningEffort = req.Reasoning
 	}
 	if req.Verbosity != "" && sendsVerbosity(p.opts.ID, req.Model) {
 		w.Verbosity = req.Verbosity
+	}
+	if t := deepSeekThinkingType(req.DeepSeekThinking); t != "" && sendsDeepSeekThinking(p.opts.ID, req.Model) {
+		w.Thinking = &wireThinking{Type: t}
 	}
 	w.ServiceTier = req.ServiceTier
 	if !p.opts.NoStreamUsage {

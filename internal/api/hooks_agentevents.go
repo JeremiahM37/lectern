@@ -397,7 +397,14 @@ func permissionRequestResponse(row *store.Approval) map[string]any {
 	var decision map[string]any
 	switch row.Status {
 	case "approved":
+		// An approval note (typed by the person with the approve) travels
+		// with the allow, so the agent sees any condition they attached. The
+		// "allow for this session" rule needs nothing here: the broker keeps
+		// it and the next matching call short-circuits before any row exists.
 		decision = map[string]any{"behavior": "allow"}
+		if row.Note != "" {
+			decision["message"] = row.Note
+		}
 	case "denied":
 		decision = map[string]any{"behavior": "deny"}
 		if row.Note != "" {

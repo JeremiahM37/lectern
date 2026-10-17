@@ -126,6 +126,10 @@ type Request struct {
 	// ReasoningExclude asks OpenRouter to leave the reasoning text out of the
 	// response (reasoning.exclude). Other adapters ignore it.
 	ReasoningExclude bool
+	// DeepSeekThinking is the DeepSeek thinking switch: "on" sends
+	// thinking.type enabled, "off" sends disabled, "" leaves the field out so
+	// the provider default (on) applies. Other adapters ignore it.
+	DeepSeekThinking string
 	// Verbosity is the answer length control (chat completions "verbosity":
 	// low, medium or high). The OpenAI adapter sends it only for GPT-5 models.
 	Verbosity string

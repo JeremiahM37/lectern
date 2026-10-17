@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // AgentBus is the state the subagents of one dispatch share: the findings
@@ -18,6 +19,13 @@ type AgentBus struct {
 	bytes    int                 // total text bytes of findings, capped at maxFindingsBytes
 	owners   map[string][]string // file -> agents that edited it, first claimant first
 	reads    map[string]cachedRead
+	// flights are the reads in progress, by key, so a second reader of the
+	// same file at the same stamp waits for the first instead of reading again.
+	flights map[string]*readFlight
+	// observer hears what the cache did for each read (see CacheNote).
+	observer func(CacheNote)
+	// readWait bounds that wait. Zero means readers never wait.
+	readWait time.Duration
 	// abortFn cancels the dispatch's subagents; aborted records that a
 	// cancel_dispatch call (or the caller) asked for it.
 	abortFn func()
@@ -43,11 +51,17 @@ type Finding struct {
 type cachedRead struct {
 	stamp  string
 	output string
+	by     string // the subagent whose read this is, "" when unknown
 }
 
 // NewAgentBus returns an empty bus.
 func NewAgentBus() *AgentBus {
-	return &AgentBus{owners: map[string][]string{}, reads: map[string]cachedRead{}}
+	return &AgentBus{
+		owners:   map[string][]string{},
+		reads:    map[string]cachedRead{},
+		flights:  map[string]*readFlight{},
+		readWait: readWaitTimeout,
+	}
 }
 
 // Post records a finding from agent id. Blank text is ignored. A finding

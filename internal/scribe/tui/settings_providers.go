@@ -24,19 +24,40 @@ var (
 	gatewayEffortOptions = []string{"", "low", "medium", "high", "xhigh"}
 	// deepSeekEffortOptions are the levels DeepSeek V4 takes (spec 02 §5.1.1).
 	deepSeekEffortOptions = []string{"", "high", "max"}
+	// geminiEffortOptions are the levels Gemini's compatible endpoint takes.
+	geminiEffortOptions = []string{"", "minimal", "low", "medium", "high"}
+	// deepSeekThinkingOptions are the DeepSeek V4 thinking switch states. ""
+	// is the provider default, which is on, so the field is left out.
+	deepSeekThinkingOptions = []string{"", "on", "off"}
 )
 
 // effortOptionsFor returns the effort levels an effort-style model takes on a
 // provider. The LLM Gateway also takes xhigh; DeepSeek V4 takes only high and
-// max.
+// max; Gemini takes minimal through high.
 func effortOptionsFor(provider string) []string {
 	switch provider {
 	case "llmgateway":
 		return gatewayEffortOptions
 	case "deepseek":
 		return deepSeekEffortOptions
+	case "gemini":
+		return geminiEffortOptions
 	}
 	return effortOptions
+}
+
+// deepSeekThinkingModel reports whether a DeepSeek model id takes the thinking
+// switch. DeepSeek documents it for the V4 family; other ids get no row.
+func deepSeekThinkingModel(id string) bool {
+	return strings.HasPrefix(strings.ToLower(id), "deepseek-v4")
+}
+
+// deepSeekThinkingRow is the Think tab's DeepSeek thinking switch: default
+// (the provider's on), On or Off. It is saved under reasoning_by_provider's
+// thinking key and sent as thinking.type only for V4 models.
+func (s *settings) deepSeekThinkingRow(key string, rs config.Reasoning) setRow {
+	return s.cycleRow("Thinking", key+"thinking", rs.Thinking, deepSeekThinkingOptions,
+		"default is on; On sends thinking enabled, Off sends disabled")
 }
 
 // gpt5Model reports whether a model id is in the GPT-5 family, the only OpenAI

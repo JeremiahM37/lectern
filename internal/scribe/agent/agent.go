@@ -260,6 +260,10 @@ type Agent struct {
 	// unfinished items left unchanged for taskStaleSteps steps is shown again
 	// with a prompt to update it.
 	taskIdle int
+
+	// pathHints is the failed-path channel: paths whose calls failed because
+	// the path is missing, waiting for the next step's reminder (failed_hints.go).
+	pathHints pathHints
 }
 
 // badArg is a tool call whose arguments the provider sent as invalid JSON.
@@ -618,6 +622,7 @@ func (a *Agent) Run(ctx context.Context, prompt string, images []llm.Part) (out 
 	a.retries = 0
 	a.optDropped = map[optKey]bool{}
 	a.planNudges = 0
+	a.pathHints = pathHints{}
 	mode := a.mode
 	a.mu.Unlock()
 	defer func() {
@@ -821,6 +826,9 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 			}
 		}
 		if note := a.taskReminder(); note != "" {
+			hints = append(hints, note)
+		}
+		if note := a.pathFailureHint(); note != "" {
 			hints = append(hints, note)
 		}
 		q, imgs := a.drainSteering()
@@ -1589,6 +1597,7 @@ func (a *Agent) runTools(ctx context.Context, calls []llm.Part, stats *TurnStats
 	}
 	for k, c := range calls {
 		stats.ToolCalls = append(stats.ToolCalls, c.ToolName)
+		a.notePathResult(c, out[k])
 		if c.ToolName == "read" && !out[k].IsError {
 			stats.FilesRead = appendUnique(stats.FilesRead, readPaths(c.Args)...)
 		}

@@ -1004,6 +1004,9 @@ func (s *settings) reasoningRows() []setRow {
 	default:
 		rows = append(rows, setRow{label: "No reasoning controls", note: "for this model; the global Reasoning setting still applies"})
 	}
+	if provider == "deepseek" && deepSeekThinkingModel(id) {
+		rows = append(rows, s.deepSeekThinkingRow(key, rs))
+	}
 	if provider == "openai" && st.style == llm.ReasoningEffort && gpt5Model(id) {
 		rows = append(rows, s.cycleRow("Verbosity", key+"verbosity", rs.Verbosity, verbosityOptions, "answer length; GPT-5 models only"))
 	}

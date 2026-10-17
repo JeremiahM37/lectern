@@ -100,6 +100,12 @@ func applyProviderReasoning(r *llm.Request, provider string, rs config.Reasoning
 		if rs.Verbosity != "" && style == llm.ReasoningEffort {
 			r.Verbosity = rs.Verbosity
 		}
+	case "deepseek":
+		// The adapter sends the switch only to the V4 ids; the style check
+		// keeps the request unchanged for every other DeepSeek model.
+		if rs.Thinking != "" && style == llm.ReasoningEffort {
+			r.DeepSeekThinking = rs.Thinking
+		}
 	}
 }
 

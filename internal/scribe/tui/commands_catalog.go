@@ -76,7 +76,7 @@ func init() {
 		&command{Name: "wizard", Desc: "Re-run the first-run setup (same as /setup)", Group: "System",
 			Run: func(m *Model, args string) tea.Cmd { return runAlias(m, "setup", args) }},
 		&command{Name: "lsp status", Desc: "Language server status and errors", Group: "Intelligence",
-			Run: func(m *Model, _ string) tea.Cmd { m.openServers("lsp"); return nil }},
+			Run: func(m *Model, _ string) tea.Cmd { m.openServersModal("lsp"); return nil }},
 		&command{Name: "lsp-status", Desc: "Same as /lsp status", Group: "Intelligence",
 			Run: func(m *Model, args string) tea.Cmd { return runAlias(m, "lsp status", args) }},
 		&command{Name: "lsp restart", Args: "[filter]", Desc: "Restart every language server, or those whose name contains filter", Group: "Intelligence",
