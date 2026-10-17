@@ -226,7 +226,7 @@ func init() {
 				}
 				return m.renameCurrent(args)
 			}},
-		&command{Name: "export", Args: "[md|json|all|clipboard|api]", Desc: "Export the session as markdown or JSON; all writes a diagnostic dump; api toggles the per-request API dump", Group: "Session",
+		&command{Name: "export", Args: "[md|json|all|clipboard|api [on|off|save]]", Desc: "Export the session as markdown or JSON; all writes a diagnostic dump; api turns the per-request API dump on or off, api save writes it to a file", Group: "Session",
 			Run: func(m *Model, args string) tea.Cmd {
 				args = strings.ToLower(strings.TrimSpace(args))
 				if args == "api" || strings.HasPrefix(args, "api ") {

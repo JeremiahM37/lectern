@@ -114,3 +114,66 @@ func TestMapModalShowsSettingsRows(t *testing.T) {
 	mustContain(t, screen(m), "Summaries", "Limit", "Budget", "Auto-regen")
 	checkWidths(t, m, 80, 30)
 }
+
+// mapToggle is a mapCtl that also saves the on/off switch, and reports the
+// value in use through MapDetailer.
+type mapToggle struct {
+	*mapCtl
+	enabled bool
+	saves   []bool
+	saveErr error
+}
+
+func (c *mapToggle) MapDetail() MapDetail { return MapDetail{Enabled: c.enabled, Running: true} }
+
+func (c *mapToggle) SetMapEnabled(on bool) error {
+	c.saves = append(c.saves, on)
+	if c.saveErr != nil {
+		return c.saveErr
+	}
+	c.enabled = on
+	return nil
+}
+
+// The Enabled row toggles with e and is saved on Enter, with a note that it
+// applies at the next start.
+func TestMapEnabledRowSavesOnEnter(t *testing.T) {
+	c := &mapToggle{mapCtl: newMapCtl(), enabled: true}
+	m := modalModel(t, 140, 36, c)
+	m.runCommand("/repo-map")
+	send(m, "e")
+	mustContain(t, screen(m), "Not applied yet")
+	if len(c.saves) != 0 {
+		t.Fatal("the on/off switch must not save before Enter")
+	}
+	send(m, "enter")
+	if len(c.saves) != 1 || c.saves[0] {
+		t.Fatalf("saves = %v, want one save of false", c.saves)
+	}
+	mustContain(t, screen(m), "takes effect the next time Scribe starts")
+}
+
+// When the save fails, the row shows the value in use again rather than the
+// value that was typed.
+func TestMapEnabledRowRevertsOnSaveError(t *testing.T) {
+	c := &mapToggle{mapCtl: newMapCtl(), enabled: true, saveErr: errTestMapSave}
+	m := modalModel(t, 140, 36, c)
+	m.runCommand("/repo-map")
+	send(m, "e")
+	send(m, "enter")
+	mustContain(t, screen(m), "Could not save the on/off setting")
+	if len(c.saves) != 1 {
+		t.Fatalf("saves = %v, want one attempt", c.saves)
+	}
+	mustContain(t, screen(m), "Enabled")
+	send(m, "enter")
+	if len(c.saves) != 1 {
+		t.Fatalf("after the revert there is nothing to save, got %v", c.saves)
+	}
+}
+
+var errTestMapSave = errStr("save refused")
+
+type errStr string
+
+func (e errStr) Error() string { return string(e) }

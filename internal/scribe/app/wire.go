@@ -110,6 +110,7 @@ func (a *App) wire(ctx context.Context) error {
 	if config.Bool(a.Cfg.RepoMap, true) && !a.opts.NoRepoMap {
 		if m, err := repomap.Open(a.Workdir, repomap.Options{}); err == nil {
 			a.ext.cmap = m
+			applyMapConfig(a, m) // the saved /repo-map settings
 			if a.Memory != nil {
 				a.Memory.CoChange = coChangeFrom(m) // recall adds memories of files that change together
 			}
@@ -134,6 +135,7 @@ func (a *App) wire(ctx context.Context) error {
 					a.emit(agent.Event{Kind: agent.EvNotice, Text: w})
 				}
 				a.installSummarizer(m)
+				a.finishMapBuild(m)
 			}()
 			// A small repo maps in well under a second; give it a moment so
 			// the first prompt already carries the map.

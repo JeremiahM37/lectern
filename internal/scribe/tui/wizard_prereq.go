@@ -9,7 +9,9 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/icons"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
 )
@@ -163,3 +165,88 @@ func requiredMessage(missing []prereqStatus, goos string) string {
 
 // goos is runtime.GOOS; a variable so tests can pick a platform.
 var goos = runtime.GOOS
+
+// setupTab is a tab of the setup guide on the welcome step. Tools lists the
+// prerequisites; Fonts holds the Nerd Font choice, which is saved as
+// nerd_font.
+type setupTab int
+
+const (
+	setupTools setupTab = iota
+	setupFonts
+)
+
+// setupTabForKey maps the 1 and 2 keys to their tabs. Any other key is not a
+// tab key.
+func setupTabForKey(k string) (setupTab, bool) {
+	switch k {
+	case "1":
+		return setupTools, true
+	case "2":
+		return setupFonts, true
+	}
+	return setupTools, false
+}
+
+// setupFooter is the welcome footer for a tab. Only the keys that do
+// something on that tab are listed.
+func setupFooter(tab setupTab, missing bool) string {
+	if tab == setupFonts {
+		return "Space toggle · 1/2 tabs · → next · Esc close"
+	}
+	if missing {
+		return "r check again · i install hints · a copy installs · 1/2 tabs · Esc close"
+	}
+	return "→ next · i install hints · 1/2 tabs · Esc close"
+}
+
+// setupTabLines renders the body of the active tab.
+func setupTabLines(th theme.Theme, tab setupTab, ps []prereqStatus, nerd bool, goos string, width int) []string {
+	if tab == setupFonts {
+		return fontLines(th, nerd, nerdDetected(), width)
+	}
+	return prereqLines(th, ps, goos, width)
+}
+
+// nerdDetected runs icons.DetectNerd once. It walks the font directories, and
+// the welcome step is redrawn on every key, so the answer is kept.
+var nerdDetected = sync.OnceValue(icons.DetectNerd)
+
+// fontLines renders the Fonts tab. The detection is a guess from the font
+// directories and the terminal name, so the user's choice always wins.
+func fontLines(th theme.Theme, nerd, detected bool, width int) []string {
+	state, det := "off", "not found in a font directory or a known terminal"
+	if nerd {
+		state = "on"
+	}
+	if detected {
+		det = "found"
+	}
+	return []string{
+		fgb(th.TextPrimary).Render("Nerd Font icons"),
+		"",
+		fg(th.TextSecondary).Render("  icons      ") + fgb(th.TextPrimary).Render(state),
+		fg(th.TextMuted).Render(render.Wrap("  detection  "+det, width)),
+		"",
+		fg(th.TextMuted).Render(render.Wrap("Space toggles the choice. Glyphs need a Nerd Font set in the terminal.", width)),
+	}
+}
+
+// copyInstalls puts the install command for each missing tool on the
+// clipboard, one per line, and says so in the note. It never runs them: an
+// install needs sudo or the network, and a key press in a setup screen should
+// not start either. The user reads the lines and runs what they choose.
+func (w *wizard) copyInstalls() {
+	var lines []string
+	for _, p := range w.prereqs {
+		if p.path == "" {
+			lines = append(lines, installHint(p.prereq, goos))
+		}
+	}
+	if len(lines) == 0 {
+		w.note = "Everything on this list is installed"
+		return
+	}
+	copyToTerminal(strings.Join(lines, "\n") + "\n")
+	w.note = fmt.Sprintf("Copied %d install command(s) to the clipboard. Nothing was run.", len(lines))
+}

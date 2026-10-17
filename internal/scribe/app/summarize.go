@@ -11,9 +11,6 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/repomap"
 )
 
-// summarizeLimit is how many files one background pass summarises.
-const summarizeLimit = 50
-
 // modelSummarizer implements repomap.Summarizer over one configured model.
 // It sends file paths, doc comments and exported signatures only, never
 // source text, and asks for a JSON array with one line per file.
@@ -78,8 +75,8 @@ func (a *App) installSummarizer(m *repomap.Map) {
 	if !ok {
 		return
 	}
+	// Summaries are asked for only when auto-regenerate is on and the mode
+	// shows them (finishMapBuild); the default mode does not, so asking at
+	// every start spent model calls on text nobody saw.
 	m.SetSummarizer(modelSummarizer{model: model})
-	go func() {
-		_, _ = m.SummarizeMissing(context.Background(), summarizeLimit)
-	}()
 }

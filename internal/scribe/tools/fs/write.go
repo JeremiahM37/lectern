@@ -267,7 +267,11 @@ func editExisting(env *tools.Env, undo *UndoStack, t target, edits []editSpec, m
 		// The whole file before and after the batch, exactly as on disk, so the
 		// UI can show the joined change. Only a successful batch gets here: an
 		// atomic rollback returns above and carries no Meta.
-		res.Meta = map[string]any{"before": string(before), "after": after}
+		if res.Meta == nil {
+			res.Meta = map[string]any{}
+		}
+		res.Meta["before"] = string(before)
+		res.Meta["after"] = after
 	} else {
 		res.Output = fmt.Sprintf("Edited %s: %s.", t.rel, msgs[0])
 	}
@@ -297,6 +301,11 @@ func commit(env *tools.Env, undo *UndoStack, t target, before []byte, existed bo
 		res.Summary = fmt.Sprintf("new file, %d lines", countLines(after))
 	} else {
 		res.Summary = diffSummary(added, removed)
+		// Only a change to an existing file can break its importers, so only
+		// it names them. The line is best effort: no map means no line.
+		if s := editImpact(env, t.abs); s != "" {
+			res.Meta = map[string]any{"impact": s}
+		}
 	}
 	return res
 }

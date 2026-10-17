@@ -14,6 +14,28 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
 )
 
+// MapDetail is what the modal shows beyond MapStats. A backend that implements
+// MapDetailer reports it; without one the rows are left out.
+type MapDetail struct {
+	Enabled    bool   // the saved on/off setting; it applies at the next start
+	Running    bool   // the map is running in this session
+	DBBytes    int64  // cache file size; 0 when the map is in memory
+	Summaries  int    // model summaries that still match their file
+	Summarizer string // model used for summaries; "" when none is configured
+	Warning    string // partial-coverage note from the last build
+}
+
+// MapDetailer is implemented by a backend that can report MapDetail.
+type MapDetailer interface {
+	MapDetail() MapDetail
+}
+
+// MapEnabler saves the code map's on/off setting. Turning it on or off takes
+// effect the next time Scribe starts, because the map is built at startup.
+type MapEnabler interface {
+	SetMapEnabled(on bool) error
+}
+
 func init() {
 	run := func(m *Model, args string) tea.Cmd {
 		if strings.TrimSpace(args) == "rebuild" {
@@ -41,6 +63,7 @@ const (
 	mapRowMode = iota
 	mapRowLimit
 	mapRowBudget
+	mapRowEnabled
 	mapRows
 )
 
@@ -51,7 +74,10 @@ type mapView struct {
 	note  string
 	prefs MapPrefs // what the modal shows and will apply
 	saved MapPrefs // what the backend last reported
-	focus int
+	// enabled is the on/off row; savedEnabled is what the backend reported.
+	enabled      bool
+	savedEnabled bool
+	focus        int
 	// clearArmed and sumsArmed hold a destructive action until its key is
 	// pressed a second time.
 	clearArmed bool
@@ -71,6 +97,11 @@ func newMapView(m *Model) *mapView {
 		}
 	}
 	v.saved = v.prefs
+	v.enabled = true
+	if det, ok := v.be.(MapDetailer); ok {
+		v.enabled = det.MapDetail().Enabled
+	}
+	v.savedEnabled = v.enabled
 	return v
 }
 
@@ -82,7 +113,7 @@ func (v *mapView) Icon() string { return "repomap" }
 
 // Footer implements Footered.
 func (v *mapView) Footer() string {
-	return "1-5 mode · ←→ step · a auto · Enter apply · G C X summaries · Esc close"
+	return "1-5 mode · ←→ step · a auto · e on/off · Enter apply · G C X summaries · Esc close"
 }
 
 // Size implements Sized.
@@ -134,6 +165,8 @@ func (v *mapView) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 		v.focus = mapRowMode
 	case "a":
 		v.prefs.AutoRegen = !v.prefs.AutoRegen
+	case "e":
+		v.enabled = !v.enabled
 	case "enter":
 		v.apply()
 	case "G":
@@ -188,6 +221,8 @@ func (v *mapView) step(dir int) {
 	case mapRowBudget:
 		i := mapIndexOf(mapBudgets, v.prefs.Budget) + dir
 		v.prefs.Budget = mapBudgets[(i+len(mapBudgets))%len(mapBudgets)]
+	case mapRowEnabled:
+		v.enabled = !v.enabled
 	}
 }
 
@@ -204,6 +239,28 @@ func (v *mapView) apply() {
 	}
 	v.saved = v.prefs
 	v.note = "Applied."
+	if v.enabled == v.savedEnabled {
+		return
+	}
+	en, ok := v.be.(MapEnabler)
+	if !ok {
+		v.enabled = v.savedEnabled
+		v.note = unsupportedNote
+		return
+	}
+	if err := en.SetMapEnabled(v.enabled); err != nil {
+		// A project file may still hold the value in use, so show that one.
+		if det, ok := v.be.(MapDetailer); ok {
+			v.enabled = det.MapDetail().Enabled
+			v.savedEnabled = v.enabled
+		} else {
+			v.enabled = v.savedEnabled
+		}
+		v.note = "Could not save the on/off setting: " + err.Error()
+		return
+	}
+	v.savedEnabled = v.enabled
+	v.note = "Applied. The on/off change takes effect the next time Scribe starts."
 }
 
 // regenerate asks the backend for model summaries in the background.
@@ -229,6 +286,11 @@ func (v *mapView) View(w, h int) string {
 	s := v.be.MapStats()
 	label := func(k string) string { return fg(th.TextDim).Render(padRight(k, 10)) }
 	value := func(n int) string { return fg(th.TextPrimary).Render(thousands(n)) }
+	det, hasDet := v.be.(MapDetailer)
+	var d MapDetail
+	if hasDet {
+		d = det.MapDetail()
+	}
 
 	var out []string
 	out = append(out,
@@ -238,6 +300,9 @@ func (v *mapView) View(w, h int) string {
 		"",
 	)
 	switch {
+	case hasDet && !d.Running:
+		out = append(out, label("Status")+fg(th.TextDim).Render("off"),
+			fg(th.TextFaint).Render("The code map is not running in this session. The on/off setting applies at the next start."))
 	case s.Building:
 		frac := clampFrac(s.Progress)
 		out = append(out, label("Building")+fg(th.Brand).Render(bar(frac, min(30, w-20)))+" "+fg(th.TextMuted).Render(fmt.Sprintf("%d%%", int(frac*100+0.5))))
@@ -245,6 +310,9 @@ func (v *mapView) View(w, h int) string {
 		out = append(out, fg(th.TextFaint).Render("The code map is empty. Press r to build it."))
 	default:
 		out = append(out, label("Status")+fg(th.Success).Render("ready"))
+	}
+	if hasDet && d.Running {
+		out = append(out, detailLines(d, label, th, w)...)
 	}
 	out = append(out, "")
 	out = append(out, v.settingsLines()...)
@@ -333,14 +401,43 @@ func (v *mapView) settingsLines() []string {
 	if v.prefs.AutoRegen {
 		auto = "on"
 	}
+	enabled := "off"
+	if v.enabled {
+		enabled = "on"
+	}
 	lines := []string{
 		mark(mapRowMode) + padRight("Summaries", 12) + opt(v.prefs.Mode, mapModes, identity) + fg(th.TextFaint).Render("  1-5"),
 		mark(mapRowLimit) + padRight("Limit", 12) + opt(fmt.Sprint(v.prefs.SummaryLimit), limits, identity) + fg(th.TextFaint).Render("  llm and full only"),
 		mark(mapRowBudget) + padRight("Budget", 12) + opt(budgetCur, budgets, budgetName) + fg(th.TextFaint).Render("  tokens"),
 		"  " + padRight("Auto-regen", 12) + fg(th.TextPrimary).Render(auto) + fg(th.TextFaint).Render("  a"),
+		mark(mapRowEnabled) + padRight("Enabled", 12) + fg(th.TextPrimary).Render(enabled) + fg(th.TextFaint).Render("  e  applies at next start"),
 	}
-	if v.prefs != v.saved {
+	if v.prefs != v.saved || v.enabled != v.savedEnabled {
 		lines = append(lines, fg(th.Amber).Render("  Not applied yet. Press Enter to apply."))
+	}
+	return lines
+}
+
+// detailLines are the cache, summary and warning rows of a running map.
+func detailLines(d MapDetail, label func(string) string, th theme.Theme, w int) []string {
+	primary := func(s string) string { return fg(th.TextPrimary).Render(s) }
+	faint := func(s string) string { return fg(th.TextFaint).Render(s) }
+	cache := "in memory"
+	if d.DBBytes > 0 {
+		cache = humanBytes(d.DBBytes)
+	}
+	ai := fmt.Sprintf("%d files", d.Summaries)
+	if d.Summarizer == "" {
+		ai += faint("  no model configured for summaries")
+	} else {
+		ai += faint("  via " + d.Summarizer)
+	}
+	lines := []string{
+		label("Cache") + primary(cache),
+		label("AI summary") + primary(ai),
+	}
+	if d.Warning != "" {
+		lines = append(lines, label("Warning")+faint(render.Truncate(d.Warning, max(4, w-12))))
 	}
 	return lines
 }

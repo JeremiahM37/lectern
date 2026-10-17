@@ -16,7 +16,15 @@ type IndexDiagnoser interface {
 	DiagnoseIndex() []DiagnoseCheck
 }
 
-// combinedDiagnoser runs the base checks and then the index probes.
+// RoutingDiagnoser is optionally implemented by a Backend that can say which
+// model each task-router slot uses and whether its provider is reachable. The
+// area is "Model routing". It sends no model request.
+type RoutingDiagnoser interface {
+	DiagnoseRouting() []DiagnoseCheck
+}
+
+// combinedDiagnoser runs the base checks, then the index probes, then the
+// routing probe when the backend has one.
 type combinedDiagnoser struct {
 	base  Diagnoser
 	index IndexDiagnoser
@@ -25,7 +33,11 @@ type combinedDiagnoser struct {
 // Diagnose implements Diagnoser.
 func (c combinedDiagnoser) Diagnose() []DiagnoseCheck {
 	out := c.base.Diagnose()
-	return append(out, c.index.DiagnoseIndex()...)
+	out = append(out, c.index.DiagnoseIndex()...)
+	if r, ok := c.index.(RoutingDiagnoser); ok {
+		out = append(out, r.DiagnoseRouting()...)
+	}
+	return out
 }
 
 func init() {

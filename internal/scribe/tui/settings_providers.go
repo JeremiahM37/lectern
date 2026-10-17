@@ -22,13 +22,19 @@ var (
 	openRouterBudgetOptions = []int{0, 1024, 2048, 4096, 8192, 16384}
 	// gatewayEffortOptions are the effort levels the LLM Gateway takes.
 	gatewayEffortOptions = []string{"", "low", "medium", "high", "xhigh"}
+	// deepSeekEffortOptions are the levels DeepSeek V4 takes (spec 02 §5.1.1).
+	deepSeekEffortOptions = []string{"", "high", "max"}
 )
 
 // effortOptionsFor returns the effort levels an effort-style model takes on a
-// provider. The LLM Gateway also takes xhigh.
+// provider. The LLM Gateway also takes xhigh; DeepSeek V4 takes only high and
+// max.
 func effortOptionsFor(provider string) []string {
-	if provider == "llmgateway" {
+	switch provider {
+	case "llmgateway":
 		return gatewayEffortOptions
+	case "deepseek":
+		return deepSeekEffortOptions
 	}
 	return effortOptions
 }

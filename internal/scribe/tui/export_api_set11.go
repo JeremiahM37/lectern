@@ -25,17 +25,26 @@ type APIDumper interface {
 }
 
 // apiDumpUsage is the usage line for the api form of /session export.
-const apiDumpUsage = "Usage: /session export api [on|off]"
+const apiDumpUsage = "Usage: /session export api [on|off|save]"
 
 // exportAPI is the `api` form of /session export. With no argument it flips
-// the dump; "on" or "off" set it.
+// the dump; "on" or "off" set it; "save" writes what it recorded to a file.
 func (m *Model) exportAPI(arg string) tea.Cmd {
 	d, ok := m.cur().be.(APIDumper)
 	if !ok {
 		return cmdErrText("this session cannot write an API request dump")
 	}
+	arg = strings.TrimSpace(arg)
+	if arg == "save" || arg == "file" {
+		// Write what the dump recorded as one export file.
+		path, err := m.cur().be.Export("api")
+		if err != nil {
+			return cmdErr(err)
+		}
+		return flashCmd("ok", "Exported the API requests to "+path)
+	}
 	on := !d.APIDump()
-	if arg = strings.TrimSpace(arg); arg != "" {
+	if arg != "" {
 		v, err := parseOnOff(arg)
 		if err != nil {
 			return cmdErrText(apiDumpUsage)

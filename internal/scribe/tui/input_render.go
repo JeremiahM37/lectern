@@ -22,7 +22,9 @@ func slashPopupRows(termRows int) int { return clamp(termRows/4, 4, 8) }
 func historyPopupRows(termRows int) int { return clamp(termRows/5, 3, 8) }
 
 // inputPlaceholder is the text shown in an empty input box, and its style.
-// Scribe's own copy: the rotating tips live in the footer instead.
+// Scribe's own copy: the rotating tips live in the footer instead. Browsing
+// only names the rewind while no turn runs: a message sent mid-turn steers
+// that turn (input.go), so the rewind prompt would be false then.
 func inputPlaceholder(t *tab, th theme.Theme) (string, lipgloss.Style) {
 	if cp := browsedCheckpoint(t); cp != nil && !t.busy {
 		return icons.Icon("rewind") + " send a message to rewind to checkpoint #" + itoa(cp.Turn), fg(th.Warning)

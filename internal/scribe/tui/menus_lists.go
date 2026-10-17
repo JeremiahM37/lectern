@@ -226,6 +226,10 @@ func (m *Model) openPalette() {
 	for _, c := range cmds {
 		byName[c.Name] = c
 	}
+	// Groups fold like the model picker's. The palette types into its filter,
+	// so the built-in fold keys are off; OnKey below handles them while the
+	// filter is empty, and typed text keeps reaching the query.
+	p.Collapsible = true
 	suggested := paletteSuggestions()
 	built := "\x00" // the query the rows were last built for
 	p.OnSelect = func(it PickItem) tea.Cmd {
@@ -241,14 +245,30 @@ func (m *Model) openPalette() {
 		return m.runCommand("/" + c.Name)
 	}
 	p.OnKey = func(key string) (tea.Cmd, bool) {
-		if key != "tab" {
-			return nil, false
+		switch key {
+		case "tab":
+			if p.query != "" {
+				return nil, true // Tab moves between categories only when unfiltered
+			}
+			jumpGroupWrap(p)
+			return p.fireCursor(), true
+		case "left", "right", " ":
+			if p.query != "" {
+				return nil, false // a filter takes Space as text
+			}
+			switch key {
+			case "left":
+				p.toggleFold(true)
+			case "right":
+				p.toggleFold(false)
+			default:
+				if it, ok := p.Selected(); ok && it.Group != "" {
+					p.toggleFold(!p.folded[it.Group])
+				}
+			}
+			return p.fireCursor(), true
 		}
-		if p.query != "" {
-			return nil, true // Tab moves between categories only when unfiltered
-		}
-		jumpGroupWrap(p)
-		return p.fireCursor(), true
+		return nil, false
 	}
 	lp := newLivePicker(p, func(p *Picker) {
 		if p.query != built {
@@ -260,7 +280,7 @@ func (m *Model) openPalette() {
 			p.Blurb = fmt.Sprintf("%d matches", len(p.visible))
 			return
 		}
-		p.Hint = "↑↓ nav · Tab next category · Enter run · Esc close"
+		p.Hint = "↑↓ nav · Tab next category · ←→ fold · Space toggle · Enter run · Esc close"
 		p.Blurb = fmt.Sprintf("%d commands · %d categories", len(cmds), len(commandGroups))
 	})
 	lp.size = func(cols, rows int) (int, int) {

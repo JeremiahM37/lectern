@@ -1130,6 +1130,7 @@ func (b *scribeBackend) RebuildMap() {
 			a.mu.Lock()
 			a.codeMap = a.ext.cmap.Render(budgetOr(mapBudget()), nil)
 			a.mu.Unlock()
+			a.finishMapBuild(a.ext.cmap)
 		}
 	}()
 }

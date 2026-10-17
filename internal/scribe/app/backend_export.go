@@ -16,14 +16,16 @@ import (
 )
 
 // exportKind maps the /session export argument to what is written. The
-// spec's rule: "json" and "all"/"diagnostic" are special; anything else,
-// including no argument, is Markdown.
+// spec's rule: "json", "all"/"diagnostic" and "api" are special; anything
+// else, including no argument, is Markdown.
 func exportKind(format string) string {
 	switch strings.ToLower(strings.TrimSpace(format)) {
 	case "json":
 		return "json"
 	case "all", "diagnostic":
 		return "diagnostic"
+	case "api":
+		return "api"
 	default:
 		return "markdown"
 	}
@@ -31,11 +33,15 @@ func exportKind(format string) string {
 
 // Export writes the current session to <workdir>/.scribe/exports and returns
 // the path. format is "markdown" (or "md", or anything unrecognised), "json",
-// or "all"/"diagnostic" for a diagnostic dump.
+// "all"/"diagnostic" for a diagnostic dump, or "api" for the per-request dump
+// (see exportAPIDump).
 func (b *scribeBackend) Export(format string) (string, error) {
 	a := b.current()
 	if a.opts.Ephemeral {
 		return "", errors.New("this session is not saved, so there is nothing to export")
+	}
+	if exportKind(format) == "api" {
+		return b.exportAPIDump(a)
 	}
 	dir := filepath.Join(a.Workdir, ".scribe", "exports")
 	if err := os.MkdirAll(dir, 0o700); err != nil {

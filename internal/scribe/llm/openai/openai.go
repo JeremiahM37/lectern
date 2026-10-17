@@ -184,15 +184,47 @@ func ReasoningStyle(model string) string {
 	case strings.HasPrefix(m, "gpt-5") && !strings.HasPrefix(m, "gpt-5-chat"):
 		return llm.ReasoningEffort
 	case strings.HasPrefix(m, "grok-3-mini"):
-		// xAI: reasoning_effort low or high on grok-3-mini only (grok-4 rejects it).
-		// UNVERIFIED OFFLINE: this is xAI's documented behaviour as recalled by the
-		// author (prov10, wave 10). No xAI model list, spec table or fixture in the
-		// repo says which grok ids take the field, and the model list response
-		// carries no reasoning metadata to test against. Other grok ids get no row
-		// and no field until someone checks xAI's current docs, then widens this.
+		// xAI: reasoning_effort on grok-3-mini (low or high).
+		return llm.ReasoningEffort
+	case xaiEffortModel(m):
+		return llm.ReasoningEffort
+	case strings.HasPrefix(strings.ToLower(model), "deepseek-v4"):
+		// DeepSeek V4 takes reasoning_effort (high, max). Only bare ids match:
+		// a gateway id such as "deepseek/deepseek-v4-pro" keeps its own reasoning
+		// object, so the Think tab's DeepSeek rows never reach other providers.
 		return llm.ReasoningEffort
 	}
 	return llm.ReasoningNone
+}
+
+// xaiEffortModel reports the grok ids that take reasoning_effort, per xAI's
+// reasoning guide (checked 2026-10-17): grok-4.5, grok-4.6 and grok-4.7 accept
+// low and high. grok-4.20-multi-agent also takes reasoning.effort, but there it
+// sets how many agents collaborate, not reasoning depth, so it is left out.
+// Other grok-4 ids are not listed as taking the field and get no row.
+func xaiEffortModel(m string) bool {
+	for _, p := range []string{"grok-4.5", "grok-4.6", "grok-4.7"} {
+		if strings.HasPrefix(m, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// deepSeekEffort maps a reasoning level to the two values DeepSeek takes,
+// following its documented mapping: minimal and low go to low, medium, high
+// and xhigh to high, max and ultra to max. Anything else returns "", so the
+// field is left out rather than sent as an error.
+func deepSeekEffort(v string) string {
+	switch v {
+	case "minimal", "low":
+		return "low"
+	case "medium", "high", "xhigh":
+		return "high"
+	case "max", "ultra":
+		return "max"
+	}
+	return ""
 }
 
 // sendsVerbosity decides whether verbosity goes on the wire. Only GPT-5 models
@@ -209,6 +241,11 @@ func sendsVerbosity(provider, model string) bool {
 func sendsReasoningEffort(provider, model string) bool {
 	if ReasoningStyle(model) == llm.ReasoningEffort {
 		return true
+	}
+	// xAI's own API is gated the same way: grok ids outside xaiEffortModel
+	// reject the field, so they never get it, whatever the caller sets.
+	if provider == "xai" {
+		return false
 	}
 	return provider != "openai"
 }
@@ -251,6 +288,9 @@ func (p *Provider) buildBody(req llm.Request) ([]byte, error) {
 		if rr := openRouterReasoning(req); rr != nil {
 			w.Reasoning = rr
 		}
+	} else if p.opts.ID == "deepseek" && ReasoningStyle(req.Model) == llm.ReasoningEffort {
+		// DeepSeek V4 takes only high or max, so other levels are mapped.
+		w.ReasoningEffort = deepSeekEffort(req.Reasoning)
 	} else if req.Reasoning != "" && sendsReasoningEffort(p.opts.ID, req.Model) {
 		w.ReasoningEffort = req.Reasoning
 	}

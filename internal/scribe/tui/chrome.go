@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"math"
 	"math/rand"
 	"strings"
 
@@ -389,10 +390,44 @@ func (m *Model) costSegment(t *tab) string {
 	if t.cacheHit > 0.5 {
 		col = th.Success
 	}
-	if t.cost < 1 {
-		return fg(col).Render(formatUSD(t.cost, 3))
+	shown := t.costShown
+	if shown <= 0 {
+		shown = t.cost // before the first frame has eased anything
 	}
-	return fg(col).Render(formatUSD(t.cost, 2))
+	if shown < 1 {
+		return fg(col).Render(formatUSD(shown, 3))
+	}
+	return fg(col).Render(formatUSD(shown, 2))
+}
+
+// costEaseRate is the share of the remaining gap the shown cost closes each
+// frame (spec 01 §9: "Eases in whole cents, 50 ms step, 35%").
+const costEaseRate = 0.35
+
+// costEaseSnap is the gap, in dollars, below which the shown cost is set to the
+// real value. One cent: any smaller gap cannot show as a whole-cent step.
+const costEaseSnap = 0.01
+
+// easeCost moves the shown cost one frame toward the real one. The step closes
+// costEaseRate of the gap and is rounded to whole cents, so the figure ticks up
+// instead of jumping. The step is always at least a cent in the direction of the
+// target, so a gap of a cent or more cannot stall. It never passes the target.
+// Within a cent of the target it returns the target itself, which keeps a
+// sub-cent value (shown to three places) exact.
+func easeCost(shown, target float64) float64 {
+	gap := target - shown
+	if math.Abs(gap) < costEaseSnap {
+		return target
+	}
+	step := math.Round(gap*costEaseRate*100) / 100
+	if step == 0 {
+		step = math.Copysign(costEaseSnap, gap)
+	}
+	next := shown + step
+	if (next-target)*gap > 0 {
+		next = target
+	}
+	return next
 }
 
 func formatUSD(v float64, places int) string {
@@ -567,6 +602,12 @@ var tips = []string{
 	"/reasoning off hides the model's thinking; /reasoning high asks for more",
 	"Mouse wheel and PgUp/PgDn scroll the transcript; End jumps to the bottom",
 	"/copy puts the last answer on the clipboard via OSC 52",
+	"Esc or Ctrl+X stops a running turn",
+	"Ctrl+L opens the model picker",
+	"Ctrl+S opens the skill browser",
+	"Ctrl+Y copies the message the transcript is focused on",
+	"Alt+1 to Alt+5 switch between open tabs",
+	"Ctrl+W closes the current tab",
 }
 
 // tipTicks is one tip slot: 10 seconds at the 50 ms tick.

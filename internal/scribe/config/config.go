@@ -98,16 +98,25 @@ type Config struct {
 	Reasoning string `json:"reasoning,omitempty"`  // "", low, medium, high
 	MaxTokens int    `json:"max_tokens,omitempty"` // per response
 
-	NerdFont      *bool   `json:"nerd_font,omitempty"`
-	ShowReasoning *bool   `json:"show_reasoning,omitempty"`
-	Verbose       *bool   `json:"verbose,omitempty"`      // show every tool row in order
-	ChatStyle     string  `json:"chat_style,omitempty"`   // accent | bubble
-	Vim           *bool   `json:"vim,omitempty"`          // vim keys in the input box
-	RepoMap       *bool   `json:"repo_map,omitempty"`     // build the code map (default on)
-	AutoCompact   *bool   `json:"auto_compact,omitempty"` // default on
-	CompactAt     float64 `json:"compact_at,omitempty"`   // fraction of window, default 0.8
-	Memory        *bool   `json:"memory,omitempty"`       // recall + memory tool (default on)
-	Checkpoints   *bool   `json:"checkpoints,omitempty"`  // default on
+	NerdFont      *bool  `json:"nerd_font,omitempty"`
+	ShowReasoning *bool  `json:"show_reasoning,omitempty"`
+	Verbose       *bool  `json:"verbose,omitempty"`    // show every tool row in order
+	ChatStyle     string `json:"chat_style,omitempty"` // accent | bubble
+	Vim           *bool  `json:"vim,omitempty"`        // vim keys in the input box
+	RepoMap       *bool  `json:"repo_map,omitempty"`   // build the code map (default on)
+	// RepoMapTokenBudget sizes the rendered code map in tokens. Zero is auto.
+	RepoMapTokenBudget int `json:"repo_map_token_budget,omitempty"`
+	// SemanticSummaries picks what the code map shows after a symbol: off,
+	// ast, synthetic, llm or full. Empty means ast. SemanticSummaryLimit is
+	// how many files one model pass covers (llm and full only); zero means
+	// 300. SemanticAutoRegen asks the model again after every map build.
+	SemanticSummaries    string  `json:"semantic_summaries,omitempty"`
+	SemanticSummaryLimit int     `json:"semantic_summary_limit,omitempty"`
+	SemanticAutoRegen    *bool   `json:"semantic_auto_regen,omitempty"`
+	AutoCompact          *bool   `json:"auto_compact,omitempty"` // default on
+	CompactAt            float64 `json:"compact_at,omitempty"`   // fraction of window, default 0.8
+	Memory               *bool   `json:"memory,omitempty"`       // recall + memory tool (default on)
+	Checkpoints          *bool   `json:"checkpoints,omitempty"`  // default on
 	// DeferredTools sends only core tools each step; other tools load on
 	// request_tools (default on). AutoCheck runs the project's typecheck or
 	// build after a turn that edited files and ended without a check
@@ -343,6 +352,14 @@ func Merge(base, o Config) Config {
 	bp(&r.Verbose, o.Verbose)
 	bp(&r.Vim, o.Vim)
 	bp(&r.RepoMap, o.RepoMap)
+	if o.RepoMapTokenBudget != 0 {
+		r.RepoMapTokenBudget = o.RepoMapTokenBudget
+	}
+	str(&r.SemanticSummaries, o.SemanticSummaries)
+	if o.SemanticSummaryLimit != 0 {
+		r.SemanticSummaryLimit = o.SemanticSummaryLimit
+	}
+	bp(&r.SemanticAutoRegen, o.SemanticAutoRegen)
 	bp(&r.AutoCompact, o.AutoCompact)
 	bp(&r.Memory, o.Memory)
 	bp(&r.Checkpoints, o.Checkpoints)

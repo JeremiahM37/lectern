@@ -290,6 +290,8 @@ type wizard struct {
 	note    string         // last problem, shown on the current step
 
 	nerd bool // the icons step: Nerd Font glyphs on or off
+	// guideTab is the welcome step's tab: 1 Tools, 2 Fonts.
+	guideTab setupTab
 
 	// style is the theme option set the theme step edits (transparency,
 	// message and diff background opacity, border strength). It is applied
@@ -347,10 +349,7 @@ func (w *wizard) Busy() bool { return w.checking }
 func (w *wizard) Footer() string {
 	switch w.step {
 	case wzWelcome:
-		if len(missingRequired(w.prereqs)) > 0 {
-			return "r check again · i install hints · Esc close"
-		}
-		return "→ next · i install hints · Esc close"
+		return setupFooter(w.guideTab, len(missingHints(w.prereqs, goos)) > 0)
 	case wzProvider:
 		return "↑↓ select · Enter choose · ← back"
 	case wzKey:
@@ -419,6 +418,14 @@ func (w *wizard) onKey(km tea.KeyMsg) (Modal, tea.Cmd, bool) {
 				w.note = "Install (not run): " + strings.Join(hints, " · ")
 			} else {
 				w.note = "Everything on this list is installed"
+			}
+		case "1", "2":
+			w.guideTab, _ = setupTabForKey(k)
+		case "a":
+			w.copyInstalls()
+		case " ", "space":
+			if w.guideTab == setupFonts {
+				w.setNerd(!w.nerd)
 			}
 		case "enter", "right", "l", "tab":
 			if miss := missingRequired(w.prereqs); len(miss) > 0 {
@@ -926,7 +933,7 @@ func (w *wizard) welcome(width int) []string {
 	for _, l := range lines {
 		out = append(out, fg(th.TextPrimary).Render(render.Wrap(l, width)), "")
 	}
-	return append(out, prereqLines(th, w.prereqs, goos, width)...)
+	return append(out, setupTabLines(th, w.guideTab, w.prereqs, w.nerd, goos, width)...)
 }
 
 func (w *wizard) providerList(th theme.Theme, width int) []string {

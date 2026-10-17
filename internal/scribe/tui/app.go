@@ -100,13 +100,16 @@ type tab struct {
 
 	git      GitStatus
 	ctxShown float64
-	ctxUsed  int
-	ctxWin   int
-	ctxEst   bool       // ctxUsed is estimated from characters, not reported by the provider
-	panels   panelState // model-log recording for this tab's session (not saved)
-	cost     float64
-	local    bool // provider runs locally: show "Local" instead of cost
-	model    string
+	// costShown is the cost the header draws; it eases toward cost (spec
+	// 01 §9) so the figure counts up instead of jumping.
+	costShown float64
+	ctxUsed   int
+	ctxWin    int
+	ctxEst    bool       // ctxUsed is estimated from characters, not reported by the provider
+	panels    panelState // model-log recording for this tab's session (not saved)
+	cost      float64
+	local     bool // provider runs locally: show "Local" instead of cost
+	model     string
 
 	lastPhrase string   // last readable busy-line word, shown when a frame is garbled
 	steerQ     []string // steering messages sent but not yet consumed
@@ -563,6 +566,7 @@ func (m *Model) onTick(now time.Time) tea.Cmd {
 		} else {
 			t.ctxShown += gap * 0.35
 		}
+		t.costShown = easeCost(t.costShown, t.cost)
 		t.chat.Tick(now)
 	}
 	if m.frame%40 == 0 {

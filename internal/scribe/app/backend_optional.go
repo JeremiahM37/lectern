@@ -43,4 +43,5 @@ var (
 	_ tui.StorageInspector    = (*scribeBackend)(nil)
 	_ tui.TaskClearer         = (*scribeBackend)(nil)
 	_ tui.UpdateChecker       = (*scribeBackend)(nil)
+	_ tui.RoutingDiagnoser    = (*scribeBackend)(nil)
 )
