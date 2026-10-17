@@ -386,6 +386,40 @@ func (v *View) renderBody(rec *Record, cw int, now time.Time) builder {
 	return out
 }
 
+// streamOpacity is how far streaming text is blended toward the background
+// (spec 01 §2.12). Settled text is drawn at full strength.
+const streamOpacity = 0.65
+
+// textThemeFor returns the theme a text segment is drawn with. While the
+// segment is still streaming, its body colours step back toward the
+// background so the reveal reads as provisional; once it settles, the theme
+// is returned unchanged.
+func textThemeFor(th theme.Theme, open bool) theme.Theme {
+	if !open {
+		return th
+	}
+	c := streamingColour(th)
+	th.TextPrimary, th.TextSecondary = c, c
+	return th
+}
+
+// streamingColour blends the primary text colour toward the app background by
+// streamOpacity. Without two hex colours there is nothing to blend (a
+// transparent background, NO_COLOR, an ANSI palette), so it steps to TextDim.
+func streamingColour(th theme.Theme) lipgloss.TerminalColor {
+	if !isHexColour(th.BgApp) || !isHexColour(th.TextPrimary) {
+		return th.TextDim
+	}
+	return theme.Lerp(th.BgApp, th.TextPrimary, streamOpacity)
+}
+
+// isHexColour reports whether c is a truecolor value (#rgb or #rrggbb).
+// lipgloss.NoColor and ANSI indexes are not.
+func isHexColour(c lipgloss.TerminalColor) bool {
+	lc, ok := c.(lipgloss.Color)
+	return ok && strings.HasPrefix(string(lc), "#")
+}
+
 func (v *View) renderSeg(s *Segment, cw int, now time.Time, afterTools bool) builder {
 	var b builder
 	switch s.Kind {
@@ -404,7 +438,7 @@ func (v *View) renderSeg(s *Segment, cw int, now time.Time, afterTools bool) bui
 		if v.opt.Verbose && afterTools && len([]rune(trimmed(txt))) > 20 {
 			b.add(fg(v.th.TextFaint, strings.Repeat("─", minInt(60, cw))))
 		}
-		b.add(splitLines(render.Markdown(src, cw, v.th, s.Open))...)
+		b.add(splitLines(render.Markdown(src, cw, textThemeFor(v.th, s.Open), s.Open))...)
 	case "reasoning":
 		return v.renderReasoning(s, cw, now)
 	case "plan":

@@ -75,12 +75,19 @@ func claimWarning(env *tools.Env, raw json.RawMessage) string {
 	if changed, err := ChangedFiles(env.Workdir); err == nil {
 		reach = append(reach, changed...)
 	}
+	return claimWarningFor(env.Workdir, others, reach)
+}
+
+// claimWarningFor builds the warning for the files in reach that other tabs
+// hold. Relative paths are taken from workdir. The shell git path shares this
+// so a shell commit and a git-tool commit read the same way.
+func claimWarningFor(workdir string, others map[string]string, reach []string) string {
 	seen := map[string]bool{}
 	var hits []string
 	for _, f := range reach {
 		abs := f
 		if !filepath.IsAbs(abs) {
-			abs = filepath.Join(env.Workdir, f)
+			abs = filepath.Join(workdir, f)
 		}
 		abs = filepath.Clean(abs)
 		label, ok := others[abs]
@@ -88,7 +95,7 @@ func claimWarning(env *tools.Env, raw json.RawMessage) string {
 			continue
 		}
 		seen[abs] = true
-		hits = append(hits, fmt.Sprintf("%s (claimed by %s)", filepath.ToSlash(strings.TrimPrefix(abs, env.Workdir+string(filepath.Separator))), label))
+		hits = append(hits, fmt.Sprintf("%s (claimed by %s)", filepath.ToSlash(strings.TrimPrefix(abs, workdir+string(filepath.Separator))), label))
 	}
 	if len(hits) == 0 {
 		return ""

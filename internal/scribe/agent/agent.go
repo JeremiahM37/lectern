@@ -592,10 +592,21 @@ func (a *Agent) persist(rewritten bool) {
 
 // Run sends prompt (plus optional images) and runs until the model stops
 // calling tools, the turn is aborted, or an error ends it.
-func (a *Agent) Run(ctx context.Context, prompt string, images []llm.Part) (TurnStats, error) {
+func (a *Agent) Run(ctx context.Context, prompt string, images []llm.Part) (out TurnStats, outErr error) {
 	start := time.Now()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	stats := TurnStats{}
+	turnDone := false // EvTurnDone has been emitted
+	// Registered before the reset below, so it runs after it: the agent is
+	// idle again by the time the recovered turn reports its end. Tool panics
+	// are caught closer to the tool (execToolPosted); this catches the rest
+	// of the turn, including the model loop.
+	defer func() {
+		if r := recover(); r != nil {
+			out, outErr = a.endPanickedTurn(r, stats, start, turnDone)
+		}
+	}()
 	a.mu.Lock()
 	if a.running {
 		a.mu.Unlock()
@@ -615,7 +626,6 @@ func (a *Agent) Run(ctx context.Context, prompt string, images []llm.Part) (Turn
 		a.mu.Unlock()
 	}()
 
-	stats := TurnStats{}
 	a.emit(Event{Kind: EvTurnStart, Prompt: prompt, Model: a.CurrentModel().Ref, Mode: mode})
 
 	text := prompt
@@ -676,8 +686,37 @@ func (a *Agent) Run(ctx context.Context, prompt string, images []llm.Part) (Turn
 			}
 		}
 	}
+	turnDone = true
 	a.emit(Event{Kind: EvTurnDone, Text: final, Stats: &stats})
 	return stats, err
+}
+
+// endPanickedTurn ends a turn whose goroutine panicked outside a tool call.
+// The panic becomes an error event and a failed turn, the history is saved
+// so the work so far is not lost, and the agent is idle for the next prompt.
+// turnDone reports that the turn already said it had ended.
+func (a *Agent) endPanickedTurn(r any, stats TurnStats, start time.Time, turnDone bool) (TurnStats, error) {
+	msg := "internal error: " + fragment(fmt.Sprint(r), 200)
+	stats.Error = msg
+	stats.Duration = time.Since(start)
+	a.mu.Lock()
+	stats.Tokens, stats.CostUSD = a.total, a.cost
+	stats.Retries = a.retries
+	a.mu.Unlock()
+	a.emit(Event{Kind: EvError, Category: llm.CatOther, Text: msg})
+	a.saveAfterPanic()
+	if !turnDone {
+		a.emit(Event{Kind: EvTurnDone, Stats: &stats})
+	}
+	return stats, errors.New(msg)
+}
+
+// saveAfterPanic writes the history after a panic. Rewritten is set because a
+// panic can come in the middle of compaction, so only a full write is safe.
+// A second panic here must not take the process down, so it is swallowed.
+func (a *Agent) saveAfterPanic() {
+	defer func() { _ = recover() }()
+	a.persist(true)
 }
 
 // loop runs model steps until done. It returns the final answer text.
@@ -795,6 +834,14 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 		}
 		if ctx.Err() != nil {
 			return final, ctx.Err()
+		}
+		// The model delivered its answer through final_response: that is the
+		// turn's answer, and nothing after it runs. The answer goes out as
+		// text so the views show it the way they show any reply.
+		if answer, ok := finalAnswer(calls, results); ok {
+			a.emit(Event{Kind: EvText, Text: answer})
+			a.persist(false)
+			return answer, nil
 		}
 		if stop {
 			return msg.Text(), nil

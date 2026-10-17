@@ -392,6 +392,15 @@ func gitCmd(id int, be Backend) tea.Cmd {
 }
 
 // ringBell writes the terminal bell.
+// kittyWriteCmd writes Kitty graphics escapes to the terminal, beside the
+// frame, the way ringBell writes the bell.
+func kittyWriteCmd(esc string) tea.Cmd {
+	return func() tea.Msg {
+		fmt.Fprint(os.Stdout, esc)
+		return nil
+	}
+}
+
 func ringBell() tea.Cmd {
 	return func() tea.Msg {
 		fmt.Fprint(os.Stdout, "\a")
@@ -572,6 +581,13 @@ func (m *Model) onTick(now time.Time) tea.Cmd {
 		}
 		t.costShown = easeCost(t.costShown, t.cost)
 		t.chat.Tick(now)
+		// Kitty images (opt-in) are sent beside the frame, and their placement
+		// is re-sent at 50 and 200 ms; see chat.KittyPending.
+		if t.chat.KittyWanted() {
+			if esc := t.chat.KittyPending(now); esc != "" {
+				cmds = append(cmds, kittyWriteCmd(esc))
+			}
+		}
 	}
 	if m.frame%40 == 0 {
 		cmds = append(cmds, gitCmd(m.cur().id, m.cur().be))

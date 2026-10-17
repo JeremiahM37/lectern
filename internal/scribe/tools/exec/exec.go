@@ -249,6 +249,9 @@ func (t *shellTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessage
 		}
 	}
 	written := claimWrites(env, dir, command)
+	// Like the git tool, a shell git commit that reaches files another tab
+	// claims is warned about, never refused.
+	warn := shellClaimWarning(env, dir, command)
 
 	if a.Background {
 		var timeout time.Duration
@@ -257,8 +260,8 @@ func (t *shellTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessage
 		}
 		job := t.jobs.start(ctx, command, dir, ScrubEnv(os.Environ()), timeout)
 		return tools.Result{
-			Output: fmt.Sprintf("Started background job %s: %s\nRead its output with shell_output (id %q). Stop it with shell_kill.",
-				job.ID, command, job.ID),
+			Output: prefixWarning(warn, fmt.Sprintf("Started background job %s: %s\nRead its output with shell_output (id %q). Stop it with shell_kill.",
+				job.ID, command, job.ID)),
 			Summary: "started " + job.ID,
 			Meta:    map[string]any{"job_id": job.ID},
 		}
@@ -267,6 +270,7 @@ func (t *shellTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessage
 	timeout := clampTimeout(a.TimeoutMS, t.jobs.defaultTimeout(defaultShellTimeout))
 	fg := runForegroundIn(ctx, env, dir, command, timeout, nil)
 	res := foregroundResult(fg, timeout, "shell", command)
+	res.Output = prefixWarning(warn, res.Output)
 	res.Files = written
 	if !res.IsError {
 		if hint := toolchainHint(command); hint != "" {

@@ -179,11 +179,13 @@ func encodeVec(v []float32) []byte {
 	return b
 }
 
+// decodeVec reads a stored vector. Its length depends on the model that made
+// it, so any whole number of float32s is accepted.
 func decodeVec(b []byte) []float32 {
-	if len(b) != 4*embedDim {
+	if len(b) == 0 || len(b)%4 != 0 {
 		return nil
 	}
-	v := make([]float32, embedDim)
+	v := make([]float32, len(b)/4)
 	for i := range v {
 		v[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[4*i:]))
 	}
@@ -230,6 +232,14 @@ func decay(uses int, lastUsed, now time.Time) float64 {
 // returned, plus every pinned record. Results are sorted by score. Recall
 // does not change usage counters; Stores.Inject does.
 func (d *DB) Recall(query string, files []string, limit int) ([]Scored, error) {
+	qProv, provModel := queryVectorWith(d.activeEmbedder(), query)
+	return d.recallWith(query, files, limit, qProv, provModel)
+}
+
+// recallWith is Recall with the provider's query vector already computed, so
+// Stores can embed a query once for every store. qProv is nil when there is no
+// provider or it failed; then only hash rows get a similarity.
+func (d *DB) recallWith(query string, files []string, limit int, qProv []float32, provModel string) ([]Scored, error) {
 	if limit <= 0 {
 		limit = 5
 	}
@@ -291,23 +301,30 @@ func (d *DB) Recall(query string, files []string, limit int) ([]Scored, error) {
 		pinned bool
 		why    []string
 	}
-	rows, err := d.db.Query("SELECT id, pinned, uses, last_used, embedding FROM memories WHERE " + live)
+	rows, err := d.db.Query("SELECT id, pinned, uses, last_used, embedding, embedding_model FROM memories WHERE " + live)
 	if err != nil {
 		return nil, err
 	}
 	var cands []cand
 	for rows.Next() {
-		var id, lastUsed string
+		var id, lastUsed, model string
 		var pinned, uses int
 		var emb []byte
-		if err := rows.Scan(&id, &pinned, &uses, &lastUsed, &emb); err != nil {
+		if err := rows.Scan(&id, &pinned, &uses, &lastUsed, &emb, &model); err != nil {
 			rows.Close()
 			return nil, err
 		}
 		c := cand{id: id, pinned: pinned != 0}
 		sim := 0.0
-		if v := decodeVec(emb); v != nil && qVec != nil {
-			sim = math.Max(0, dot(qVec, v))
+		// A vector is only compared with a query from the same model. Rows
+		// from another model wait for a backfill and add nothing here.
+		if v := decodeVec(emb); v != nil {
+			switch {
+			case qProv != nil && model == provModel:
+				sim = math.Max(0, dot(qProv, v))
+			case qProv == nil && model == HashModel:
+				sim = math.Max(0, dot(qVec, v))
+			}
 		}
 		x, hasText := textX[id]
 		c.sim = sim
@@ -384,6 +401,11 @@ func (d *DB) Recall(query string, files []string, limit int) ([]Scored, error) {
 // Stores bundles the project and global memory databases. Either may be nil
 // (no project root, or the global home is unavailable).
 type Stores struct {
+	// embedder is the provider for both stores; nil means the hash. See
+	// SetEmbedder.
+	embedMu  sync.RWMutex
+	embedder Embedder
+
 	Project *DB
 	Global  *DB
 	// Policy says where saves with no scope go and what automatic recall
@@ -464,14 +486,16 @@ func (s *Stores) DB(scope string) (*DB, error) {
 	return nil, fmt.Errorf("unknown scope %q; use project or global", scope)
 }
 
-// Recall runs DB.Recall on every open store and merges the results.
+// Recall runs recall on every open store and merges the results. The query
+// is embedded once, by the active provider if there is one.
 func (s *Stores) Recall(query string, files []string, limit int) ([]Scored, error) {
 	if limit <= 0 {
 		limit = 5
 	}
+	qProv, provModel := s.queryVector(query)
 	var all []Scored
 	for _, d := range s.readDBs() {
-		got, err := d.Recall(query, files, limit)
+		got, err := d.recallWith(query, files, limit, qProv, provModel)
 		if err != nil {
 			return nil, err
 		}

@@ -7,6 +7,7 @@
 package memory
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -101,6 +103,14 @@ type DB struct {
 	path    string
 	now     func() time.Time
 	session string // stamped on records saved while set; see SetSession
+
+	// embedder is the provider in use, nil for the hash embedding. ctx and
+	// bg cover background embedding: Close cancels ctx and waits on bg.
+	embedMu  sync.RWMutex
+	embedder Embedder
+	ctx      context.Context
+	cancel   context.CancelFunc
+	bg       sync.WaitGroup
 }
 
 // live is the SQL filter for records that recall, search, list and dedupe
@@ -151,6 +161,10 @@ var migrations = []string{
 	"ALTER TABLE memories ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0",
 	// Provenance: the session that saved the record.
 	"ALTER TABLE memories ADD COLUMN session_id TEXT NOT NULL DEFAULT ''",
+	// Which embedder made each vector. Existing vectors are all the hash.
+	// Recall only compares a query with rows of its own model.
+	"ALTER TABLE memories ADD COLUMN embedding_model TEXT NOT NULL DEFAULT ''",
+	"UPDATE memories SET embedding_model = '" + HashModel + "' WHERE embedding IS NOT NULL",
 }
 
 // Sources a record may carry.
@@ -176,6 +190,7 @@ func OpenDB(path, scope string) (*DB, error) {
 	// handles sibling processes.
 	sdb.SetMaxOpenConns(1)
 	d := &DB{db: sdb, scope: scope, path: path, now: time.Now}
+	d.ctx, d.cancel = context.WithCancel(context.Background())
 	if err := d.init(); err != nil {
 		sdb.Close()
 		return nil, fmt.Errorf("memory: open %s: %w", path, err)
@@ -252,7 +267,13 @@ func splitStatements(s string) []string {
 }
 
 // Close closes the database.
-func (d *DB) Close() error { return d.db.Close() }
+// Close stops background embedding, waits for it to finish, then closes the
+// database.
+func (d *DB) Close() error {
+	d.cancel()
+	d.bg.Wait()
+	return d.db.Close()
+}
 
 // Path is the database file.
 func (d *DB) Path() string { return d.path }
@@ -370,23 +391,26 @@ func writeRecord(q execer, r Record) error {
 	if r.Tags == nil {
 		tags = []byte("[]")
 	}
+	// The hash is written here so a row is searchable at once; a provider
+	// vector replaces it afterwards (see queueEmbed).
 	emb := encodeVec(embed(embedText(r.Title, r.Body, r.Tags)))
 	source := r.Source
 	if source == "" {
 		source = SourceUser
 	}
 	if _, err := q.Exec(`INSERT INTO memories
-		(id, category, title, body, norm_title, tags, created, updated, uses, last_used, pinned, embedding, source, superseded_by, hidden, session_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(id, category, title, body, norm_title, tags, created, updated, uses, last_used, pinned, embedding, source, superseded_by, hidden, session_id, embedding_model)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		category = excluded.category, title = excluded.title, body = excluded.body,
 		norm_title = excluded.norm_title, tags = excluded.tags, updated = excluded.updated,
 		uses = excluded.uses, last_used = excluded.last_used, pinned = excluded.pinned,
 		embedding = excluded.embedding, superseded_by = excluded.superseded_by,
-		hidden = excluded.hidden, session_id = excluded.session_id`,
+		hidden = excluded.hidden, session_id = excluded.session_id,
+		embedding_model = excluded.embedding_model`,
 		r.ID, r.Category, r.Title, r.Body, normTitle(r.Title), string(tags),
 		fmtTime(r.Created), fmtTime(r.Updated), r.Uses, fmtTime(r.LastUsed), boolInt(r.Pinned), emb,
-		source, r.SupersededBy, boolInt(r.Hidden), r.SessionID); err != nil {
+		source, r.SupersededBy, boolInt(r.Hidden), r.SessionID, HashModel); err != nil {
 		return err
 	}
 	if _, err := q.Exec("DELETE FROM memory_files WHERE memory_id = ?", r.ID); err != nil {
@@ -576,6 +600,7 @@ func (d *DB) Add(r Record) (rec Record, deduped bool, err error) {
 		if err := tx.Commit(); err != nil {
 			return Record{}, false, err
 		}
+		d.queueEmbed(cur.ID)
 		cur.Scope = d.scope
 		return cur, true, nil
 	}
@@ -594,6 +619,7 @@ func (d *DB) Add(r Record) (rec Record, deduped bool, err error) {
 	if err := tx.Commit(); err != nil {
 		return Record{}, false, err
 	}
+	d.queueEmbed(r.ID)
 	return r, false, nil
 }
 
@@ -673,7 +699,11 @@ func (d *DB) Update(r Record) error {
 	if err := writeRecord(tx, cur); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	d.queueEmbed(cur.ID)
+	return nil
 }
 
 // Get returns the record with id or a unique id prefix.
@@ -824,14 +854,16 @@ func (d *DB) Similar(idOrPrefix string, min float64, limit int) ([]Scored, error
 		return nil, err
 	}
 	var emb []byte
-	if err := d.db.QueryRow("SELECT embedding FROM memories WHERE id = ?", id).Scan(&emb); err != nil {
+	var model string
+	if err := d.db.QueryRow("SELECT embedding, embedding_model FROM memories WHERE id = ?", id).Scan(&emb, &model); err != nil {
 		return nil, err
 	}
 	base := decodeVec(emb)
 	if base == nil {
 		return nil, nil
 	}
-	rows, err := d.db.Query("SELECT id, embedding FROM memories WHERE id <> ? AND "+live, id)
+	// Only vectors from the same model are comparable.
+	rows, err := d.db.Query("SELECT id, embedding FROM memories WHERE id <> ? AND embedding_model = ? AND "+live, id, model)
 	if err != nil {
 		return nil, err
 	}

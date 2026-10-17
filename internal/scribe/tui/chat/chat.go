@@ -640,6 +640,7 @@ func (v *View) removeRecord(r *Record) {
 
 // Clear empties the transcript.
 func (v *View) Clear() {
+	v.ForgetImages()
 	v.msgs = nil
 	v.earlier = 0
 	v.header = ""

@@ -23,6 +23,10 @@ func rebuildTranscript(old transcript, opt chat.Options, w, h int) transcript {
 	nv := chat.New(opt)
 	nv.Restore(old.Export())
 	nv.SetSize(w, h)
+	// The new view draws its own images; free the old view's in the terminal.
+	if old != nil {
+		old.ForgetImages()
+	}
 	return nv
 }
 

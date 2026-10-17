@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
 )
 
 func init() {
@@ -42,7 +43,7 @@ func runPreset(m *Model, args string) tea.Cmd {
 	// Several names apply in the order given; a bad name is reported and the
 	// others still apply.
 	for _, name := range names {
-		applyOnePreset(t, root, name)
+		applyOnePreset(m, t, root, name)
 	}
 	return nil
 }
@@ -86,8 +87,10 @@ func removePresets(t *tab, root string, names []string) {
 }
 
 // applyOnePreset applies one named preset through the backend, one key at a
-// time, and reports what it did and what it could not set.
-func applyOnePreset(t *tab, root, name string) {
+// time, and reports what it did and what it could not set. Hooks and MCP
+// servers do not go through the backend's flat keys. They are added only
+// after the user confirms (see askPresetCommands).
+func applyOnePreset(m *Model, t *tab, root, name string) {
 	p, err := config.FindPreset(root, name)
 	if err != nil {
 		t.chat.AddSystem("info", err.Error())
@@ -109,6 +112,118 @@ func applyOnePreset(t *tab, root, name string) {
 	if len(skipped) > 0 {
 		t.chat.AddSystem("info", fmt.Sprintf("Not applied here: %s. Edit %s to change them.", strings.Join(skipped, ", "), p.Path))
 	}
+	askPresetCommands(m, t, root, p)
+}
+
+// askPresetCommands shows the hooks and MCP servers that applying p would add
+// to its scope's config, and writes them only if the user says yes. Nothing is
+// added when the preset has none that are new.
+func askPresetCommands(m *Model, t *tab, root string, p config.Preset) {
+	cmds, err := config.PendingPresetCommands(root, p)
+	if err != nil {
+		t.chat.AddSystem("error", fmt.Sprintf("preset %s did not apply its hooks or MCP servers: %v", p.Name, err))
+		return
+	}
+	if cmds.Empty() {
+		return
+	}
+	m.pushModal(presetCommandConfirm(m.th, p, cmds,
+		func() tea.Cmd {
+			writePresetCommands(t, root, p)
+			return nil
+		},
+		func() {
+			t.chat.AddSystem("info", fmt.Sprintf("Skipped %s from preset %s. Run /preset %s again to be asked again.", presetCommandCounts(cmds), p.Name, p.Name))
+		}))
+}
+
+// writePresetCommands writes the confirmed hooks and MCP servers. Hooks and
+// servers are read from the config file when a session starts, so they take
+// effect in the next session.
+func writePresetCommands(t *tab, root string, p config.Preset) {
+	added, err := config.SavePresetCommands(root, p)
+	if err != nil {
+		t.chat.AddSystem("error", fmt.Sprintf("preset %s did not add its hooks or MCP servers: %v", p.Name, err))
+		return
+	}
+	t.chat.AddSystem("info", fmt.Sprintf("Added %s from preset %s to %s config. They start with the next session.", presetCommandCounts(added), p.Name, p.Scope()))
+}
+
+// presetCommandCounts is "N hooks and M MCP servers", with the singular where
+// it applies.
+func presetCommandCounts(c config.PresetCommands) string {
+	return presetPlural(len(c.Hooks), "hook") + " and " + presetPlural(len(c.MCP), "MCP server")
+}
+
+func presetPlural(n int, word string) string {
+	if n == 1 {
+		return "1 " + word
+	}
+	return fmt.Sprintf("%d %ss", n, word)
+}
+
+// presetCommandConfirm is the dialog that asks before a preset adds hooks or
+// MCP servers. The No answer is the default, and the frame is red because a
+// hook or a server runs a command on this machine.
+func presetCommandConfirm(th theme.Theme, p config.Preset, c config.PresetCommands, onYes func() tea.Cmd, onNo func()) *listConfirm {
+	intro := fmt.Sprintf("Preset %s would add these to the %s config. A hook runs a shell command on agent events. An MCP server starts a process, or connects to a URL, with your environment. Nothing is added unless you say yes.", p.Name, p.Scope())
+	if presetHasEveryToolHook(c) {
+		intro += " At least one hook runs on every tool call."
+	}
+	lc := newListConfirm(th, "Add hooks and MCP servers from preset "+p.Name+"?", intro, presetCommandLines(c), true, onYes)
+	lc.WithLabels("Add them", "Skip")
+	lc.OnNo(onNo)
+	return lc
+}
+
+// presetCommandLines describes each hook and server in one line each, with
+// the command that will run.
+func presetCommandLines(c config.PresetCommands) []string {
+	var lines []string
+	for _, h := range c.Hooks {
+		line := "hook " + h.Event
+		switch {
+		case h.Matcher != "":
+			line += " matching " + h.Matcher
+		case h.If != "":
+			line += " when " + h.If
+		case isToolEvent(h.Event):
+			line += " (every tool call)"
+		}
+		lines = append(lines, line+": "+h.Command)
+	}
+	for _, m := range c.MCP {
+		line := "MCP server " + m.Name + " ("
+		if m.Command != "" {
+			line += "runs " + strings.Join(append([]string{m.Command}, m.Args...), " ")
+		} else {
+			line += "connects to " + m.URL
+		}
+		line += ")"
+		if m.Disabled {
+			line += " [disabled]"
+		}
+		if c.Replaced[m.Name] {
+			line += " replaces the one already there"
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// presetHasEveryToolHook reports whether a hook would run on every tool call:
+// a tool event with no matcher and no condition.
+func presetHasEveryToolHook(c config.PresetCommands) bool {
+	for _, h := range c.Hooks {
+		if isToolEvent(h.Event) && h.Matcher == "" && h.If == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func isToolEvent(event string) bool {
+	return event == "PreToolUse" || event == "PostToolUse"
 }
 
 // listPresets prints the presets visible from root, and any file that cannot
@@ -232,7 +347,6 @@ func presetWrites(p config.Config, cur map[string]any) (writes []presetWrite, sk
 		name string
 		set  bool
 	}{
-		{"hooks", len(p.Hooks) > 0}, {"mcp servers", len(p.MCP) > 0},
 		{"disabled tools", len(p.DisabledTools) > 0}, {"deferred tools", p.DeferredTools != nil},
 		{"auto-check", p.AutoCheck != nil},
 	} {

@@ -12,6 +12,7 @@ var planExecBlocked = map[string]bool{
 	"fetch_page":       true,
 	"discover_pattern": true,
 	"plan":             true,
+	"final_response":   true,
 }
 
 // PlanExecutionAllowed reports whether tool may run while an approved plan is

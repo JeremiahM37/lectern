@@ -423,7 +423,7 @@ func (a *App) resolve(ref string) (agent.Model, error) {
 var coreToolNames = []string{
 	"read", "edit_file", "multi_edit", "write_file", "grep", "glob", "shell", "project",
 	"find_symbol", "code_map", "memory", "dispatch", "task_list", "plan", "update_plan_step",
-	"ask_user", "ast_edit",
+	"ask_user", "ast_edit", "final_response",
 }
 
 func (a *App) systemPrompt(sub string) func(string) string {

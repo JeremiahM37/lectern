@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/icons"
-	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
 )
 
 const (
@@ -72,7 +71,7 @@ func (v *View) imageArt(path, label string, cols int) []string {
 	if err != nil {
 		return []string{head, "  " + fg(v.th.TextMuted, "(could not read this image)")}
 	}
-	rows, info, err := render.HalfBlocks(data, cols, readImageRows)
+	rows, info, err := v.imageRows(data, cols, readImageRows)
 	if err == nil && info.Width > 0 {
 		head += fg(v.th.TextDim, fmt.Sprintf(" %d×%d", info.Width, info.Height))
 	}

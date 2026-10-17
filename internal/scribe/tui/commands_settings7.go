@@ -209,26 +209,67 @@ func (m *Model) vimCommand(arg string) tea.Cmd {
 	}
 	p := NewPicker(m.th, "Vim Hints", "keys")
 	p.KeepOpen = true
-	p.Hint = "↑↓ move · Enter or Space toggle · Esc close"
+	p.Hint = "↑↓ move · Enter or Space toggle · Ctrl+O scope · Esc close"
 	p.Items = []PickItem{
 		{Value: "vim", Label: "Vim keys in the input box", Desc: "normal, insert and visual modes in the prompt", Kind: PickToggle, On: on},
 	}
+	p.ScopeOptions = scopeOptions
+	p.SetScope(scopeName(m.scopeIsProject("", "vim")))
 	p.refilter()
-	p.OnSelect = func(it PickItem) tea.Cmd {
-		if err := t.be.SetConfig("vim", it.On, false); err != nil {
+	p.OnScope = func(scope string) tea.Cmd {
+		cur, _ := t.be.Config()["vim"].(bool)
+		if err := m.moveSettingScope("vim", cur, scope == "project"); err != nil {
 			return cmdErr(err)
 		}
-		return flashCmd("ok", "Vim keys "+onOff(it.On))
+		return flashCmd("info", "Vim keys save to "+scope)
+	}
+	p.OnSelect = func(it PickItem) tea.Cmd {
+		// The picker has already flipped it.On; save it to the scope the bar shows.
+		project := p.Scope() == "project"
+		if err := t.be.SetConfig("vim", it.On, project); err != nil {
+			return cmdErr(err)
+		}
+		return flashCmd("ok", "Vim keys "+onOff(it.On)+" ("+scopeName(project)+")")
 	}
 	m.pushModal(p)
 	return nil
 }
 
+// scopeOptions are the names the "Save to" bar offers. Project comes first,
+// as the scope a project's own file belongs to.
+var scopeOptions = []string{"project", "global"}
+
+// moveSettingScope moves a setting that is saved in the other scope into the
+// scope the bar now shows. A setting saved in neither file is left alone: the
+// next toggle writes it to the chosen scope. Flat keys move through
+// MoveField7; the rest through ConfigMover, as the settings screen does.
+func (m *Model) moveSettingScope(key string, value any, toProject bool) error {
+	if !savedIn(m.cur().be.Workdir(), !toProject, key) {
+		return nil
+	}
+	if is7Key(key) {
+		w, err := m.flatWriter()
+		if err != nil {
+			return err
+		}
+		return w.MoveField7(key, value, toProject)
+	}
+	mover, ok := m.cur().be.(ConfigMover)
+	if !ok {
+		return errors.New("this backend cannot move this setting between scopes")
+	}
+	return mover.MoveConfig(key, value, toProject, !toProject)
+}
+
 // openAgentFeatures is the /agent-features picker. It stays open while toggled.
+// The "Save to" bar picks the scope every toggle writes to. It starts at the
+// project when the project file sets any feature, else at the global file.
 func (m *Model) openAgentFeatures() {
 	p := NewPicker(m.th, "Agent Features", "gear")
 	p.KeepOpen = true
-	p.Hint = "↑↓ move · Enter toggle · Esc close"
+	p.Hint = "↑↓ move · Enter toggle · Ctrl+O scope · Esc close"
+	p.ScopeOptions = scopeOptions
+	p.SetScope(scopeName(m.scopeIsProject("", "agent_features")))
 	rebuild := func() {
 		c := fields7(m.cur().be)
 		p.Items = nil
@@ -238,16 +279,36 @@ func (m *Model) openAgentFeatures() {
 		}
 		p.SetItems(p.Items)
 	}
-	p.OnSelect = func(it PickItem) tea.Cmd {
-		// The picker has already flipped it.On; save that state.
-		if err := m.saveGlobalFlat("agent_features."+it.Value, it.On); err != nil {
+	p.OnScope = func(scope string) tea.Cmd {
+		if err := m.moveAgentFeatures(scope == "project"); err != nil {
 			return cmdErr(err)
 		}
 		rebuild()
-		return flashCmd("info", it.Label+" saved; applies to the next session")
+		return flashCmd("info", "Agent features save to "+scope)
+	}
+	p.OnSelect = func(it PickItem) tea.Cmd {
+		// The picker has already flipped it.On; save that state to the scope the bar shows.
+		project := p.Scope() == "project"
+		if err := m.saveFlatIn("agent_features."+it.Value, it.On, project); err != nil {
+			return cmdErr(err)
+		}
+		rebuild()
+		return flashCmd("info", it.Label+" saved to "+scopeName(project)+"; applies to the next session")
 	}
 	rebuild()
 	m.pushModal(p)
+}
+
+// moveAgentFeatures moves each feature that is saved in the other scope into
+// the given one. Features saved nowhere stay unset.
+func (m *Model) moveAgentFeatures(toProject bool) error {
+	c := fields7(m.cur().be)
+	for _, f := range featureLabels {
+		if err := m.moveSettingScope("agent_features."+f.key, c.AgentFeatures.Enabled(f.key), toProject); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // openInstructions is the /instructions picker: one row per source, toggled

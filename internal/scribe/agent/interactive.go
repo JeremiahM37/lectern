@@ -86,12 +86,14 @@ func (p *Planner) Tasks() []Task {
 // SetPlan restores a plan (session resume).
 func (p *Planner) SetPlan(pl *Plan) { p.mu.Lock(); p.plan = pl; p.mu.Unlock() }
 
-// Register adds the planner's tools.
+// Register adds the planner's tools. final_response comes with them: both
+// belong to the main agent's registry, and subagents never see either.
 func (p *Planner) Register(r *tools.Registry) {
 	r.Register(planTool{p})
 	r.Register(stepTool{p})
 	r.Register(askTool{})
 	r.Register(taskTool{p})
+	r.Register(finalTool{})
 }
 
 func (p *Planner) emitPlan() {
