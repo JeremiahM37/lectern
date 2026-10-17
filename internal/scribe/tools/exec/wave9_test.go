@@ -145,7 +145,7 @@ func TestGoProjectGetsVetInNativeChecks(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "go.mod"), "module x\n\ngo 1.21\n")
 	got := nativeChecks(dir)
-	if len(got) != 2 || got[0] != "go vet ./..." || got[1] != "go build ./..." {
+	if len(got) != 2 || got[0] != "go vet ./..." || got[1] != "go build -o "+os.DevNull+" ./..." {
 		t.Fatalf("nativeChecks = %v, want go vet then go build", got)
 	}
 }
@@ -289,7 +289,7 @@ func TestProjectCommandsLineListsCommands(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "go.mod"), "module x\n")
 	got := ProjectCommandsLine(dir)
-	if !strings.Contains(got, "test: go test ./...") || !strings.Contains(got, "build: go build ./...") {
+	if !strings.Contains(got, "test: go test ./...") || !strings.Contains(got, "build: go build -o "+os.DevNull+" ./...") {
 		t.Fatalf("commands line = %q", got)
 	}
 	if ProjectCommandsLine(t.TempDir()) != "" {

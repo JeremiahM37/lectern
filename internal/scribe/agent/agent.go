@@ -1032,8 +1032,15 @@ func (a *Agent) loopHint() string {
 	defer a.mu.Unlock()
 	seen := map[string]int{}
 	n := 0
+	// Only calls since the last change count: after an edit or a command,
+	// reading the same file again is how the model checks its work, and the
+	// answer can differ.
+scan:
 	for i := len(a.msgs) - 1; i >= 0 && n < 16; i, n = i-1, n+1 {
 		for _, c := range a.msgs[i].ToolCalls() {
+			if a.changesState(c.ToolName) {
+				break scan
+			}
 			seen[c.ToolName+string(c.Args)]++
 		}
 	}
@@ -1043,6 +1050,17 @@ func (a *Agent) loopHint() string {
 		}
 	}
 	return ""
+}
+
+// changesState reports whether a tool can change files or other state, so
+// that a repeated read after it is not a loop. Unknown tools count as
+// changing, which only makes the loop guard less eager.
+func (a *Agent) changesState(name string) bool {
+	if a.opts.Tools == nil {
+		return true
+	}
+	t, ok := a.opts.Tools.Get(name)
+	return !ok || !t.ReadOnly()
 }
 
 // request builds the next model call. extra messages are appended to the

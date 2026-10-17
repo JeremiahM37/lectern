@@ -31,20 +31,17 @@ func EnsureGlobal() (bool, error) {
 
 // defaultGlobalJSON is the content of a new global config. It names the
 // defaults a user is likely to look for and edit. Everything else stays out
-// of the file, so an unset key keeps tracking the code's default.
+// of the file, so an unset key keeps tracking the code's default. Agent
+// features are left out on purpose: a key written here counts as the user's
+// choice, so writing all of them made the scope picker treat every feature
+// as set globally and copy them all into a project on a scope switch.
 func defaultGlobalJSON() ([]byte, error) {
-	features := map[string]bool{}
-	for _, f := range agentFeatureDefaults {
-		features[f.key] = f.def
-	}
 	doc := struct {
-		AgentFeatures map[string]bool `json:"agent_features"`
-		Editor        EditorSettings  `json:"editor"`
-		ToolTimeout   float64         `json:"tool_timeout"`
+		Editor      EditorSettings `json:"editor"`
+		ToolTimeout float64        `json:"tool_timeout"`
 	}{
-		AgentFeatures: features,
-		Editor:        EditorSettings{Command: DefaultEditorCommand},
-		ToolTimeout:   DefaultToolTimeout,
+		Editor:      EditorSettings{Command: DefaultEditorCommand},
+		ToolTimeout: DefaultToolTimeout,
 	}
 	b, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {

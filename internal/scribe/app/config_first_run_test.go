@@ -32,8 +32,9 @@ func TestStartConfigCreatesGlobalOnFirstRun(t *testing.T) {
 	if _, err := os.Stat(config.GlobalPath()); err != nil {
 		t.Fatalf("global config not created: %v", err)
 	}
-	if cfg.AgentFeatures == nil {
-		t.Fatal("first-run config is missing the default agent_features")
+	// Agent features are left unset, so each follows its code default.
+	if cfg.AgentFeatures != nil {
+		t.Fatalf("first-run config pins agent_features: %+v", cfg.AgentFeatures)
 	}
 }
 

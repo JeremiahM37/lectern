@@ -107,7 +107,7 @@ func applyOnePreset(m *Model, t *tab, root, name string) {
 		t.chat.AddSystem("error", "preset "+name+" did not apply "+f)
 	}
 	if len(failed) == 0 {
-		t.chat.AddSystem("info", fmt.Sprintf("Applied preset %s (%d settings, saved to %s config)", name, len(writes), p.Scope()))
+		t.chat.AddSystem("info", fmt.Sprintf("Applied preset %s: %d settings saved to %s config", name, len(writes), p.Scope()))
 	}
 	if len(skipped) > 0 {
 		t.chat.AddSystem("info", fmt.Sprintf("Not applied here: %s. Edit %s to change them.", strings.Join(skipped, ", "), p.Path))
@@ -127,6 +127,7 @@ func askPresetCommands(m *Model, t *tab, root string, p config.Preset) {
 	if cmds.Empty() {
 		return
 	}
+	t.chat.AddSystem("info", fmt.Sprintf("Preset %s also adds hooks or MCP servers; they are added only if you confirm.", p.Name))
 	m.pushModal(presetCommandConfirm(m.th, p, cmds,
 		func() tea.Cmd {
 			writePresetCommands(t, root, p)

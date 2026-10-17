@@ -106,6 +106,9 @@ func TestShellGitWarnsAboutOtherTabsClaims(t *testing.T) {
 	if !strings.HasPrefix(res.Output, "WARNING:") || !strings.Contains(res.Output, "main.go (claimed by tab two)") {
 		t.Fatalf("expected a warning naming main.go first, got %q", res.Output)
 	}
+	if !strings.Contains(res.Summary, "another tab") {
+		t.Fatalf("the row summary should carry the warning, got %q", res.Summary)
+	}
 	if strings.Contains(res.Output, "other.go") {
 		t.Fatalf("unclaimed other.go should not be named: %q", res.Output)
 	}

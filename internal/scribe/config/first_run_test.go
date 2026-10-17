@@ -54,13 +54,10 @@ func TestEnsureGlobalContentLoadsWithDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("default file does not parse: %v", err)
 	}
-	if c.AgentFeatures == nil {
-		t.Fatal("agent_features missing from default file")
-	}
-	for _, f := range agentFeatureDefaults {
-		if got := c.AgentFeatures.Enabled(f.key); got != f.def {
-			t.Errorf("agent_features.%s = %v, want default %v", f.key, got, f.def)
-		}
+	// Agent features stay out of the file, so each one keeps tracking its
+	// default and none counts as set globally.
+	if c.AgentFeatures != nil {
+		t.Fatalf("agent_features written to the default file: %+v", c.AgentFeatures)
 	}
 	if cmd, _ := c.Editor.CommandOrDefault(); cmd != DefaultEditorCommand {
 		t.Errorf("editor command = %q, want %q", cmd, DefaultEditorCommand)

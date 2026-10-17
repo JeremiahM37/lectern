@@ -101,9 +101,13 @@ var detectors = []detector{
 			if d.glob(".golangci*") {
 				lint = "golangci-lint run ./..."
 			}
+			// The checks compile without writing: with ./... matching a
+			// single main package, go build writes the program into the
+			// project, where a later "git add -A" commits it.
+			check := "go build -o " + os.DevNull + " ./..."
 			return "", map[string]string{
-				"test": "go test ./...", "lint": lint, "typecheck": "go build ./...",
-				"build": "go build ./...", "format": "gofmt -w .",
+				"test": "go test ./...", "lint": lint, "typecheck": check,
+				"build": check, "format": "gofmt -w .",
 			}
 		}},
 	{"python",

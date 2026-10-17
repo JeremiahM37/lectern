@@ -282,7 +282,8 @@ func nativeChecks(dir string) []string {
 		} else {
 			cmds = append(cmds, "go vet ./...")
 		}
-		cmds = append(cmds, "go build ./...")
+		// Compile without writing the program into the project (see detect.go).
+		cmds = append(cmds, "go build -o "+os.DevNull+" ./...")
 	}
 	if has("ruff.toml", ".ruff.toml") {
 		cmds = append(cmds, "ruff check")

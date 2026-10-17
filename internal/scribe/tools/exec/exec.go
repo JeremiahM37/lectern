@@ -271,6 +271,11 @@ func (t *shellTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessage
 	fg := runForegroundIn(ctx, env, dir, command, timeout, nil)
 	res := foregroundResult(fg, timeout, "shell", command)
 	res.Output = prefixWarning(warn, res.Output)
+	if warn != "" {
+		// The row shows the summary, so the user sees the warning too, not
+		// only the model.
+		res.Summary = "touches files another tab is editing · " + res.Summary
+	}
 	res.Files = written
 	if !res.IsError {
 		if hint := toolchainHint(command); hint != "" {
