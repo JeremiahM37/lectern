@@ -57,6 +57,9 @@ func keyHelpLines() []string {
 		"  Ctrl+[ / Ctrl+]     previous or next tab",
 		"",
 		"Commands",
+		"  /                   on an empty input lists every command",
+		"  Ctrl+K              palette: search commands by name",
+		"  Ctrl+Y              copy the message in view",
 	)
 }
 

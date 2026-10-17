@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
 )
 
@@ -48,5 +50,24 @@ func TestSecretLinesStayOutOfHistory(t *testing.T) {
 		if secretLine(line) {
 			t.Errorf("%q is not a secret", line)
 		}
+	}
+}
+
+// Typing a filter puts the cursor on the best match, so Enter picks what the
+// user typed, not the row the cursor was on before.
+func TestPickerFilterMovesCursorToBestMatch(t *testing.T) {
+	var picked string
+	p := NewPicker(theme.Resolve(""), "Model", "")
+	p.Items = []PickItem{{Label: "gemma4:e4b"}, {Label: "qwen3:0.6b"}, {Label: "qwen3.6:35b-a3b"}}
+	p.OnSelect = func(it PickItem) tea.Cmd { picked = it.Label; return nil }
+	p.refilter()
+	p.TypeToFilter = true
+	p.cursor = 1 // the current model (qwen3:0.6b), as the model picker opens on it
+	for _, r := range "qwen3.6" {
+		p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	p.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if picked != "qwen3.6:35b-a3b" {
+		t.Fatalf("picked %q", picked)
 	}
 }

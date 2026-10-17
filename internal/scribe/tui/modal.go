@@ -257,6 +257,7 @@ type Picker struct {
 	OnKey func(key string) (tea.Cmd, bool)
 
 	query     string
+	lastQuery string // the query refilter last ran with
 	searching bool
 	cursor    int // index into visible
 	scopeIdx  int // index into ScopeOptions
@@ -389,6 +390,15 @@ func (p *Picker) refilter() {
 		}
 		for _, s := range sc {
 			p.visible = append(p.visible, s.idx)
+		}
+	}
+	// A new query re-sorts the rows, so the old cursor index points at some
+	// other item: put it on the best match, or Enter picks the wrong row.
+	if p.query != p.lastQuery {
+		p.lastQuery = p.query
+		p.cursor = 0
+		if len(p.visible) > 0 && p.Items[p.visible[0]].Disabled {
+			p.step(1)
 		}
 	}
 	p.clampCursor()

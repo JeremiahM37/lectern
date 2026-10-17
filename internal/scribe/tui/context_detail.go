@@ -19,12 +19,18 @@ func contextLines(t *tab) []string {
 		fmt.Sprintf("Context        %s of %s (%d%%)", render.HumanTokens(used), render.HumanTokens(win), pct(used, win)),
 	}
 	if total := d.System + d.Tools + d.Conversation; total > 0 {
-		lines = append(lines, "", "What fills it (estimated)")
+		// Bars are measured against the whole window, so a nearly empty
+		// context looks nearly empty.
+		scale := win
+		if scale < total {
+			scale = total
+		}
+		lines = append(lines, "", "What fills it (estimated, bars show share of the window)")
 		for _, p := range []struct {
 			name string
 			n    int
 		}{{"System prompt", d.System}, {"Tool definitions", d.Tools}, {"Conversation", d.Conversation}} {
-			lines = append(lines, fmt.Sprintf("  %-16s %6s  %s", p.name, render.HumanTokens(p.n), shareBar(p.n, total, 20)))
+			lines = append(lines, fmt.Sprintf("  %-16s %6s  %s", p.name, render.HumanTokens(p.n), shareBar(p.n, scale, 20)))
 		}
 	}
 	lines = append(lines, "", "This session",
