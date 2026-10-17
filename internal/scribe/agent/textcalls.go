@@ -315,7 +315,7 @@ func partialOpenerAt(s string) int {
 // recoverStepCalls runs recovery on a finished step. It returns the parts to
 // keep and the text the reader has not yet seen. Steps with a real call are
 // left as they are.
-func recoverStepCalls(parts []llm.Part, g *leakGate, offered map[string]bool) ([]llm.Part, string) {
+func recoverStepCalls(parts []llm.Part, g *leakGate, offered map[string]bool, planMode bool) ([]llm.Part, string) {
 	for _, p := range parts {
 		if p.Type == llm.PartToolCall {
 			return parts, g.finish(g.text())
@@ -324,6 +324,11 @@ func recoverStepCalls(parts []llm.Part, g *leakGate, offered map[string]bool) ([
 	full := g.text()
 	clean, calls := recoverTextCalls(full, offered)
 	if len(calls) == 0 {
+		if args, ok := chatPlan(full, offered, planMode); ok {
+			// The plan stays in the text the user already saw; the call
+			// opens the review card for it.
+			parts = append(parts, llm.Part{Type: llm.PartToolCall, ToolCallID: newTextCallID(0), ToolName: "plan", Args: args})
+		}
 		return parts, g.finish(full)
 	}
 	// The text parts hold the whole step's text in order, so they are
@@ -347,6 +352,33 @@ func recoverStepCalls(parts []llm.Part, g *leakGate, offered map[string]bool) ([
 		out = append(out, llm.Part{Type: llm.PartToolCall, ToolCallID: newTextCallID(n), ToolName: c.name, Args: c.args})
 	}
 	return out, g.finish(clean)
+}
+
+// fencedJSON matches a ```json fenced block.
+var fencedJSON = regexp.MustCompile("(?s)```json\\s*\\n(.*?)\\n\\s*```")
+
+// chatPlan finds a plan written in the chat as a fenced JSON object with a
+// title and steps, which plan-mode models sometimes send instead of calling
+// the plan tool (seen live with qwen). Only in plan mode, and only when the
+// plan tool was offered.
+func chatPlan(text string, offered map[string]bool, planMode bool) (json.RawMessage, bool) {
+	if !planMode || !offered["plan"] {
+		return nil, false
+	}
+	for _, m := range fencedJSON.FindAllStringSubmatch(text, -1) {
+		var obj map[string]json.RawMessage
+		if json.Unmarshal([]byte(m[1]), &obj) != nil {
+			continue
+		}
+		if _, ok := obj["title"]; !ok {
+			continue
+		}
+		if _, ok := obj["steps"]; !ok {
+			continue
+		}
+		return json.RawMessage(m[1]), true
+	}
+	return nil, false
 }
 
 // offeredNames is the set of tool names in a request.

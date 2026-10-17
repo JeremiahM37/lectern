@@ -85,8 +85,8 @@ func TestTierSaysWhenTheProviderHasNoTier(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := flashOf(t, tierCommand(m, "auto"))
-	if f.kind != "err" || !strings.Contains(f.text, "xai") {
-		t.Fatalf("a provider without tiers should say so, got %q (%s)", f.text, f.kind)
+	if f.kind != "info" || !strings.Contains(f.text, "not available for xai") {
+		t.Fatalf("a provider without tiers should say so calmly, got %q (%s)", f.text, f.kind)
 	}
 }
 

@@ -2,6 +2,7 @@ package llm
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -33,5 +34,15 @@ func TestToolArgs(t *testing.T) {
 		if bad && text != c.raw {
 			t.Errorf("raw text = %q, want %q", text, c.raw)
 		}
+	}
+}
+
+func TestStreamErrorIsRetryableAndNamesNoStatus(t *testing.T) {
+	err := &APIError{Provider: "ollama", Type: StreamErrorType, Message: "XML syntax error on line 21"}
+	if cat, retry := Classify(err); cat != CatStream || !retry {
+		t.Fatalf("Classify = %q, %v; want a retryable stream error", cat, retry)
+	}
+	if got := err.Error(); strings.Contains(got, "HTTP 0") || !strings.Contains(got, "XML syntax error") {
+		t.Fatalf("Error() = %q", got)
 	}
 }

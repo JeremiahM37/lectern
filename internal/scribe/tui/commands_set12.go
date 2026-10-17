@@ -134,7 +134,8 @@ func tierCommand(m *Model, arg string) tea.Cmd {
 	provider, _, _ := strings.Cut(t.be.Model(), "/")
 	tiers, ok := serviceTiers[provider]
 	if !ok {
-		return cmdErrText(fmt.Sprintf("The current provider (%s) has no service tier setting. Tiers apply to anthropic and openai; /model switches provider.", provider))
+		// Not an error: the setting simply does not exist here.
+		return flashCmd("info", fmt.Sprintf("Service tier: not available for %s. Tiers apply to anthropic and openai; /model switches provider.", provider))
 	}
 	choices := []string{"off"}
 	for _, c := range tiers {

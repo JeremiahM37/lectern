@@ -318,7 +318,19 @@ type APIError struct {
 	RetryAfterSet bool
 }
 
+// StreamErrorType marks an APIError that arrived inside a successful stream
+// rather than as an HTTP status. Retrying the request may help.
+const StreamErrorType = "stream_error"
+
 func (e *APIError) Error() string {
+	if e.StatusCode == 0 {
+		// Inside a stream there is no status to show.
+		s := e.Provider + ": model stream error"
+		if e.Message != "" {
+			s += ": " + e.Message
+		}
+		return s
+	}
 	s := fmt.Sprintf("%s: HTTP %d", e.Provider, e.StatusCode)
 	if e.Type != "" {
 		s += " " + e.Type
@@ -359,6 +371,8 @@ func Classify(err error) (ErrorCategory, bool) {
 	var ae *APIError
 	if errors.As(err, &ae) {
 		switch {
+		case ae.Type == StreamErrorType:
+			return CatStream, true
 		case ae.StatusCode == 429:
 			return CatRateLimited, true
 		case ae.StatusCode == 529 || ae.Type == "overloaded_error":

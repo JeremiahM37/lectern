@@ -446,7 +446,12 @@ func (s *streamer) chunk(payload []byte) (bool, error) {
 		return false, fmt.Errorf("%s: bad stream chunk: %w", s.id, err)
 	}
 	if len(c.Error) > 0 && string(c.Error) != "null" {
-		return false, &llm.APIError{Provider: s.id, Message: errorText(c.Error)}
+		// An error inside a 200 stream is about this one generation, most
+		// often Ollama failing to parse the model's own tool-call markup
+		// ("XML syntax error ... <parameter> closed by </function>"). A fresh
+		// attempt usually comes out well formed, so it is a retryable stream
+		// error, not a terminal one.
+		return false, &llm.APIError{Provider: s.id, Type: llm.StreamErrorType, Message: errorText(c.Error)}
 	}
 	if c.Message.Thinking != "" {
 		if !s.emit(llm.Event{Type: llm.EvReasoning, Text: c.Message.Thinking}) {

@@ -308,7 +308,14 @@ func (m *Model) tabByID(id int) *tab {
 func (m *Model) setFlash(kind, text string) {
 	m.flash = text
 	m.flashKind = kind
-	m.flashTill = time.Now().Add(2500 * time.Millisecond)
+	m.flashTill = time.Now().Add(flashDuration(text))
+}
+
+// flashDuration gives a flash time to be read: 3.5 s, plus a little per word
+// past the first few, up to 6 s.
+func flashDuration(text string) time.Duration {
+	d := 3500*time.Millisecond + time.Duration(max(0, len(strings.Fields(text))-4))*250*time.Millisecond
+	return min(d, 6*time.Second)
 }
 
 // logError records an error for the error log and marks the tab. The source

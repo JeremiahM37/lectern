@@ -170,7 +170,7 @@ func TestStepRecoveryShowsOnlyWhatIsLeft(t *testing.T) {
 	for _, d := range []string{"Checking. ", `<tool_call>{"name":"read","arguments":{"path":"a"}}</tool_call>`, " Then done."} {
 		shown.WriteString(g.feed(d))
 	}
-	parts, unseen := recoverStepCalls([]llm.Part{{Type: llm.PartText, Text: g.text()}}, g, textCallTools)
+	parts, unseen := recoverStepCalls([]llm.Part{{Type: llm.PartText, Text: g.text()}}, g, textCallTools, false)
 	if shown.String()+unseen != "Checking.  Then done." {
 		t.Fatalf("shown %q + unseen %q", shown.String(), unseen)
 	}
@@ -187,7 +187,7 @@ func TestRecoveryLeavesStepWithRealCallAlone(t *testing.T) {
 	g.stop()
 	real := llm.Part{Type: llm.PartToolCall, ToolCallID: "real_1", ToolName: "read", Args: json.RawMessage(`{"path":"a"}`)}
 	in := []llm.Part{{Type: llm.PartText, Text: g.text()}, real}
-	parts, unseen := recoverStepCalls(in, g, textCallTools)
+	parts, unseen := recoverStepCalls(in, g, textCallTools, false)
 	if unseen != "" {
 		t.Fatalf("unseen = %q", unseen)
 	}
@@ -201,7 +201,7 @@ func TestRecoveredCallIDsAreUnique(t *testing.T) {
 		`<tool_call>{"name":"shell","arguments":{"command":"b"}}</tool_call>`
 	g := newLeakGate("")
 	g.feed(text)
-	parts, _ := recoverStepCalls([]llm.Part{{Type: llm.PartText, Text: text}}, g, textCallTools)
+	parts, _ := recoverStepCalls([]llm.Part{{Type: llm.PartText, Text: text}}, g, textCallTools, false)
 	seen := map[string]bool{}
 	for _, p := range parts {
 		if p.Type != llm.PartToolCall {
@@ -255,5 +255,27 @@ func TestTextCallInReplyRunsTool(t *testing.T) {
 	}
 	if f.count() != 2 {
 		t.Fatalf("model calls = %d, want 2", f.count())
+	}
+}
+
+func TestPlanWrittenAsChatJSONBecomesAPlanCallInPlanMode(t *testing.T) {
+	text := "Here is the plan:\n```json\n{\"title\": \"Add Mul\", \"steps\": [\"Add Mul to main.go\", \"Add TestMul\"]}\n```\nApprove?"
+	offered := map[string]bool{"plan": true}
+	for _, planMode := range []bool{true, false} {
+		g := newLeakGate("")
+		g.feed(text)
+		parts, _ := recoverStepCalls([]llm.Part{{Type: llm.PartText, Text: text}}, g, offered, planMode)
+		var calls []llm.Part
+		for _, p := range parts {
+			if p.Type == llm.PartToolCall {
+				calls = append(calls, p)
+			}
+		}
+		if planMode && (len(calls) != 1 || calls[0].ToolName != "plan" || !strings.Contains(string(calls[0].Args), "Add Mul")) {
+			t.Fatalf("plan mode: calls = %+v", calls)
+		}
+		if !planMode && len(calls) != 0 {
+			t.Fatalf("default mode must not turn chat JSON into a plan: %+v", calls)
+		}
 	}
 }

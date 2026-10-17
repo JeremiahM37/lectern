@@ -1396,7 +1396,7 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 	// A reply with no real call may have written its call as text; turn that
 	// into calls before anything reads the parts.
 	var unseen string
-	parts, unseen = recoverStepCalls(parts, gate, offeredNames(req.Tools))
+	parts, unseen = recoverStepCalls(parts, gate, offeredNames(req.Tools), a.Mode() == "plan")
 	if unseen != "" {
 		a.emit(Event{Kind: EvText, Text: unseen, Step: step})
 	}
@@ -1822,11 +1822,18 @@ func (a *Agent) maybeCompact(ctx context.Context) error {
 	a.mu.Lock()
 	a.compactLatched = true
 	a.mu.Unlock()
-	return a.Compact(ctx, fmt.Sprintf("context %d%% full", used*100/window))
+	return a.compact(ctx, fmt.Sprintf("context %d%% full", used*100/window), true)
 }
 
 // Compact summarises older history now.
 func (a *Agent) Compact(ctx context.Context, reason string) error {
+	return a.compact(ctx, reason, false)
+}
+
+// compact does the work of Compact. auto is true when the context filled up
+// and nobody asked: then "too little history" is not worth a notice, since
+// the user did not ask for anything that failed.
+func (a *Agent) compact(ctx context.Context, reason string, auto bool) error {
 	if a.opts.Compactor == nil {
 		return errors.New("compaction is not configured")
 	}
@@ -1844,7 +1851,9 @@ func (a *Agent) Compact(ctx context.Context, reason string) error {
 		if errors.Is(err, ErrNotEnoughHistory) {
 			// Nothing is wrong: there is simply too little to summarise yet.
 			a.emit(done)
-			a.emit(Event{Kind: EvNotice, Text: "Nothing to compact yet: the history is too short."})
+			if !auto {
+				a.emit(Event{Kind: EvNotice, Text: "Nothing to compact yet: the history is too short."})
+			}
 			return err
 		}
 		a.emit(done)
