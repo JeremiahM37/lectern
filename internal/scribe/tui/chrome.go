@@ -19,7 +19,7 @@ type modeInfo struct {
 }
 
 // modeOrder is the Ctrl+D / Shift+Tab cycle.
-var modeOrder = []string{"default", "auto", "plan", "architect", "socratic", "challenge"}
+var modeOrder = []string{"default", "architect", "socratic", "challenge", "plan", "auto"}
 
 // modeStyle returns the label, description and colour for a mode id.
 func modeStyle(id string, th theme.Theme) modeInfo {

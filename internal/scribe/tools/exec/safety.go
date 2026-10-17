@@ -117,13 +117,19 @@ const rmInProject = "delete files or directories"
 // rmDescription names what a recursive or forced rm reaches.
 func rmDescription(targets []string, workdir string) string {
 	for _, t := range targets {
-		if strings.HasPrefix(t, "-") {
+		t = strings.Trim(t, `"'`)
+		if t == "" || strings.HasPrefix(t, "-") {
 			continue
 		}
 		switch {
 		case t == "/" || t == "/*":
 			return "delete files: target is the filesystem root"
-		case t == "~" || strings.HasPrefix(t, "~/") || t == "$HOME" || strings.HasPrefix(t, "$HOME/"):
+		case t == "~" || t == "$HOME" || t == "${HOME}":
+			return "delete files in the home directory"
+		case expandHome(t) != t:
+			if within(workdir, expandHome(t)) {
+				continue
+			}
 			return "delete files in the home directory"
 		case t == "*" || t == ".*":
 			return "delete everything matching a wildcard"

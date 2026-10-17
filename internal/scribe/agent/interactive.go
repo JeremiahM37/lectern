@@ -272,7 +272,12 @@ func (t planTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage)
 	switch {
 	case strings.EqualFold(ans, AnswerExecute) || strings.HasPrefix(lower, "execute"):
 		if t.p.Agent != nil {
-			t.p.Agent.SetMode("default")
+			// Implementing needs edits, so plan mode ends here; say so, or the
+			// header tag just vanishes and the user cannot tell why.
+			if prev := t.p.Agent.Mode(); prev != "default" {
+				t.p.Agent.SetMode("default")
+				t.p.Agent.emit(Event{Kind: EvNotice, Text: "Plan approved: switched to Default mode to implement it."})
+			}
 			t.p.Agent.BeginPlanExecution()
 		}
 		t.p.emitOutcome(pl, "approved", "")

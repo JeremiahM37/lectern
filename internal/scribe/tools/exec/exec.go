@@ -66,7 +66,7 @@ func gate(ctx context.Context, env *tools.Env, opts Options, tool, command, desc
 		Danger: true,
 	})
 	if dec == tools.Deny {
-		return tools.Errorf("Denied: %s. Do not retry this command. Ask the user what they want, or use a narrower command.%s", desc, tools.DeniedWithReason(reason())), true
+		return tools.Errorf("%s", userDeclined(desc, reason())), true
 	}
 	tools.NoteApproval(ctx, reason())
 	return tools.Result{}, false
@@ -318,8 +318,11 @@ func exemptPath(p string) bool {
 // directory the command runs in.
 func outsideWrites(workdir, dir, command string) []string {
 	var out []string
-	for _, p := range writtenFiles(command) {
-		abs := p
+	for _, p := range append(writtenFiles(command), removedFiles(command)...) {
+		abs := expandHome(p)
+		if abs == "" {
+			continue
+		}
 		if !filepath.IsAbs(abs) {
 			abs = filepath.Join(dir, p)
 		}
@@ -351,13 +354,21 @@ func approveOutsideCwd(ctx context.Context, env *tools.Env, what, command string
 		Detail: command,
 	})
 	if dec == tools.Deny {
-		if r := reason(); r != "" {
-			return tools.Errorf("Denied: %s is outside the project directory. Run it from inside the project, or write under the project or /tmp.%s", what, tools.DeniedWithReason(r)), true
-		}
-		return deny, true
+		return tools.Errorf("%s", userDeclined("run a command that reaches outside the project ("+what+")", reason())), true
 	}
 	tools.NoteApproval(ctx, reason())
 	return tools.Result{}, false
+}
+
+// userDeclined is what the model reads after the user says no on an approval
+// card. It must close the matter: an earlier wording suggested other routes
+// ("write under /tmp", "use a narrower command") and a live model took them as
+// a way around the refusal, re-issuing the command with cosmetic changes.
+func userDeclined(what, reason string) string {
+	return "Denied: the user declined to " + what + ". The command did not run. " +
+		"Do not run it again or any variant of it, and do not ask for it another way. " +
+		"Tell the user it was not run and continue with whatever else the task needs." +
+		tools.DeniedWithReason(reason)
 }
 
 // claimWrites snapshots the files a command is about to write, inside the

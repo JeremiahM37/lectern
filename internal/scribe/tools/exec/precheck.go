@@ -186,6 +186,53 @@ func writtenFiles(command string) []string {
 	return uniq
 }
 
+// removers are commands whose plain arguments are paths they delete or create.
+// Their targets count toward the outside-the-project check (outsideWrites) but
+// not toward checkpoint snapshots, which only hold file contents.
+var removers = map[string]bool{"rm": true, "rmdir": true, "unlink": true, "touch": true, "mkdir": true, "truncate": true}
+
+// removedFiles lists the path arguments of removers in command, so a plain
+// `rm file` outside the project asks like a redirect there does.
+func removedFiles(command string) []string {
+	var out []string
+	for _, seg := range regexp.MustCompile(`[|;&\n()]`).Split(command, -1) {
+		words := strings.Fields(seg)
+		if len(words) < 2 || !removers[filepath.Base(words[0])] {
+			continue
+		}
+		// A recursive or forced rm already gets the destructive prompt (gate),
+		// which names the outside target; asking twice would show two cards.
+		if rmRule.MatchString(seg) {
+			continue
+		}
+		for _, w := range words[1:] {
+			if !strings.HasPrefix(w, "-") {
+				out = append(out, strings.Trim(w, `"'`))
+			}
+		}
+	}
+	return out
+}
+
+// expandHome resolves a leading ~, $HOME or ${HOME} to the home directory.
+// Without this "$HOME/x" is not absolute to Go and was joined to the working
+// directory, so a write in the home directory looked like one in the project.
+func expandHome(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	for _, pre := range []string{"${HOME}", "$HOME", "~"} {
+		if p == pre {
+			return home
+		}
+		if strings.HasPrefix(p, pre+"/") {
+			return filepath.Join(home, p[len(pre)+1:])
+		}
+	}
+	return p
+}
+
 // hasInPlace reports whether sed was given -i (with or without a suffix).
 func hasInPlace(words []string) bool {
 	for _, w := range words {

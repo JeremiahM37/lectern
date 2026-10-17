@@ -179,13 +179,16 @@ func TestModelPickerListsProviders(t *testing.T) {
 
 func TestModeCycleChangesHeader(t *testing.T) {
 	m, _ := newTestModel(t, 120, 30)
+	// Spec order: default, architect, socratic, challenge, plan, auto.
 	send(m, "ctrl+d")
-	if !strings.Contains(screen(m), "[AUTO]") {
-		t.Fatalf("header should show [AUTO] after one cycle:\n%s", screen(m))
+	if !strings.Contains(screen(m), "[ARCHITECT]") {
+		t.Fatalf("header should show [ARCHITECT] after one cycle:\n%s", screen(m))
 	}
 	send(m, "ctrl+d")
+	send(m, "ctrl+d")
+	send(m, "ctrl+d")
 	if !strings.Contains(screen(m), "[PLAN]") {
-		t.Fatalf("header should show [PLAN] after two cycles")
+		t.Fatalf("header should show [PLAN] after four cycles")
 	}
 	send(m, "shift+tab")
 	send(m, "shift+tab")
