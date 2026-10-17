@@ -33,6 +33,8 @@ type modelUsage struct {
 	Ref   string
 	Calls int
 	Usage llm.Usage
+	// CostUSD sums the steps' own costs (StepCostUSD), so it is per model.
+	CostUSD float64
 }
 
 // compaction is one finished compaction, by message count.
@@ -63,6 +65,7 @@ func foldHistory(evs []agent.Event) contextHistory {
 			}
 			m.Calls++
 			m.Usage.Add(e.Usage)
+			m.CostUSD += e.StepCostUSD
 		case agent.EvToolResult:
 			h.addDispatch(e)
 		case agent.EvCompactDone:

@@ -443,6 +443,13 @@ func (b *scribeBackend) Providers() []tui.ProviderStatus {
 	return out
 }
 
+// MissingRequired names the required tools that are not on PATH (today only
+// Git). The TUI shows its setup screen instead of chat while this is not
+// empty, so Scribe never starts into a session that cannot run git.
+func (b *scribeBackend) MissingRequired() []string {
+	return tui.RequiredMissing()
+}
+
 // NeedsSetup reports whether the first-run wizard should open: no provider has
 // a key and no Ollama server answers on its usual address.
 func (b *scribeBackend) NeedsSetup() bool {

@@ -198,7 +198,9 @@ func (s *settings) moveCursor(d, n int) {
 	s.cur[s.tab] = clamp(s.cur[s.tab]+d, 0, n-1)
 }
 
-// previewTheme applies the theme under the cursor on the Appearance tab.
+// previewTheme applies the theme under the cursor on the Appearance tab. The
+// palette is styled with the saved transparency and borders, the same way
+// /theme applies it, so a preview shows what the theme will look like.
 func (s *settings) previewTheme() {
 	if s.tab != stAppearance {
 		return
@@ -206,18 +208,19 @@ func (s *settings) previewTheme() {
 	rows := s.rows()
 	if c := s.cur[s.tab]; c < len(rows) && rows[c].id != "" {
 		if th, ok := theme.Lookup(rows[c].id); ok {
-			s.m.setTheme(rows[c].id, th)
+			s.m.setTheme(rows[c].id, s.m.styledTheme(th))
 		}
 	}
 }
 
-// revertTheme drops an uncommitted preview.
+// revertTheme drops an uncommitted preview. It restores the saved theme with
+// the same style as before the preview, not the bare palette.
 func (s *settings) revertTheme() {
 	if s.m.themeName == s.saved {
 		return
 	}
 	if th, ok := theme.Lookup(s.saved); ok {
-		s.m.setTheme(s.saved, th)
+		s.m.setTheme(s.saved, s.m.styledTheme(th))
 	}
 }
 

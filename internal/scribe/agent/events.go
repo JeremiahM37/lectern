@@ -25,7 +25,7 @@ const (
 	EvToolRun      EventKind = "tool_run"      // CallID, Tool, Args (execution begins)
 	EvToolProgress EventKind = "tool_progress" // CallID, Text (streamed output)
 	EvToolResult   EventKind = "tool_result"   // CallID, Tool, Result, Duration
-	EvStepFinish   EventKind = "step_finish"   // Step, Usage (this step), Total, CostUSD (cumulative)
+	EvStepFinish   EventKind = "step_finish"   // Step, Usage (this step), Total, CostUSD (cumulative), StepCostUSD and Model (this step)
 	EvRetry        EventKind = "retry"         // Attempt, MaxAttempts, Category, Text (reason), Delay
 	EvFallback     EventKind = "fallback"      // Model (new model ref), Text (reason)
 	EvWarning      EventKind = "warning"       // Text
@@ -60,9 +60,14 @@ type Event struct {
 	Result   *tools.Result   `json:"result,omitempty"`
 	Duration time.Duration   `json:"duration,omitempty"`
 
-	Usage   llm.Usage `json:"usage,omitempty"`
-	Total   llm.Usage `json:"total,omitempty"`
-	CostUSD float64   `json:"cost_usd,omitempty"`
+	Usage llm.Usage `json:"usage,omitempty"`
+	Total llm.Usage `json:"total,omitempty"`
+	// CostUSD is the running session total, including subagent cost.
+	CostUSD float64 `json:"cost_usd,omitempty"`
+	// StepCostUSD is what this one model call cost, priced at the model that
+	// ran it (Model). Unlike CostUSD it is not cumulative, so a view can sum
+	// it per model. It excludes subagent spend, which has no step event.
+	StepCostUSD float64 `json:"step_cost_usd,omitempty"`
 
 	Attempt     int               `json:"attempt,omitempty"`
 	MaxAttempts int               `json:"max_attempts,omitempty"`

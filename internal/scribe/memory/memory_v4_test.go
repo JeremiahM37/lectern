@@ -315,7 +315,7 @@ func TestInjectTotalBudget(t *testing.T) {
 	if block == "" {
 		t.Fatal("expected a block")
 	}
-	if n := strings.Count(block, "(id "); n == 0 || n > 4 {
+	if n := strings.Count(block, "\n["); n == 0 || n > 4 {
 		t.Fatalf("budget should keep at most about 4 bodies of 400 chars, got %d records", n)
 	}
 }

@@ -84,11 +84,14 @@ type Record struct {
 }
 
 // Scored is a recalled record with its relevance score and the signals
-// that produced it ("text", "file", "similar", "pinned").
+// that produced it ("fts", "trigram", "file", "similar", "pinned", "co-change").
 type Scored struct {
 	Record
 	Score float64  `json:"score"`
 	Why   []string `json:"why,omitempty"`
+	// Sim is the cosine of the query and the record's embedding. It is set
+	// only by a recall, and is shown when Why carries "similar".
+	Sim float64 `json:"sim,omitempty"`
 }
 
 // DB is one memory database.
@@ -782,7 +785,7 @@ func (d *DB) Search(query string, limit int) ([]Scored, error) {
 	if limit <= 0 {
 		limit = 10
 	}
-	hits, err := d.textHits(query, ftsCandidates)
+	hits, triOnly, err := d.textHits(query, ftsCandidates)
 	if err != nil {
 		return nil, err
 	}
@@ -797,7 +800,11 @@ func (d *DB) Search(query string, limit int) ([]Scored, error) {
 			continue
 		}
 		r.Scope = d.scope
-		out = append(out, Scored{Record: r, Score: bm25Norm(hits[id]), Why: []string{"text"}})
+		why := "fts"
+		if triOnly[id] {
+			why = "trigram"
+		}
+		out = append(out, Scored{Record: r, Score: bm25Norm(hits[id]), Why: []string{why}})
 		if len(out) == limit {
 			break
 		}

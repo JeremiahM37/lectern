@@ -31,9 +31,28 @@ func init() {
 // setupChecker is implemented by backends that can say the wizard is needed.
 type setupChecker interface{ NeedsSetup() bool }
 
+// RequiredChecker is implemented by backends that can name the required
+// tools missing from PATH. Scribe does not start into chat while any is
+// missing.
+type RequiredChecker interface{ MissingRequired() []string }
+
+// RequiredMissing names the required tools that are not on PATH, in table
+// order. Git is the only required one.
+func RequiredMissing() []string {
+	var names []string
+	for _, p := range missingRequired(checkPrereqs()) {
+		names = append(names, p.Name)
+	}
+	return names
+}
+
 // maybeOpenWizard runs from Init. It opens the wizard only when the backend
 // asks for it and the session is not already starting with a prompt or picker.
+// A missing required tool comes first, and it wins over the prompt.
 func (m *Model) maybeOpenWizard() tea.Cmd {
+	if m.gateRequired() {
+		return nil
+	}
 	if strings.TrimSpace(m.opts.Prompt) != "" || m.opts.Pick {
 		return nil
 	}
@@ -44,11 +63,116 @@ func (m *Model) maybeOpenWizard() tea.Cmd {
 	return m.openWizard()
 }
 
-// openWizard pushes the wizard and starts looking for a local Ollama.
+// openWizard pushes the wizard and starts looking for a local Ollama. With a
+// required tool missing it pushes the git gate instead.
 func (m *Model) openWizard() tea.Cmd {
+	if m.gateRequired() {
+		return nil
+	}
 	w := newWizard(m)
 	m.pushModal(w)
 	return w.start()
+}
+
+// gateRequired pushes the git gate when a required tool is missing and
+// reports whether it did. Backends that cannot check report nothing missing.
+func (m *Model) gateRequired() bool {
+	rc, ok := m.cur().be.(RequiredChecker)
+	if !ok {
+		return false
+	}
+	miss := rc.MissingRequired()
+	if len(miss) == 0 {
+		return false
+	}
+	m.pushModal(&gitGate{m: m, checker: rc, missing: miss})
+	return true
+}
+
+// gitGate is the setup screen shown before chat when a required tool is
+// missing. It leaves only when the tool is found (r) or the user quits (q).
+// Esc does nothing. Ctrl+C closes the top modal before the app sees it, so
+// OnClose puts the gate back until the user quits.
+type gitGate struct {
+	m       *Model
+	checker RequiredChecker
+	missing []string
+}
+
+// Title implements Modal.
+func (g *gitGate) Title() string { return "Setup" }
+
+// Icon implements Iconed.
+func (g *gitGate) Icon() string { return "smithy" }
+
+// Danger implements the error border: nothing runs until this is fixed.
+func (g *gitGate) Danger() bool { return true }
+
+// Size implements Sized.
+func (g *gitGate) Size(cols, rows int) (int, int) { return min(78, cols-4), min(rows-4, 14) }
+
+// Footer implements Footered.
+func (g *gitGate) Footer() string { return "r check again · q quit" }
+
+// Update implements Modal.
+func (g *gitGate) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
+	km, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return g, nil, false
+	}
+	switch km.String() {
+	case "r":
+		g.missing = g.checker.MissingRequired()
+		if len(g.missing) > 0 {
+			return g, nil, false
+		}
+		// The tool is here now. The gate leaves, and the normal first-run
+		// check runs as it would have at start.
+		return g, g.m.maybeOpenWizard(), true
+	case "q":
+		return g, g.m.beginShutdown(), true
+	}
+	return g, nil, false
+}
+
+// OnClose implements Closer. A close that is not a quit puts the gate back
+// while the tool is still missing.
+func (g *gitGate) OnClose() {
+	// During a quit (q, or three quick Ctrl+C presses, which clear the stack
+	// in a loop) the gate must stay closed.
+	if g.m.phase == phaseShutdown || g.m.ctrlCs >= 3 {
+		return
+	}
+	if len(g.checker.MissingRequired()) > 0 {
+		g.m.pushModal(g)
+	}
+}
+
+// View implements Modal.
+func (g *gitGate) View(w, _ int) string {
+	th := g.m.th
+	var out []string
+	out = append(out, fgb(th.TextPrimary).Render(render.Wrap(strings.Join(g.missing, ", ")+" is required before Scribe can run.", w)), "")
+	for _, name := range g.missing {
+		p, ok := prereqNamed(name)
+		if !ok {
+			out = append(out, fg(th.Error).Render("  ✗ "+name))
+			continue
+		}
+		out = append(out, fg(th.Error).Render("  ✗ "+p.Name)+fg(th.TextMuted).Render("  missing: "+p.Why))
+		out = append(out, fg(th.TextMuted).Render(render.Wrap("      install: "+installHint(p, goos), w)))
+	}
+	return strings.Join(append(out, "", fg(th.TextMuted).Render(render.Wrap("Scribe has not opened a chat. Install it, then press r to check again, or q to quit.", w))), "\n")
+}
+
+// prereqNamed finds a row of prereqTable by its name.
+func prereqNamed(name string) (prereq, bool) {
+	for _, p := range prereqTable {
+		if p.Name == name {
+			return p, true
+		}
+	}
+	return prereq{}, false
 }
 
 type wizStep int

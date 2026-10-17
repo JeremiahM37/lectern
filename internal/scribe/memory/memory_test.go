@@ -152,8 +152,8 @@ func TestRecallRanksTextMatchFirst(t *testing.T) {
 	if len(got) == 0 || got[0].ID != migr.ID {
 		t.Fatalf("sqlite migration memory should rank first, got %+v", got)
 	}
-	if !contains(got[0].Why, "text") {
-		t.Fatalf("expected text signal, got %v", got[0].Why)
+	if !contains(got[0].Why, "fts") {
+		t.Fatalf("expected fts signal, got %v", got[0].Why)
 	}
 }
 
@@ -263,12 +263,19 @@ func TestInjectFormat(t *testing.T) {
 	if !strings.HasPrefix(out, "<recalled_memories>\n") || !strings.HasSuffix(out, "</recalled_memories>") {
 		t.Fatalf("bad block framing:\n%s", out)
 	}
-	if !strings.Contains(out, "[decision] Trim the injected body (id ") {
-		t.Fatalf("missing header line:\n%s", out)
+	lines := strings.Split(out, "\n")
+	if !strings.HasPrefix(lines[1], "[decision] ") || !strings.Contains(lines[1], " — Trim the injected body · via fts") {
+		t.Fatalf("missing entry head with signals:\n%s", out)
 	}
-	bodyLine := strings.Split(out, "\n")[2]
+	if !strings.HasSuffix(lines[1], detailsMarker) {
+		t.Fatalf("a trimmed body must be marked as having details:\n%s", out)
+	}
+	bodyLine := lines[2]
 	if n := len([]rune(bodyLine)); n > injectBodyChars || !strings.HasSuffix(bodyLine, "…") {
 		t.Fatalf("body not trimmed to %d runes with ellipsis; got %d runes", injectBodyChars, n)
+	}
+	if !strings.Contains(out, detailsFooter) {
+		t.Fatalf("a cut entry needs the details footer:\n%s", out)
 	}
 
 	// Inject bumps usage.

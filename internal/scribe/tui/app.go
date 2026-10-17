@@ -331,7 +331,8 @@ func (m *Model) Init() tea.Cmd {
 	if m.opts.Pick {
 		m.openSessionPicker()
 	}
-	if p := strings.TrimSpace(m.opts.Prompt); p != "" {
+	// A setup gate (git missing) holds the prompt: its turn would fail.
+	if p := strings.TrimSpace(m.opts.Prompt); p != "" && m.topModal() == nil {
 		m.phase = phaseChat
 		cmds = append(cmds, m.startTurn(m.cur(), p))
 	}
@@ -646,6 +647,7 @@ func (m *Model) onEvent(msg eventMsg) tea.Cmd {
 		t.compacting = false
 	case agent.EvError:
 		m.logErrorFrom(t, srcTurn, ev.Text)
+		m.showTurnError(t, ev.Text)
 	case agent.EvToolResult:
 		if r := ev.Result; r != nil && r.IsError {
 			src, text := toolErrorEntry(ev)

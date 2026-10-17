@@ -203,6 +203,16 @@ type Agent struct {
 	// retries counts transient and stall retries in model calls this turn.
 	retries int
 
+	// optDropped are the optional request fields a provider refused this
+	// turn, per model (reduce.go). sentGroups are the option groups the last
+	// request carried. Both are reset per turn, so the next turn tries the
+	// options again.
+	optDropped map[optKey]bool
+	sentGroups map[string]bool
+
+	// planNudges is the stage of the plan reminder sent this turn (0 to 2).
+	planNudges int
+
 	editedSinceCheck bool // files changed since the last project/test-like call
 	checkRounds      int  // auto-fix rounds used this turn
 	autoSeq          int
@@ -578,6 +588,8 @@ func (a *Agent) Run(ctx context.Context, prompt string, images []llm.Part) (Turn
 	a.premature = ""
 	a.checkRounds = 0
 	a.retries = 0
+	a.optDropped = map[optKey]bool{}
+	a.planNudges = 0
 	mode := a.mode
 	a.mu.Unlock()
 	defer func() {
@@ -676,6 +688,7 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 				a.appendSteering(q, imgs)
 			}
 		}
+		a.planNudge(step)
 		a.setPolicy(step)
 		a.emit(Event{Kind: EvStepStart, Step: step})
 		if used, estimated := a.ContextEstimate(); estimated {
@@ -1023,6 +1036,9 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 	primary := chain[0]
 	var lastErr error
 	cycles := 0
+	// optionRetried is set once the step has been retried without the
+	// options a provider refused. The retry is made at most once per step.
+	optionRetried := false
 	for i := 0; ; i++ {
 		if i >= len(chain) {
 			// The chain is spent. Go back to the primary, or give up.
@@ -1072,6 +1088,15 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 				a.emit(Event{Kind: EvRetry, Attempt: stalls, MaxAttempts: limit, Category: llm.CatStream,
 					Text: fmt.Sprintf("%s. Auto-retrying (%d/%d)…", st.notice(), stalls, limit)})
 				continue
+			}
+			if !optionRetried {
+				if dropped := a.dropRejected(a.CurrentModel().Ref, err); len(dropped) > 0 {
+					optionRetried = true
+					a.emit(Event{Kind: EvWarning, Text: fmt.Sprintf(
+						"%s rejected these options (%s), so this step was retried without them. The rest of this turn leaves them out too.",
+						a.CurrentModel().Ref, strings.Join(dropped, ", "))})
+					continue
+				}
 			}
 			cat, retry := llm.Classify(err)
 			status := statusOf(err)
@@ -1189,6 +1214,7 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 	started := time.Now()
 	req := a.request(extra...)
 	m := a.CurrentModel()
+	a.reduceRequest(m.Ref, &req)
 	if a.opts.RequestDump != nil {
 		a.opts.RequestDump(step, m.Ref, req)
 	}
@@ -1388,7 +1414,7 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 	a.badArgs = bad
 	a.mu.Unlock()
 	a.emit(Event{Kind: EvStepFinish, Step: step, Usage: usage, Total: total, CostUSD: cost,
-		Model: m.Ref, Duration: time.Since(started)})
+		StepCostUSD: stepCost, Model: m.Ref, Duration: time.Since(started)})
 	a.emit(Event{Kind: EvContext, ContextUsed: used, ContextWindow: window})
 	if finish == llm.FinishFilter {
 		return llm.Message{}, "", errContentFilter

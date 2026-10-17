@@ -180,3 +180,23 @@ func TestFoldIgnoresNonModelEvents(t *testing.T) {
 		t.Fatalf("nothing here should count: %+v", h)
 	}
 }
+
+func TestModelTableShowsCostPerModel(t *testing.T) {
+	h := foldHistory([]agent.Event{
+		{Kind: agent.EvStepFinish, Model: "anthropic/claude-sonnet-5-5", StepCostUSD: 0.10},
+		{Kind: agent.EvStepFinish, Model: "anthropic/claude-sonnet-5-5", StepCostUSD: 0.02},
+		{Kind: agent.EvStepFinish, Model: "ollama/qwen3.6:35b-a3b"},
+	})
+	out := strings.Join(modelTableLines(h.Models), "\n")
+	if !strings.Contains(out, "$0.12") {
+		t.Fatalf("sonnet row should cost $0.12:\n%s", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "qwen") && !strings.HasSuffix(strings.TrimSpace(line), "-") {
+			t.Fatalf("a free local model should show -: %q", line)
+		}
+		if n := len([]rune(line)); n > 80 {
+			t.Fatalf("line is %d columns: %q", n, line)
+		}
+	}
+}

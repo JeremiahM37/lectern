@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -56,6 +57,12 @@ func run(parent context.Context, args []string, stdin io.Reader, stdout, stderr 
 	}
 	if o.listProviders || o.listModels || o.setKey {
 		return manage(parent, o, cwd, stdout, stderr)
+	}
+	// Git is the one required tool (spec 05 §11.3): checkpoints, diffs and the
+	// git tools need it, so a run without it stops here with the reason.
+	if _, err := exec.LookPath("git"); err != nil {
+		out.fail("git is required and was not found on PATH. Install it, then run again.")
+		return 1
 	}
 
 	prompt := strings.Join(o.prompt, " ")

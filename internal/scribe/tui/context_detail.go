@@ -98,13 +98,13 @@ func compactionLine(h contextHistory) string {
 	return fmt.Sprintf("  Compactions    %d", h.Compactions)
 }
 
-// modelTableLines is the per-model table: calls, tokens and cache hit for
-// each model the main agent answered with.
+// modelTableLines is the per-model table: calls, tokens, cache hit and cost
+// for each model the main agent answered with.
 func modelTableLines(models []modelUsage) []string {
 	if len(models) == 0 {
 		return []string{"  No model calls in this session's transcript yet."}
 	}
-	lines := []string{fmt.Sprintf("  %-30s %5s %7s %7s %9s", "Model", "Calls", "Input", "Output", "Cache hit")}
+	lines := []string{fmt.Sprintf("  %-30s %5s %7s %7s %9s %8s", "Model", "Calls", "Input", "Output", "Cache hit", "Cost")}
 	shown := models
 	if len(shown) > maxModelRows {
 		shown = shown[:maxModelRows]
@@ -114,22 +114,36 @@ func modelTableLines(models []modelUsage) []string {
 		if pct, ok := cacheHitPercent(m.Usage); ok {
 			hit = fmt.Sprintf("%d%%", pct)
 		}
-		lines = append(lines, fmt.Sprintf("  %-30s %5d %7s %7s %9s",
+		lines = append(lines, fmt.Sprintf("  %-30s %5d %7s %7s %9s %8s",
 			render.Truncate(m.Ref, 30), m.Calls,
-			render.HumanTokens(m.Usage.InputTokens), render.HumanTokens(m.Usage.OutputTokens), hit))
+			render.HumanTokens(m.Usage.InputTokens), render.HumanTokens(m.Usage.OutputTokens), hit, usd(m.CostUSD)))
 	}
 	if rest := models[len(shown):]; len(rest) > 0 {
 		var calls int
 		var u llm.Usage
+		var cost float64
 		for _, m := range rest {
 			calls += m.Calls
 			u.Add(m.Usage)
+			cost += m.CostUSD
 		}
-		lines = append(lines, fmt.Sprintf("  %-30s %5d %7s %7s %9s",
+		lines = append(lines, fmt.Sprintf("  %-30s %5d %7s %7s %9s %8s",
 			fmt.Sprintf("+%d more models", len(rest)), calls,
-			render.HumanTokens(u.InputTokens), render.HumanTokens(u.OutputTokens), "-"))
+			render.HumanTokens(u.InputTokens), render.HumanTokens(u.OutputTokens), "-", usd(cost)))
 	}
 	return lines
+}
+
+// usd formats a cost for the model table: "-" for nothing recorded (a free
+// local model, or a transcript from before per-step costs were kept).
+func usd(v float64) string {
+	switch {
+	case v <= 0:
+		return "-"
+	case v < 0.01:
+		return "<$0.01"
+	}
+	return fmt.Sprintf("$%.2f", v)
 }
 
 // shareBar draws n's share of total as a bar of width cells.

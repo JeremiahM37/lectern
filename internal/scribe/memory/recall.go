@@ -238,7 +238,7 @@ func (d *DB) Recall(query string, files []string, limit int) ([]Scored, error) {
 	now := d.now()
 
 	// Text hits: word index, plus trigram substring matches.
-	textX, err := d.textHits(query, ftsCandidates)
+	textX, triOnly, err := d.textHits(query, ftsCandidates)
 	if err != nil {
 		return nil, err
 	}
@@ -287,6 +287,7 @@ func (d *DB) Recall(query string, files []string, limit int) ([]Scored, error) {
 	type cand struct {
 		id     string
 		score  float64
+		sim    float64
 		pinned bool
 		why    []string
 	}
@@ -309,8 +310,13 @@ func (d *DB) Recall(query string, files []string, limit int) ([]Scored, error) {
 			sim = math.Max(0, dot(qVec, v))
 		}
 		x, hasText := textX[id]
+		c.sim = sim
 		if hasText {
-			c.why = append(c.why, "text")
+			if triOnly[id] {
+				c.why = append(c.why, "trigram")
+			} else {
+				c.why = append(c.why, "fts")
+			}
 		}
 		if fileHit[id] {
 			c.why = append(c.why, "file")
@@ -370,7 +376,7 @@ func (d *DB) Recall(query string, files []string, limit int) ([]Scored, error) {
 			return nil, err
 		}
 		r.Scope = d.scope
-		out = append(out, Scored{Record: r, Score: c.score, Why: c.why})
+		out = append(out, Scored{Record: r, Score: c.score, Sim: c.sim, Why: c.why})
 	}
 	return out, nil
 }
@@ -502,6 +508,7 @@ func (s *Stores) Inject(query string, files []string) string {
 	var surfacedNow []string
 	used := 0
 	shown := 0
+	cutAny := false
 	for _, m := range got {
 		body := trimRunes(m.Body, injectBodyChars)
 		n := utf8.RuneCountInString(body)
@@ -510,11 +517,24 @@ func (s *Stores) Inject(query string, files []string) string {
 		}
 		used += n
 		shown++
-		fmt.Fprintf(&b, "[%s] %s (id %s, %s)\n", m.Category, m.Title, shortID(m.ID), m.Scope)
-		b.WriteString(body)
+		// A body trimmed here has more text behind it; the marker says so.
+		cut := body != m.Body
+		cutAny = cutAny || cut
+		b.WriteString(entryHead(m))
+		if cut {
+			b.WriteString(detailsMarker)
+		}
 		b.WriteString("\n")
+		if body != "" {
+			b.WriteString(body)
+			b.WriteString("\n")
+		}
 		byDB[m.Scope] = append(byDB[m.Scope], m.ID)
 		surfacedNow = append(surfacedNow, m.ID)
+	}
+	if cutAny {
+		b.WriteString(detailsFooter)
+		b.WriteString("\n")
 	}
 	b.WriteString("</recalled_memories>")
 	for _, d := range s.DBs() {
@@ -535,6 +555,66 @@ func (s *Stores) Prune(maxAge time.Duration, minUses int) (int, error) {
 		n += k
 	}
 	return n, nil
+}
+
+// detailsMarker flags an entry whose full text is not in the listing. It is
+// the signal the footer refers to.
+const detailsMarker = "  ↳ has details"
+
+// detailsFooter tells the model how to read the rest. It is shared by the
+// injected block and the memory tool's listings.
+const detailsFooter = `↳ marks an entry with more detail. Call memory with action "get" and its id to read it.`
+
+// entryHead is the first line of an entry as the model sees it:
+// [category] id — summary, then the signals that surfaced it.
+func entryHead(m Scored) string {
+	cat := m.Category
+	if cat == "" {
+		cat = "—"
+	}
+	head := fmt.Sprintf("[%s] %s — %s", cat, shortID(m.ID), m.Title)
+	if sig := signalText(m); sig != "" {
+		head += " · via " + sig
+	}
+	return head
+}
+
+// signalText lists why a record was recalled, in the order the spec gives:
+// file, co-change, sem, fts, trigram, then the pinned star. A semantic match
+// shows its cosine when it is strong enough to mean something (0.4 and up).
+func signalText(m Scored) string {
+	var parts []string
+	has := func(code string) bool {
+		for _, w := range m.Why {
+			if w == code {
+				return true
+			}
+		}
+		return false
+	}
+	if has("file") {
+		parts = append(parts, "file")
+	}
+	if has("co-change") {
+		parts = append(parts, "co-change")
+	}
+	if has("similar") {
+		if m.Sim >= 0.4 {
+			parts = append(parts, fmt.Sprintf("sem %.2f", m.Sim))
+		} else {
+			parts = append(parts, "sem")
+		}
+	}
+	if has("fts") {
+		parts = append(parts, "fts")
+	}
+	if has("trigram") {
+		parts = append(parts, "trigram")
+	}
+	if has("pinned") {
+		parts = append(parts, "★")
+	}
+	return strings.Join(parts, ", ")
 }
 
 func shortID(id string) string {
@@ -573,29 +653,34 @@ func triQuery(q string) string {
 // the query against the word index and the trigram index. A record found by
 // both keeps its word score; one found only by substring is scaled by
 // trigramWeight. Superseded records are not filtered here; callers do that.
-func (d *DB) textHits(query string, limit int) (map[string]float64, error) {
+//
+// trigramOnly marks the hits that matched only as a substring, so a recall
+// can tell the model which index found it.
+func (d *DB) textHits(query string, limit int) (hits map[string]float64, trigramOnly map[string]bool, err error) {
 	out := map[string]float64{}
+	tri := map[string]bool{}
 	if match := ftsQuery(query); match != "" {
-		hits, err := d.bm25Hits("memories_fts", match, limit)
+		word, err := d.bm25Hits("memories_fts", match, limit)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		for id, x := range hits {
+		for id, x := range word {
 			out[id] = x
 		}
 	}
 	if match := triQuery(query); match != "" {
-		hits, err := d.bm25Hits("memories_tri", match, limit)
+		sub, err := d.bm25Hits("memories_tri", match, limit)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		for id, x := range hits {
+		for id, x := range sub {
 			if _, ok := out[id]; !ok {
 				out[id] = trigramWeight * x
+				tri[id] = true
 			}
 		}
 	}
-	return out, nil
+	return out, tri, nil
 }
 
 // bm25Hits runs match against one FTS table and returns the top limit ids

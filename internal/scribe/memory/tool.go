@@ -198,11 +198,7 @@ func (t *memoryTool) search(a memoryArgs) tools.Result {
 	if len(all) > limit {
 		all = all[:limit]
 	}
-	var b strings.Builder
-	for _, m := range all {
-		writeLine(&b, m.Record)
-	}
-	return tools.Result{Output: strings.TrimRight(b.String(), "\n"), Summary: fmt.Sprintf("%d matches", len(all))}
+	return tools.Result{Output: listing(all), Summary: fmt.Sprintf("%d matches", len(all))}
 }
 
 func (t *memoryTool) list(a memoryArgs) tools.Result {
@@ -227,11 +223,7 @@ func (t *memoryTool) list(a memoryArgs) tools.Result {
 	if len(recs) > limit {
 		recs = recs[:limit]
 	}
-	var b strings.Builder
-	for _, r := range recs {
-		writeLine(&b, r)
-	}
-	return tools.Result{Output: strings.TrimRight(b.String(), "\n"), Summary: fmt.Sprintf("%d memories", len(recs))}
+	return tools.Result{Output: listing(wrap(recs)), Summary: fmt.Sprintf("%d memories", len(recs))}
 }
 
 func (t *memoryTool) get(a memoryArgs) tools.Result {
@@ -286,12 +278,9 @@ func (t *memoryTool) stale(a memoryArgs) tools.Result {
 	if len(recs) > limit {
 		recs = recs[:limit]
 	}
-	var b strings.Builder
-	for _, r := range recs {
-		writeLine(&b, r)
-	}
-	b.WriteString("These have not been used in 90 days. Nothing was deleted; delete the ones that no longer apply, or pin the ones that still do.")
-	return tools.Result{Output: b.String(), Summary: fmt.Sprintf("%d stale", len(recs))}
+	out := listing(wrap(recs)) + "\n"
+	out += "These have not been used in 90 days. Nothing was deleted; delete the ones that no longer apply, or pin the ones that still do."
+	return tools.Result{Output: out, Summary: fmt.Sprintf("%d stale", len(recs))}
 }
 
 func (t *memoryTool) delete(a memoryArgs) tools.Result {
@@ -376,7 +365,24 @@ func (t *memoryTool) dbsFor(scope string) []*DB {
 	return t.stores.DBs()
 }
 
-func writeLine(b *strings.Builder, r Record) {
+// listing renders records one per line for a tool result. When any entry has
+// a body the listing leaves out, the details footer says how to read it.
+func listing(recs []Scored) string {
+	var b strings.Builder
+	more := false
+	for _, r := range recs {
+		more = writeLine(&b, r) || more
+	}
+	out := strings.TrimRight(b.String(), "\n")
+	if more {
+		out += "\n" + detailsFooter
+	}
+	return out
+}
+
+// writeLine writes one record and reports whether it has a body to read
+// with get, which the line marks.
+func writeLine(b *strings.Builder, r Scored) bool {
 	mark := ""
 	if r.Pinned {
 		mark = " [pinned]"
@@ -385,5 +391,23 @@ func writeLine(b *strings.Builder, r Record) {
 	if len(r.Files) > 0 {
 		fmt.Fprintf(b, " (files: %s)", strings.Join(r.Files, ", "))
 	}
+	if sig := signalText(r); sig != "" {
+		fmt.Fprintf(b, " · via %s", sig)
+	}
+	more := r.Body != ""
+	if more {
+		b.WriteString(detailsMarker)
+	}
 	b.WriteString("\n")
+	return more
+}
+
+// wrap lifts plain records into the scored form the listing takes. They have
+// no recall signals, so their lines show none.
+func wrap(recs []Record) []Scored {
+	out := make([]Scored, 0, len(recs))
+	for _, r := range recs {
+		out = append(out, Scored{Record: r})
+	}
+	return out
 }

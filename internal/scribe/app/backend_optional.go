@@ -31,6 +31,7 @@ var (
 	_ tui.MemoryPolicyBackend = (*scribeBackend)(nil)
 	_ tui.MemoryTransfer      = (*scribeBackend)(nil)
 	_ tui.RemoteDiscordSetter = (*scribeBackend)(nil)
+	_ tui.RequiredChecker     = (*scribeBackend)(nil)
 	_ tui.ServerToolLister    = (*scribeBackend)(nil)
 	_ tui.SessionDeleter      = (*scribeBackend)(nil)
 	_ tui.SessionPrivacy      = (*scribeBackend)(nil)
