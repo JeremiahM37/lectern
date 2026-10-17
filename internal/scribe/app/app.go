@@ -685,11 +685,12 @@ func (a *App) newSubagent(spec agent.SubagentSpec, sink agent.Sink) *agent.Agent
 		reasoning = "low"
 	}
 	var budget *agent.StepBudget
+	window := subagentWindow(model.Info.ContextWindow)
 	switch role {
 	case "explore":
-		budget = &agent.StepBudget{Kind: "explore", NudgeAt: 8, Window: model.Info.ContextWindow}
+		budget = &agent.StepBudget{Kind: "explore", NudgeAt: 8, Window: window}
 	case "code":
-		budget = &agent.StepBudget{Kind: "code", NudgeAt: 12, Window: model.Info.ContextWindow}
+		budget = &agent.StepBudget{Kind: "code", NudgeAt: 12, Window: window}
 	}
 	return agent.New(agent.Options{
 		ID:        id,

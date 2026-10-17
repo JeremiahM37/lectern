@@ -355,6 +355,35 @@ func workdirOf(m *Manager, env *tools.Env) string {
 
 // --- refactor ---------------------------------------------------------------
 
+// runFormat is the refactor tool's format and organize_imports. They share the
+// format_file steps, so the result and its errors match format_file. Neither
+// has a preview: formatFile writes the file as it goes.
+func (t *refactorTool) runFormat(ctx context.Context, env *tools.Env, action, path string, start, end int, apply *bool) tools.Result {
+	if apply != nil && !*apply {
+		return tools.Errorf("%s writes the file directly and has no preview; leave apply out or set it to true", action)
+	}
+	if path == "" {
+		return tools.Errorf("%s needs path", action)
+	}
+	ranged := start > 0 || end > 0
+	if ranged && end == 0 {
+		end = start
+	}
+	if action == "organize_imports" && ranged {
+		return tools.Errorf("organize_imports works on the whole file; leave start_line and end_line out")
+	}
+	if ranged && (start < 1 || end < start) {
+		return tools.Errorf("%s range needs 1 <= start_line <= end_line; got %d to %d", action, start, end)
+	}
+	abs := resolvePath(workdirOf(t.m, env), path)
+	return formatFile(ctx, t.m, env, abs, formatOpts{
+		organize:  action == "organize_imports",
+		format:    action == "format",
+		startLine: start,
+		endLine:   end,
+	})
+}
+
 // extractKinds are the server code-action kinds each refactor action uses.
 // Kinds match by prefix (kindWanted), so refactor.inline also covers
 // refactor.inline.call and friends.
@@ -367,8 +396,9 @@ var extractKinds = map[string][]string{
 }
 
 // refactorActionNames are the action names the refactor tool accepts, in the
-// order its schema lists them.
-var refactorActionNames = []string{"extract_function", "extract_variable", "extract_constant", "inline", "rewrite"}
+// order its schema lists them. format and organize_imports are not code
+// actions: they run the same steps as format_file (see formatFile).
+var refactorActionNames = []string{"extract_function", "extract_variable", "extract_constant", "inline", "rewrite", "format", "organize_imports"}
 
 type refactorTool struct{ m *Manager }
 
@@ -381,14 +411,17 @@ func (t *refactorTool) Spec() llm.ToolSpec {
 			"at the lines (for example converting between equivalent forms). Give path, start_line and end_line " +
 			"(end_line defaults to start_line). The server chooses any new name; rename it afterwards with rename_symbol " +
 			"if the default does not fit. Set apply to false to preview. Read the file first. Languages whose server " +
-			"does not offer the refactoring get an error and no edit.",
+			"does not offer the refactoring get an error and no edit. format formats the whole file with the " +
+			"language server's formatter; give start_line and end_line to format only those lines. organize_imports " +
+			"sorts and removes unused imports. format and organize_imports write the file directly, so they take no apply " +
+			"preview.",
 		Schema: tools.Schema(map[string]any{
 			"action":     tools.Enum("The refactoring to run.", refactorActionNames...),
 			"path":       tools.Str("File, relative to the project root."),
-			"start_line": tools.Int("First line (1-based) of the code to extract."),
+			"start_line": tools.Int("First line (1-based) of the code to extract, or of the lines to format."),
 			"end_line":   tools.Int("Last line (1-based, inclusive). Defaults to start_line."),
-			"apply":      tools.Bool("Apply the edit (default true). false previews the diff only."),
-		}, "action", "path", "start_line"),
+			"apply":      tools.Bool("Apply the edit (default true). false previews the diff only. Not used by format or organize_imports."),
+		}, "action", "path"),
 	}
 }
 
@@ -406,6 +439,9 @@ func (t *refactorTool) Run(ctx context.Context, env *tools.Env, args json.RawMes
 		return tools.Errorf("%v", err)
 	}
 	action := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(a.Action)), "-", "_")
+	if action == "format" || action == "organize_imports" {
+		return t.runFormat(ctx, env, action, a.Path, a.StartLine, a.EndLine, a.Apply)
+	}
 	kinds, ok := extractKinds[action]
 	if !ok {
 		action = "extract_" + action

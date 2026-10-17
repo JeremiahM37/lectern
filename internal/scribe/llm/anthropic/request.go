@@ -52,7 +52,40 @@ type wireRequest struct {
 	Thinking     *wireThinking     `json:"thinking,omitempty"`
 	OutputConfig *wireOutputConfig `json:"output_config,omitempty"`
 	ServiceTier  string            `json:"service_tier,omitempty"`
+	Speed        string            `json:"speed,omitempty"`
+	Metadata     map[string]string `json:"metadata,omitempty"`
 	Stream       bool              `json:"stream"`
+}
+
+// fastModeBeta is the beta flag fast mode needs on every request that sets
+// speed. Fast mode is a research preview on a short list of models.
+const fastModeBeta = "fast-mode-2026-02-01"
+
+// fastModes are the models that accept speed "fast". Opus 4.7 dropped it and
+// returns an error, so it is left out.
+var fastModes = map[string]bool{
+	"claude-opus-5":   true,
+	"claude-opus-5-5": true,
+	"claude-opus-4-8": true,
+}
+
+// fastSpeed reports whether req asks for fast mode and the model takes it.
+// A request for fast mode on any other model is sent unchanged rather than
+// rejected, so one speed setting can stay on while the model changes.
+func fastSpeed(req llm.Request) bool {
+	if req.Speed != "fast" {
+		return false
+	}
+	return fastModes[dateSuffix.ReplaceAllString(req.Model, "")]
+}
+
+// betaFeatures lists the anthropic-beta flags this request needs.
+func betaFeatures(req llm.Request) []string {
+	var out []string
+	if fastSpeed(req) {
+		out = append(out, fastModeBeta)
+	}
+	return out
 }
 
 // ephemeral is a cache breakpoint. ttl "1h" asks for the one-hour cache;
@@ -83,6 +116,12 @@ func buildBody(req llm.Request) ([]byte, error) {
 	maxTokens = clampOutput(req.Model, maxTokens)
 
 	body := wireRequest{Model: req.Model, Stream: true}
+	if req.SessionID != "" {
+		body.Metadata = map[string]string{"user_id": req.SessionID}
+	}
+	if fastSpeed(req) {
+		body.Speed = "fast"
+	}
 
 	if req.System != "" {
 		sys := block{"type": "text", "text": req.System}
@@ -93,6 +132,9 @@ func buildBody(req llm.Request) ([]byte, error) {
 	}
 
 	body.Messages = convertMessages(req.Messages)
+	if req.SendReasoning != nil && !*req.SendReasoning {
+		body.Messages = stripReasoning(body.Messages)
+	}
 	if req.CacheSystem {
 		markCacheBreakpoint(body.Messages, req.CacheTTL)
 	}
@@ -108,6 +150,11 @@ func buildBody(req llm.Request) ([]byte, error) {
 		tb := block{"name": t.Name, "input_schema": schema}
 		if t.Description != "" {
 			tb["description"] = t.Description
+		}
+		// Only an explicit true changes the wire. Without the flag the API
+		// buffers each tool input and validates it whole.
+		if req.ToolStreaming != nil && *req.ToolStreaming {
+			tb["eager_input_streaming"] = true
 		}
 		body.Tools = append(body.Tools, tb)
 	}
@@ -134,6 +181,9 @@ func buildBody(req llm.Request) ([]byte, error) {
 		if effort == "" && req.ThinkingBudget > 0 {
 			effort = effortForBudget(req.ThinkingBudget)
 		}
+		// The clamp applies to the wire level only. Budget models map effort
+		// to a token budget below, so they keep the mapping they always had.
+		effort = clampEffort(req.Model, effort)
 		if effort != "" {
 			body.Thinking = &wireThinking{Type: "adaptive"}
 			body.OutputConfig = &wireOutputConfig{Effort: effort}
@@ -172,6 +222,119 @@ func buildBody(req llm.Request) ([]byte, error) {
 	body.MaxTokens = maxTokens
 
 	return json.Marshal(body)
+}
+
+// effortLevels lists the effort levels a model accepts, lowest first. nil
+// means the model takes no effort control at all. Ids this table does not
+// know get every level, so a new model is never clamped by mistake.
+func effortLevels(model string) []string {
+	id := dateSuffix.ReplaceAllString(model, "")
+	m := familyFirst.FindStringSubmatch(id)
+	if m == nil {
+		return allEffortLevels
+	}
+	major, minor := atoi(m[2]), atoi(m[3])
+	switch {
+	case major >= 5, m[1] == "opus" && (major > 4 || (major == 4 && minor >= 7)):
+		return allEffortLevels
+	case (m[1] == "opus" || m[1] == "sonnet") && major == 4 && minor == 6:
+		return []string{"low", "medium", "high", "max"}
+	case m[1] == "opus" && major == 4 && minor == 5:
+		return []string{"low", "medium", "high"}
+	}
+	return nil
+}
+
+var allEffortLevels = []string{"low", "medium", "high", "xhigh", "max"}
+
+// clampEffort maps effort to a level the model accepts. An unsupported level
+// goes to the nearest supported one below it, and only when nothing below is
+// supported to the lowest one above. Going down keeps cost where the caller
+// asked for less than the model offers. "" stays "".
+func clampEffort(model, effort string) string {
+	if effort == "" {
+		return ""
+	}
+	levels := effortLevels(model)
+	idx := -1
+	for i, l := range allEffortLevels {
+		if l == effort {
+			idx = i
+		}
+	}
+	if idx < 0 {
+		return ""
+	}
+	supported := func(l string) bool {
+		for _, s := range levels {
+			if s == l {
+				return true
+			}
+		}
+		return false
+	}
+	for i := idx; i >= 0; i-- {
+		if supported(allEffortLevels[i]) {
+			return allEffortLevels[i]
+		}
+	}
+	for i := idx + 1; i < len(allEffortLevels); i++ {
+		if supported(allEffortLevels[i]) {
+			return allEffortLevels[i]
+		}
+	}
+	return ""
+}
+
+// stripReasoning removes thinking blocks from the history. Messages that
+// held only thinking are dropped, and the user turns that become adjacent
+// are merged, because the API rejects same-role neighbours.
+func stripReasoning(msgs []wireMessage) []wireMessage {
+	// The turn in progress keeps its thinking: with thinking on, the API
+	// wants the thinking that preceded a tool call sent back with that
+	// call's result, and a request without it can be refused. The current
+	// turn starts at the last user message the user wrote (one that is not
+	// only tool results).
+	current := len(msgs)
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "user" && !onlyToolResults(msgs[i]) {
+			current = i
+			break
+		}
+	}
+	var out []wireMessage
+	for i, m := range msgs {
+		var kept []block
+		for _, b := range m.Content {
+			if t := b["type"]; i < current && (t == "thinking" || t == "redacted_thinking") {
+				continue
+			}
+			kept = append(kept, b)
+		}
+		if len(kept) == 0 {
+			continue
+		}
+		if n := len(out); n > 0 && out[n-1].Role == m.Role {
+			out[n-1].Content = append(out[n-1].Content, kept...)
+			continue
+		}
+		out = append(out, wireMessage{Role: m.Role, Content: kept})
+	}
+	return out
+}
+
+// onlyToolResults reports whether a user message carries only tool results,
+// so it continues a tool loop rather than starting a turn.
+func onlyToolResults(m wireMessage) bool {
+	if len(m.Content) == 0 {
+		return false
+	}
+	for _, b := range m.Content {
+		if b["type"] != "tool_result" {
+			return false
+		}
+	}
+	return true
 }
 
 // effortLevel returns r when it is an effort level the Messages API takes,

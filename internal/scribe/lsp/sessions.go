@@ -33,6 +33,7 @@ type sessionStatus struct {
 	mu   sync.Mutex
 	info map[string]SessionInfo // keyed like Manager.sessions
 	live map[string]*session
+	dir  string // where running servers are recorded; empty records nothing
 }
 
 func (st *sessionStatus) init() {
@@ -52,6 +53,7 @@ func (m *Manager) noteStarted(key string, s *session) {
 	m.status.info[key] = SessionInfo{Language: s.spec.Language, Root: s.root, State: StateRunning,
 		Command: s.command, PID: s.pid(), Since: time.Now()}
 	m.status.live[key] = s
+	m.status.persistLocked()
 }
 
 func (m *Manager) noteFailed(key string, spec *serverSpec, root string, err error) {
@@ -60,6 +62,7 @@ func (m *Manager) noteFailed(key string, spec *serverSpec, root string, err erro
 	delete(m.status.live, key)
 	m.status.info[key] = SessionInfo{Language: spec.Language, Root: root, State: StateFailed,
 		LastError: err.Error(), Since: time.Now()}
+	m.status.persistLocked()
 }
 
 // Sessions lists the language servers this Manager has started or tried to

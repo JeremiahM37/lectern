@@ -69,8 +69,12 @@ type ProviderInfo struct {
 	DefaultModel string
 	NerdIcon     string
 	ASCIIIcon    string
-	EnvVars      []string
-	Custom       bool
+	// KeyURL is the page where a key is created, or "" when none is known.
+	KeyURL string
+	// Description is one line saying what the provider is.
+	Description string
+	EnvVars     []string
+	Custom      bool
 	// NeedsKey is false for providers that work without a key.
 	NeedsKey bool
 	// HasKey reports whether a key resolves from the environment or the store.
@@ -225,6 +229,10 @@ func (r *Registry) info(d Definition) ProviderInfo {
 		EnvVars:      d.EnvVars,
 		Custom:       d.Custom,
 		NeedsKey:     !d.KeyOptional,
+	}
+	if t, ok := providerText[d.ID]; ok {
+		pi.KeyURL = t.KeyURL
+		pi.Description = t.Description
 	}
 	if key, src, err := r.key(d); err == nil && key != "" {
 		pi.HasKey = true
@@ -442,7 +450,12 @@ func (r *Registry) ListModels(ctx context.Context, id string) ([]llm.ModelInfo, 
 // kept even when it is zero: that means free.
 func (r *Registry) enrich(provider string, m llm.ModelInfo) llm.ModelInfo {
 	known := lookupModel(provider, m.ID)
-	if m.ContextWindow == 0 {
+	ref := provider + "/" + m.ID
+	// A known-wrong window beats what the listing reports, but not a user's
+	// own override, which ModelInfo applies on top.
+	if w, ok := providerWindow(ref); ok && !r.hasContextOverride(ref) {
+		m.ContextWindow = w
+	} else if m.ContextWindow == 0 {
 		m.ContextWindow = known.ContextWindow
 	}
 	if provider == "ollama" {
@@ -478,7 +491,12 @@ func (r *Registry) ModelInfo(ref string) llm.ModelInfo {
 	r.mu.Unlock()
 	if overridden && w > 0 {
 		info.ContextWindow = w
-	} else if pid == "ollama" {
+		return info
+	}
+	if pw, ok := providerWindow(ref); ok {
+		info.ContextWindow = pw
+	}
+	if pid == "ollama" {
 		info.ContextWindow = r.ollamaWindow(ref, info.ContextWindow)
 	}
 	return info

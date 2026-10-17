@@ -54,6 +54,21 @@ func subagentRef(r config.Router, spec agent.SubagentSpec, tierRouting bool) str
 	return ref
 }
 
+// subagentWindowCap is the largest context window a subagent's token
+// thresholds are measured against (spec 03 §3.5, §4.10). A subagent on a
+// million-token model still nudges at 80% and stops at 90% of 200 000: its
+// work is bounded by step caps, so the window it could fill is not the limit.
+const subagentWindowCap = 200_000
+
+// subagentWindow is the window a subagent's token thresholds use: the model's
+// window capped at subagentWindowCap. An unknown window (zero) gets the cap.
+func subagentWindow(modelWindow int) int {
+	if modelWindow <= 0 || modelWindow > subagentWindowCap {
+		return subagentWindowCap
+	}
+	return modelWindow
+}
+
 // readOnlyProjectTool is the read-only project check for explore and review
 // subagents.
 func readOnlyProjectTool(jobs *exec.Jobs) tools.Tool {

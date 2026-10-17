@@ -114,13 +114,20 @@ type shutdownState struct {
 	backends []Backend
 }
 
-// startShutdown switches to the quit screen and closes every tab's backend.
+// startShutdown switches to the quit screen and ends every tab, in the order
+// the spec gives (06 §8.3): terminals first, then running turns, child
+// processes, and last each session's close, which saves it and then stops its
+// MCP servers and language servers. See EndSessions.
 func (m *Model) startShutdown() tea.Cmd {
 	m.phase = phaseShutdown
 	var bes []Backend
 	for _, t := range m.tabs {
 		bes = append(bes, t.be)
 	}
+	// Terminals and the editor run their own programs, and they must be gone
+	// before the backends stop. This runs here, on the UI goroutine, because it
+	// changes the model.
+	m.closePanes()
 	// The resume command is printed once, by SavedBannerLines after the
 	// terminal is restored, with the full session id. The quit screen does not
 	// show a second, shorter one.
@@ -129,10 +136,67 @@ func (m *Model) startShutdown() tea.Cmd {
 	}
 	m.sd = &shutdownState{start: time.Now(), backends: bes}
 	return func() tea.Msg {
-		for _, be := range bes {
-			_ = be.Close()
-		}
+		EndSessions(bes, shutdownStopWait)
 		return closedMsg{}
+	}
+}
+
+// shutdownStopWait bounds how long the quit waits for running turns to stop
+// before it moves on. Each session's close waits for its own save, so this
+// only has to cover an abort taking effect.
+const shutdownStopWait = 5 * time.Second
+
+// EndSessions ends every session as the process leaves, in the order the spec
+// gives (06 §8.3). The order matters across tabs, not just within one:
+//
+//  1. Abort every running turn and wait for them all to stop. A turn still
+//     running would call a provider or an MCP tool after that server closed.
+//  2. Kill the background jobs still running, so no child process outlives
+//     its session.
+//  3. Close each session. Its close saves the transcript, then stops its MCP
+//     servers and language servers. Every save has happened by now, so no
+//     tab's MCP shuts down under another tab's unfinished turn.
+//
+// The Backend interface has no step for the providers or the intelligence
+// router, so those close inside Close, not as their own steps here.
+func EndSessions(list []Backend, timeout time.Duration) {
+	for _, be := range list {
+		be.Abort()
+	}
+	waitIdle(list, timeout)
+	for _, be := range list {
+		killRunningJobs(be)
+	}
+	for _, be := range list {
+		_ = be.Close()
+	}
+}
+
+// waitIdle polls until no backend in list is running, or timeout passes.
+func waitIdle(list []Backend, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		busy := false
+		for _, be := range list {
+			if be.Running() {
+				busy = true
+				break
+			}
+		}
+		if !busy {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// killRunningJobs kills every background job of one session that is still
+// running. A job that already exited is left alone.
+func killRunningJobs(be Backend) {
+	for _, j := range be.Jobs() {
+		if j.Status == "running" {
+			_ = be.KillJob(j.ID)
+		}
 	}
 }
 

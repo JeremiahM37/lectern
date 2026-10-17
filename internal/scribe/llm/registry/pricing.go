@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
@@ -113,9 +114,18 @@ func heuristicPrice(model string) (priceEntry, bool) {
 	return priceEntry{}, false
 }
 
+// fireworksLargeRate is Fireworks' tier rate for models above 16B parameters.
+// The spec gives one figure for the tier, so input and output share it.
+const fireworksLargeRate = 0.9
+
+// fireworksLargeParams is the size above which the large-model tier applies.
+const fireworksLargeParams = 16
+
 // fireworksPrice is Fireworks' own tier pricing for the models that have a
-// published rate. Fireworks does not publish a separate cache rate, so cache
-// reads and writes are billed at the input rate (an upper bound).
+// published rate: DeepSeek V3/R1, and any model whose id names a size above
+// 16B. Fireworks does not publish a separate cache rate, so cache reads and
+// writes are billed at the input rate (an upper bound). Mixtral has a tier in
+// the spec but no figure, so it is not priced here and stays Estimated.
 func fireworksPrice(provider, model string) (priceEntry, bool) {
 	if provider != "fireworks" {
 		return priceEntry{}, false
@@ -124,7 +134,48 @@ func fireworksPrice(provider, model string) (priceEntry, bool) {
 	if strings.Contains(m, "deepseek-v3") || strings.Contains(m, "deepseek-r1") {
 		return priceEntry{in: 0.56, out: 1.68, cacheRd: 0.56, cacheWr: 0.56}, true
 	}
+	if n, ok := paramsInID(m); ok && n > fireworksLargeParams {
+		return priceEntry{in: fireworksLargeRate, out: fireworksLargeRate, cacheRd: fireworksLargeRate, cacheWr: fireworksLargeRate}, true
+	}
 	return priceEntry{}, false
+}
+
+// paramsInID returns the parameter count in billions when a whole segment of
+// the id is a size such as "70b" or "72b". Segments are split on "/", "-" and
+// "_". A mixture like "8x7b" is not a plain size, so it reports false.
+func paramsInID(m string) (float64, bool) {
+	for _, seg := range strings.FieldsFunc(m, func(r rune) bool {
+		return r == '/' || r == '-' || r == '_'
+	}) {
+		if !strings.HasSuffix(seg, "b") {
+			continue
+		}
+		num := strings.TrimSuffix(seg, "b")
+		if num == "" || !isDecimal(num) {
+			continue
+		}
+		n, err := strconv.ParseFloat(num, 64)
+		if err != nil {
+			continue
+		}
+		return n, true
+	}
+	return 0, false
+}
+
+// isDecimal reports whether s is digits with at most one dot, so that words
+// such as "inf" or "1e3" are not read as sizes.
+func isDecimal(s string) bool {
+	dots := 0
+	for _, r := range s {
+		switch {
+		case r == '.':
+			dots++
+		case r < '0' || r > '9':
+			return false
+		}
+	}
+	return dots <= 1 && s != "."
 }
 
 // lookupModel returns the table entry for a provider/model pair. Local

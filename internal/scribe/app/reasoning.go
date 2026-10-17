@@ -57,6 +57,11 @@ func applyPerformance(r *llm.Request, p config.Performance, rs config.Reasoning,
 	if config.Bool(p.DisableParallelToolUse, false) {
 		r.DisableParallelToolUse = true
 	}
+	// Adapters that do not know these leave them alone; unset means the
+	// request is unchanged.
+	r.Speed = p.Speed
+	r.ToolStreaming = p.ToolStreaming
+	r.SendReasoning = p.SendReasoning
 }
 
 // tune is the agent.Options.Tune hook. It reads the settings of the
@@ -68,7 +73,9 @@ func (a *App) tune(m agent.Model, r *llm.Request) {
 	a.mu.Lock()
 	rs := a.Cfg.ReasoningByProvider[provider]
 	perf := a.Cfg.Performance
+	sessionID := a.Meta.ID
 	a.mu.Unlock()
+	r.SessionID = sessionID
 	applyReasoning(r, rs, m.Info.ReasoningStyle)
 	applyPerformance(r, perf, rs, m.Info.ReasoningStyle)
 	applyProviderReasoning(r, provider, rs, m.Info.ReasoningStyle)

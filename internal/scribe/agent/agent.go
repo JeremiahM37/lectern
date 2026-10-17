@@ -249,12 +249,20 @@ type Agent struct {
 	// and the compaction log.
 	modelLog   []Event
 	compactLog []Event
+
+	// taskList is the tab's task list as task_list last set it. taskShown is
+	// the list text last sent to the model in a reminder, and taskShownGen
+	// the history generation it was sent in (task_reminder.go).
+	taskList     []Task
+	taskShown    string
+	taskShownGen int
 }
 
 // badArg is a tool call whose arguments the provider sent as invalid JSON.
 type badArg struct {
-	raw    string // the arguments as the provider sent them
-	reason string // the JSON parser's complaint
+	raw       string // the arguments as the provider sent them
+	reason    string // the JSON parser's complaint
+	truncated bool   // the text is an object cut off part way (wait_notice.go)
 }
 
 // maxAutoFixRounds bounds how many times a failed automatic check is fed
@@ -683,7 +691,9 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 		}
 		// Steering that arrived while the history was being compacted goes in
 		// now, after the summary, rather than waiting for the next tool step.
-		if step > 1 && a.generation() != gen {
+		// The first step counts too: the turn's own prompt is the user message
+		// it joins, so nothing is left waiting for a later step.
+		if a.generation() != gen {
 			if q, imgs := a.drainSteering(); q != "" {
 				a.appendSteering(q, imgs)
 			}
@@ -761,6 +771,9 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 			if note := sn.StepNotice(ctx, step+1); note != "" {
 				hints = append(hints, note)
 			}
+		}
+		if note := a.taskReminder(); note != "" {
+			hints = append(hints, note)
 		}
 		q, imgs := a.drainSteering()
 		if q != "" {
@@ -1328,12 +1341,12 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 				if raw, malformed := llm.UnparsedArgs(ev.Args); malformed {
 					// The adapter could not parse the arguments and passed
 					// the raw text as a JSON string (see llm.ToolArgs).
-					bad[id] = badArg{raw: raw, reason: argsProblem(raw)}
+					bad[id] = newBadArg(raw)
 				} else if raw := bytes.TrimSpace(ev.Args); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
 					if json.Valid(raw) && raw[0] == '{' {
 						args = raw
 					} else {
-						bad[id] = badArg{raw: string(raw), reason: argsProblem(string(raw))}
+						bad[id] = newBadArg(string(raw))
 					}
 				}
 				calls[id] = len(parts)
@@ -1662,8 +1675,7 @@ func (a *Agent) execToolPosted(ctx context.Context, call llm.Part, posted *bool)
 		return tools.Errorf("unknown tool %q. Available tools: %s", call.ToolName, strings.Join(a.toolNames(), ", "))
 	}
 	if bad, ok := a.takeBadArg(call.ToolCallID); ok {
-		return tools.Errorf("the arguments for %s are not valid JSON (%s). The raw input starts with %q. The call was not run. Resend it with valid JSON arguments.",
-			call.ToolName, bad.reason, fragment(bad.raw, 200))
+		return badArgResult(call.ToolName, bad)
 	}
 	if pol := a.currentPolicy(); !pol.allows(call.ToolName) {
 		return tools.Errorf("%s is not available for this step. The budget for this agent is nearly used up, so reply in text with what you have.", call.ToolName)
@@ -1692,7 +1704,7 @@ func (a *Agent) execToolPosted(ctx context.Context, call llm.Part, posted *bool)
 	env.Scope = a.scope()
 	env.Services = withService(env.Services, "dispatch", a)
 	if env.Host != nil {
-		env.Host = waitHost{Host: env.Host, waits: &a.waits}
+		env.Host = noticingHost{waitHost: waitHost{Host: env.Host, waits: &a.waits}, notify: a.notifyWait}
 	}
 	res = a.runWithTimeout(ctx, call.ToolName, t, &env, args)
 	*posted = true

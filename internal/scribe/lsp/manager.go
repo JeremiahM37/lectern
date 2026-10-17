@@ -81,6 +81,10 @@ type session struct {
 	stderr   *tailBuffer
 	restarts int
 	command  string // "bin arg ..." as started, for status views
+	bin      string // the binary as found, for the orphan record
+	// startTicks is the process start time read right after start, so a
+	// record can tell this server from a later process with the same pid.
+	startTicks uint64
 
 	mu   sync.Mutex // guards docs and document notifications
 	docs map[string]*docState
@@ -311,7 +315,7 @@ func (m *Manager) sessionForSpec(ctx context.Context, spec *serverSpec, root str
 // a project marker for spec, falling back to the workdir.
 func (m *Manager) rootFor(spec *serverSpec, abs string) string {
 	for dir := filepath.Dir(abs); within(m.workdir, dir); dir = filepath.Dir(dir) {
-		if hasMarker(dir, spec.Markers) {
+		if hasAnyMarker(dir, markersFor(spec.Language)) {
 			return dir
 		}
 		if dir == m.workdir {
@@ -352,7 +356,8 @@ func startSession(ctx context.Context, spec *serverSpec, root string, restarts i
 	}
 	client := NewClient(stdout, stdin)
 	s := &session{spec: spec, root: root, client: client, cmd: cmd, stderr: stderr,
-		restarts: restarts, command: strings.Join(append([]string{bin}, args...), " "), docs: map[string]*docState{}}
+		restarts: restarts, command: strings.Join(append([]string{bin}, args...), " "), docs: map[string]*docState{},
+		bin: bin, startTicks: procStartTicks(cmd.Process.Pid)}
 	go func() {
 		<-client.Done()
 		_ = cmd.Wait()
@@ -473,6 +478,9 @@ func (m *Manager) Shutdown() {
 	for _, s := range list {
 		s.stop()
 	}
+	// The record stays until every server is stopped, so a crash during the
+	// stops still leaves them for the next boot.
+	m.releaseRecords()
 }
 
 // running returns the live sessions, in a stable order.

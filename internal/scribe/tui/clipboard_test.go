@@ -128,6 +128,8 @@ func TestCtrlVAttachesClipboardImageAsChip(t *testing.T) {
 func TestCtrlVWithNoImageShowsNoticeAndAttachesNothing(t *testing.T) {
 	m, _ := newImageModel(t)
 	m.cur().in.clip = (&fakeClipboard{err: errNoClipboardImage}).read
+	// No text either, whatever the machine's real clipboard holds.
+	m.cur().in.clipText = func() (string, error) { return "", errNoClipboardText }
 
 	pressCtrlV(t, m)
 

@@ -89,6 +89,7 @@ func (p *Provider) Stream(ctx context.Context, req llm.Request) (<-chan llm.Even
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
 	p.setAuth(httpReq.Header, req.Headers)
+	addBetas(httpReq.Header, betaFeatures(req))
 
 	resp, err := p.opts.HTTPClient.Do(httpReq)
 	ch := make(chan llm.Event, 16)
@@ -127,6 +128,34 @@ func (p *Provider) setAuth(h http.Header, perRequest map[string]string) {
 	for k, v := range perRequest {
 		h.Set(k, v)
 	}
+}
+
+// addBetas adds feature flags to anthropic-beta without dropping the flags
+// already set by ExtraHeaders or the per-request headers. A flag that is
+// already present is not repeated.
+func addBetas(h http.Header, flags []string) {
+	if len(flags) == 0 {
+		return
+	}
+	var have []string
+	for _, part := range strings.Split(h.Get("anthropic-beta"), ",") {
+		if t := strings.TrimSpace(part); t != "" {
+			have = append(have, t)
+		}
+	}
+	for _, f := range flags {
+		found := false
+		for _, got := range have {
+			if got == f {
+				found = true
+				break
+			}
+		}
+		if !found {
+			have = append(have, f)
+		}
+	}
+	h.Set("anthropic-beta", strings.Join(have, ","))
 }
 
 // run consumes the SSE body, emitting non-terminal events on ch, and returns

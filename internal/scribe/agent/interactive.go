@@ -812,6 +812,10 @@ func (t taskTool) Run(_ context.Context, _ *tools.Env, args json.RawMessage) too
 	if t.p.Sink != nil {
 		t.p.Sink(Event{Kind: EvTasks, Tasks: list})
 	}
+	// The loop reminds the model of the list after this step (task_reminder.go).
+	if t.p.Agent != nil {
+		t.p.Agent.setTaskList(list)
+	}
 	var b strings.Builder
 	for _, x := range list {
 		fmt.Fprintf(&b, "%s. [%s] %s\n", x.ID, x.Status, x.Text)

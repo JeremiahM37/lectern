@@ -19,8 +19,7 @@ type candidate struct {
 type serverSpec struct {
 	Language   string
 	Candidates []candidate
-	Markers    []string // files or globs that mark a project root
-	Install    string   // how to install the first candidate
+	Install    string // how to install the first candidate
 }
 
 // serverSpecs is the catalog, keyed by language.
@@ -28,7 +27,6 @@ var serverSpecs = map[string]*serverSpec{
 	"go": {
 		Language:   "go",
 		Candidates: []candidate{{"gopls", []string{"serve"}}},
-		Markers:    []string{"go.mod", "go.work"},
 		Install:    "go install golang.org/x/tools/gopls@latest",
 	},
 	"typescript": {
@@ -37,7 +35,6 @@ var serverSpecs = map[string]*serverSpec{
 			{"typescript-language-server", []string{"--stdio"}},
 			{"vtsls", []string{"--stdio"}},
 		},
-		Markers: []string{"tsconfig.json", "jsconfig.json", "package.json"},
 		Install: "npm install -g typescript typescript-language-server",
 	},
 	"python": {
@@ -47,73 +44,61 @@ var serverSpecs = map[string]*serverSpec{
 			{"basedpyright-langserver", []string{"--stdio"}},
 			{"pylsp", nil},
 		},
-		Markers: []string{"pyproject.toml", "setup.py", "setup.cfg", "pyrightconfig.json", "requirements.txt"},
 		Install: "npm install -g pyright   (or: pip install python-lsp-server)",
 	},
 	"rust": {
 		Language:   "rust",
 		Candidates: []candidate{{"rust-analyzer", nil}},
-		Markers:    []string{"Cargo.toml"},
 		Install:    "rustup component add rust-analyzer",
 	},
 	"cpp": {
 		Language:   "cpp",
 		Candidates: []candidate{{"clangd", nil}},
-		Markers:    []string{"compile_commands.json", "CMakeLists.txt", ".clangd", "Makefile"},
 		Install:    "install clangd (for example: apt install clangd)",
 	},
 	"java": {
 		Language:   "java",
 		Candidates: []candidate{{"jdtls", nil}},
-		Markers:    []string{"pom.xml", "build.gradle", "build.gradle.kts"},
 		Install:    "install Eclipse JDT Language Server and put its jdtls launcher on PATH",
 	},
 	"ruby": {
 		Language:   "ruby",
 		Candidates: []candidate{{"ruby-lsp", nil}},
-		Markers:    []string{"Gemfile"},
 		Install:    "gem install ruby-lsp",
 	},
 	"lua": {
 		Language:   "lua",
 		Candidates: []candidate{{"lua-language-server", nil}},
-		Markers:    []string{".luarc.json", ".luarc.jsonc"},
 		Install:    "install lua-language-server from https://github.com/LuaLS/lua-language-server/releases",
 	},
 	"zig": {
 		Language:   "zig",
 		Candidates: []candidate{{"zls", nil}},
-		Markers:    []string{"build.zig"},
 		Install:    "install zls from https://github.com/zigtools/zls/releases",
 	},
 	"csharp": {
 		Language:   "csharp",
 		Candidates: []candidate{{"csharp-ls", nil}},
-		Markers:    []string{"*.sln", "*.csproj"},
 		Install:    "dotnet tool install -g csharp-ls",
 	},
 	"php": {
 		Language:   "php",
 		Candidates: []candidate{{"intelephense", []string{"--stdio"}}},
-		Markers:    []string{"composer.json"},
 		Install:    "npm install -g intelephense",
 	},
 	"bash": {
 		Language:   "bash",
 		Candidates: []candidate{{"bash-language-server", []string{"start"}}},
-		Markers:    nil,
 		Install:    "npm install -g bash-language-server",
 	},
 	"yaml": {
 		Language:   "yaml",
 		Candidates: []candidate{{"yaml-language-server", []string{"--stdio"}}},
-		Markers:    nil,
 		Install:    "npm install -g yaml-language-server",
 	},
 	"elixir": {
 		Language:   "elixir",
 		Candidates: []candidate{{"elixir-ls", nil}, {"expert", []string{"--stdio"}}},
-		Markers:    []string{"mix.exs"},
 		Install:    "install ElixirLS from https://github.com/elixir-lsp/elixir-ls",
 	},
 }
@@ -231,20 +216,4 @@ func lookBinary(name, root string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-// hasMarker reports whether dir contains any of the marker files or globs.
-func hasMarker(dir string, markers []string) bool {
-	for _, m := range markers {
-		if strings.ContainsAny(m, "*?[") {
-			if matches, _ := filepath.Glob(filepath.Join(dir, m)); len(matches) > 0 {
-				return true
-			}
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(dir, m)); err == nil {
-			return true
-		}
-	}
-	return false
 }

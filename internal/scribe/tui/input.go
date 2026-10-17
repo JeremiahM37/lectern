@@ -55,8 +55,10 @@ type inputState struct {
 	images []inputImage
 	imageN int // last chip label handed out; back to 0 when the chips are gone
 	clip   clipboardReader
-	cwd    string // working directory the stashes belong to
-	vim    vimState
+	// clipText reads the clipboard's text when Ctrl+V finds no image on it.
+	clipText clipboardTextReader
+	cwd      string // working directory the stashes belong to
+	vim      vimState
 }
 
 // inputImage is one attached image.
@@ -81,7 +83,7 @@ func newInputState() *inputState {
 	ta.SetHeight(1)
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 	ta.Focus()
-	return &inputState{ta: ta, hidx: -1, pastes: map[string]string{}, clip: systemClipboardImage}
+	return &inputState{ta: ta, hidx: -1, pastes: map[string]string{}, clip: systemClipboardImage, clipText: systemClipboardText}
 }
 
 // ---------------------------------------------------------------- images
@@ -130,18 +132,24 @@ func (s *inputState) chips() string {
 	return strings.Join(out, " ")
 }
 
-// pasteImage starts a clipboard image read off the UI loop. The result comes
-// back as an imageProbeMsg; until then the box shows "reading image" and Enter
-// waits. A second Ctrl+V during a read does nothing.
+// pasteImage starts a clipboard read off the UI loop. The result comes back as
+// an imageProbeMsg; until then the box shows "reading image" and Enter waits. A
+// second Ctrl+V during a read does nothing. An image wins; with no image the
+// clipboard's text is pasted instead (see finishImageProbe).
 func (m *Model) pasteImage(t *tab) tea.Cmd {
 	s := t.in
 	if s.probing {
 		return nil
 	}
 	s.probing = true
-	clip, id := s.clip, t.id
+	clip, clipText, id := s.clip, s.clipText, t.id
 	return func() tea.Msg {
 		data, mt, err := clip()
+		if errors.Is(err, errNoClipboardImage) || errors.Is(err, errNoClipboardTool) {
+			if text, terr := clipText(); terr == nil {
+				err = clipTextFound{text: text}
+			}
+		}
 		return imageProbeMsg{tab: id, data: data, mt: mt, err: err}
 	}
 }
@@ -156,6 +164,11 @@ func (m *Model) finishImageProbe(msg imageProbeMsg) tea.Cmd {
 	}
 	t.in.probing = false
 	if err := msg.err; err != nil {
+		var found clipTextFound
+		if errors.As(err, &found) {
+			m.pasteClipboardText(t, found.text)
+			return nil
+		}
 		if errors.Is(err, errNoClipboardImage) {
 			m.logError(t, err.Error())
 			return nil
@@ -169,6 +182,18 @@ func (m *Model) finishImageProbe(msg imageProbeMsg) tea.Cmd {
 	}
 	m.attachFitted(t, msg.data, msg.mt, "Attached image %d from the clipboard", "the clipboard image")
 	return nil
+}
+
+// pasteClipboardText puts clipboard text into the input the way a bracketed
+// paste does: a path to an image attaches the image, and a long paste takes a
+// placeholder that expands on submit.
+func (m *Model) pasteClipboardText(t *tab, text string) {
+	if path, ok := imagePathFromPaste(text); ok {
+		m.attachImageFile(t, path)
+		return
+	}
+	t.in.ta.InsertString(t.in.collapsePaste(text))
+	t.in.hidx = -1
 }
 
 // attachFitted attaches an image, shrinking it first when it is over the size

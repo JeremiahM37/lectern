@@ -227,29 +227,68 @@ func (g *gitMenu) actDiff() (tea.Cmd, bool) { return g.m.openWorkingDiff(""), tr
 
 func (g *gitMenu) actCommit() (tea.Cmd, bool) { return g.m.openCommitModal(), true }
 
-func (g *gitMenu) actStash() (tea.Cmd, bool) {
+// gitOp is a git action that asks before it runs. Every such action goes
+// through confirmGitOp, so the wording, the button labels and the default
+// answer are the same for all of them.
+type gitOp struct {
+	title, message string
+	// danger marks an action that can lose work or rewrite a shared branch. It
+	// is shown in red and Cancel is the answer Enter gives.
+	danger bool
+	// run is the button that carries the action out; the other is Cancel.
+	run string
+	// command is the git command, and flash is shown while it runs. done and
+	// failed are the outcome lines.
+	command, flash, done, failed string
+}
+
+var (
+	gitStash = gitOp{
+		title:   "Stash changes?",
+		message: "Stashes tracked changes and resets the working tree to HEAD. Untracked files stay where they are.",
+		run:     "Stash",
+		command: "git stash push", flash: "Stashing…", done: "Changes stashed.", failed: "Stash failed",
+	}
+	gitPop = gitOp{
+		title:   "Pop the latest stash?",
+		message: "Applies the most recent stash to the working tree and drops it from the stash list.",
+		run:     "Pop",
+		command: "git stash pop", flash: "Popping the stash…", done: "Stash popped.", failed: "Stash pop failed",
+	}
+	gitForcePush = gitOp{
+		title:   "Force-push to remote?",
+		message: "git push --force-with-lease will overwrite the remote branch. Other contributors' commits may be discarded.",
+		danger:  true,
+		run:     "Force push",
+		command: "git push --force-with-lease", flash: "Force-pushing (with lease)…",
+		done: "Force push complete.", failed: "Force push failed",
+	}
+	gitResetHard = gitOp{
+		title:   "Reset working tree?",
+		message: "git reset --hard HEAD will discard all uncommitted changes. Untracked files are kept.",
+		danger:  true,
+		run:     "Reset",
+		command: "git reset --hard HEAD", flash: "Resetting working tree…",
+		done: "Reset complete.", failed: "Reset failed",
+	}
+)
+
+// confirmGitOp is the one gate for git actions that discard work or rewrite
+// history. It asks with op's wording, closes the menu and runs the command
+// only on a yes. A dangerous op defaults to Cancel.
+func (g *gitMenu) confirmGitOp(op gitOp) (tea.Cmd, bool) {
 	m, be := g.m, g.be
-	m.pushModal(NewConfirm(g.th, "Stash changes?",
-		"Stashes tracked changes and resets the working tree to HEAD. Untracked files stay where they are.", false,
-		func() tea.Cmd {
-			m.closeModal(g)
-			m.setFlash("info", "Stashing…")
-			return shellFlash(be, "git stash push", "Changes stashed.", "Stash failed")
-		}))
+	m.pushModal(NewConfirm(g.th, op.title, op.message, op.danger, func() tea.Cmd {
+		m.closeModal(g)
+		m.setFlash("info", op.flash)
+		return shellFlash(be, op.command, op.done, op.failed)
+	}).WithLabels(op.run, "Cancel"))
 	return nil, false
 }
 
-func (g *gitMenu) actPop() (tea.Cmd, bool) {
-	m, be := g.m, g.be
-	m.pushModal(NewConfirm(g.th, "Pop the latest stash?",
-		"Applies the most recent stash to the working tree and drops it from the stash list.", false,
-		func() tea.Cmd {
-			m.closeModal(g)
-			m.setFlash("info", "Popping the stash…")
-			return shellFlash(be, "git stash pop", "Stash popped.", "Stash pop failed")
-		}))
-	return nil, false
-}
+func (g *gitMenu) actStash() (tea.Cmd, bool) { return g.confirmGitOp(gitStash) }
+
+func (g *gitMenu) actPop() (tea.Cmd, bool) { return g.confirmGitOp(gitPop) }
 
 func (g *gitMenu) actLog() (tea.Cmd, bool) {
 	m, be, th := g.m, g.be, g.th
@@ -283,30 +322,10 @@ func (g *gitMenu) actPull() (tea.Cmd, bool) {
 
 // actForcePush asks first, then runs push --force-with-lease, which refuses
 // when the remote has commits this clone has not seen.
-func (g *gitMenu) actForcePush() (tea.Cmd, bool) {
-	m, be := g.m, g.be
-	m.pushModal(NewConfirm(g.th, "Force-push to remote?",
-		"git push --force-with-lease will overwrite the remote branch. Other contributors' commits may be discarded.", true,
-		func() tea.Cmd {
-			m.closeModal(g)
-			m.setFlash("info", "Force-pushing (with lease)…")
-			return shellFlash(be, "git push --force-with-lease", "Force push complete.", "Force push failed")
-		}).WithLabels("Force push", "Cancel"))
-	return nil, false
-}
+func (g *gitMenu) actForcePush() (tea.Cmd, bool) { return g.confirmGitOp(gitForcePush) }
 
 // actResetHard asks first. Untracked files are kept, as git reset --hard does.
-func (g *gitMenu) actResetHard() (tea.Cmd, bool) {
-	m, be := g.m, g.be
-	m.pushModal(NewConfirm(g.th, "Reset working tree?",
-		"git reset --hard HEAD will discard all uncommitted changes. Untracked files are kept.", true,
-		func() tea.Cmd {
-			m.closeModal(g)
-			m.setFlash("info", "Resetting working tree…")
-			return shellFlash(be, "git reset --hard HEAD", "Reset complete.", "Reset failed")
-		}).WithLabels("Reset", "Cancel"))
-	return nil, false
-}
+func (g *gitMenu) actResetHard() (tea.Cmd, bool) { return g.confirmGitOp(gitResetHard) }
 
 // lazygitMissing is the message when lazygit cannot be started.
 const lazygitMissing = "Failed to launch lazygit. Is it installed?"
@@ -340,11 +359,14 @@ func (g *gitMenu) actPush() (tea.Cmd, bool) {
 				title = "Push to " + up + "?"
 				msg = fmt.Sprintf("Sends your local commits on %s to %s.", branch, up)
 			}
+			// A push is not in the destructive set, but it still asks. Its
+			// button says Push: the default label for a danger confirm is
+			// "Yes, delete", which is wrong here.
 			m.pushModal(NewConfirm(th, title, msg, true, func() tea.Cmd {
 				m.closeModal(g)
 				m.setFlash("info", "Pushing…")
 				return shellFlash(be, "git push", "Push complete.", "Push failed")
-			}))
+			}).WithLabels("Push", "Cancel"))
 			return nil, false
 		}
 	}), false

@@ -2,8 +2,10 @@ package lsp
 
 import (
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 const (
@@ -14,6 +16,61 @@ const (
 	// when no marker file names it, so one stray script does not.
 	minSourceFiles = 3
 )
+
+// projectMarker is one project marker file (or glob) and the language it
+// marks. A marker names the project; it does not start a server by itself.
+type projectMarker struct {
+	pattern  string
+	language string
+}
+
+// projectMarkers is the one table of project markers. Detection and the
+// per-file search for a project root both read it, so a marker is added here
+// and nowhere else. Markers for languages without a catalogued server (Swift,
+// Scala, Dart) are kept: DetectLanguages drops them, and the table stays a
+// faithful copy of the list the spec gives.
+var projectMarkers = []projectMarker{
+	{"go.mod", "go"},
+	{"go.work", "go"},
+	{"tsconfig.json", "typescript"},
+	{"jsconfig.json", "typescript"},
+	{"package.json", "typescript"},
+	{"pyproject.toml", "python"},
+	{"setup.py", "python"},
+	{"setup.cfg", "python"},
+	{"pyrightconfig.json", "python"},
+	{"requirements.txt", "python"},
+	{"Cargo.toml", "rust"},
+	{"pom.xml", "java"},
+	{"build.gradle", "java"},
+	{"build.gradle.kts", "java"},
+	{"Gemfile", "ruby"},
+	{"composer.json", "php"},
+	{"Package.swift", "swift"},
+	{"build.sbt", "scala"},
+	{"mix.exs", "elixir"},
+	{"pubspec.yaml", "dart"},
+	{"build.zig", "zig"},
+	{"Makefile", "cpp"},
+	{"CMakeLists.txt", "cpp"},
+	{"compile_commands.json", "cpp"},
+	{".clangd", "cpp"},
+	{"*.sln", "csharp"},
+	{"*.csproj", "csharp"},
+	{".luarc.json", "lua"},
+	{".luarc.jsonc", "lua"},
+}
+
+// markersFor lists the marker patterns that mark a project of language.
+func markersFor(language string) []string {
+	var out []string
+	for _, m := range projectMarkers {
+		if m.language == language {
+			out = append(out, m.pattern)
+		}
+	}
+	return out
+}
 
 // DetectLanguages lists the languages a project uses, sorted by name. A
 // language counts when a marker file (go.mod, tsconfig.json, Cargo.toml and
@@ -38,9 +95,9 @@ func DetectLanguages(root string) []string {
 			if dirs > maxDetectDirs {
 				return fs.SkipAll
 			}
-			for lang, spec := range serverSpecs {
-				if !found[lang] && hasMarker(path, spec.Markers) {
-					found[lang] = true
+			for _, m := range projectMarkers {
+				if !found[m.language] && markerPresent(path, m.pattern) {
+					found[m.language] = true
 				}
 			}
 			return nil
@@ -63,4 +120,25 @@ func DetectLanguages(root string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// markerPresent reports whether dir holds a file matching pattern, which is
+// either a plain file name or a glob such as *.csproj.
+func markerPresent(dir, pattern string) bool {
+	if strings.ContainsAny(pattern, "*?[") {
+		matches, _ := filepath.Glob(filepath.Join(dir, pattern))
+		return len(matches) > 0
+	}
+	_, err := os.Stat(filepath.Join(dir, pattern))
+	return err == nil
+}
+
+// hasAnyMarker reports whether dir holds any of the marker patterns.
+func hasAnyMarker(dir string, patterns []string) bool {
+	for _, p := range patterns {
+		if markerPresent(dir, p) {
+			return true
+		}
+	}
+	return false
 }

@@ -146,6 +146,21 @@ type Request struct {
 	DisableParallelToolUse bool
 	// Headers are extra HTTP headers (e.g. session affinity for gateways).
 	Headers map[string]string
+	// SessionID identifies the chat this call belongs to. Anthropic sends it
+	// as metadata.user_id, which lets the provider route a session's calls
+	// consistently. "" omits it.
+	SessionID string
+	// Speed asks for a speed tier. Anthropic takes "fast" (fast mode), and
+	// only on the models that offer it; any other model ignores the field.
+	// "" or "standard" leaves the request unchanged.
+	Speed string
+	// ToolStreaming, when true, asks adapters that support it to stream tool
+	// arguments as they are generated (Anthropic eager_input_streaming on
+	// client tools). nil and false leave the request unchanged.
+	ToolStreaming *bool
+	// SendReasoning, when false, drops prior reasoning from the history
+	// before sending it. nil and true keep it, which is the default.
+	SendReasoning *bool
 }
 
 // EventType discriminates Event.

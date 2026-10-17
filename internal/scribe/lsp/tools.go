@@ -815,12 +815,29 @@ func (t *formatTool) Run(ctx context.Context, env *tools.Env, args json.RawMessa
 	if ranged && (a.StartLine < 1 || a.EndLine < a.StartLine) {
 		return tools.Errorf("format_file range needs 1 <= start_line <= end_line; got %d to %d", a.StartLine, a.EndLine)
 	}
-	workdir := t.m.Workdir()
-	if env != nil && env.Workdir != "" {
-		workdir = env.Workdir
-	}
-	abs := resolvePath(workdir, a.Path)
-	rel := t.m.RelPath(abs)
+	abs := resolvePath(workdirOf(t.m, env), a.Path)
+	return formatFile(ctx, t.m, env, abs, formatOpts{
+		organize:  a.OrganizeImports,
+		format:    true,
+		startLine: a.StartLine,
+		endLine:   a.EndLine,
+	})
+}
+
+// formatOpts says which steps formatFile runs on one file.
+type formatOpts struct {
+	organize  bool // sort and remove unused imports first
+	format    bool // then format, the whole file or only startLine to endLine
+	startLine int  // 1-based; 0 with endLine 0 formats the whole file
+	endLine   int  // 1-based, inclusive
+}
+
+// formatFile runs the organize-imports and format steps that format_file and
+// the refactor tool's format and organize_imports actions share. Each step is
+// one workspace edit, checked against the write rules before any file changes.
+func formatFile(ctx context.Context, m *Manager, env *tools.Env, abs string, o formatOpts) tools.Result {
+	rel := m.RelPath(abs)
+	ranged := o.startLine > 0 || o.endLine > 0
 	before := func(path string) {
 		if env != nil && env.Files != nil {
 			env.Files.BeforeWrite(path)
@@ -828,8 +845,8 @@ func (t *formatTool) Run(ctx context.Context, env *tools.Env, args json.RawMessa
 	}
 	var steps []string
 	var changed []FileChange
-	if a.OrganizeImports {
-		actions, err := t.m.OrganizeImports(ctx, abs)
+	if o.organize {
+		actions, err := m.OrganizeImports(ctx, abs)
 		if err != nil {
 			return missingServer(err)
 		}
@@ -842,33 +859,38 @@ func (t *formatTool) Run(ctx context.Context, env *tools.Env, args json.RawMessa
 			steps = append(steps, "organized imports")
 		}
 	}
-	var edits []TextEdit
-	var err error
-	if ranged {
-		edits, err = t.m.FormatRange(ctx, abs, Point{Line: a.StartLine, Column: 1}, Point{Line: a.EndLine, Column: 1 << 20})
-	} else {
-		edits, err = t.m.Format(ctx, abs)
-	}
-	if err != nil {
-		return missingServer(err)
-	}
-	if len(edits) > 0 {
-		edit := WorkspaceEdit{Changes: map[string][]TextEdit{pathToURI(abs): edits}}
-		applied, err := applyChecked(ctx, env, edit, before)
-		if err != nil {
-			return tools.Errorf("formatting was not applied, and no file was changed: %v", err)
+	if o.format {
+		var edits []TextEdit
+		var err error
+		if ranged {
+			edits, err = m.FormatRange(ctx, abs, Point{Line: o.startLine, Column: 1}, Point{Line: o.endLine, Column: 1 << 20})
+		} else {
+			edits, err = m.Format(ctx, abs)
 		}
-		changed = append(changed, applied.Changes...)
-		steps = append(steps, fmt.Sprintf("formatted %d edit(s)", len(edits)))
+		if err != nil {
+			return missingServer(err)
+		}
+		if len(edits) > 0 {
+			edit := WorkspaceEdit{Changes: map[string][]TextEdit{pathToURI(abs): edits}}
+			applied, err := applyChecked(ctx, env, edit, before)
+			if err != nil {
+				return tools.Errorf("formatting was not applied, and no file was changed: %v", err)
+			}
+			changed = append(changed, applied.Changes...)
+			steps = append(steps, fmt.Sprintf("formatted %d edit(s)", len(edits)))
+		}
 	}
 	if len(changed) == 0 {
-		return tools.Result{Output: "Already formatted: " + rel, Summary: "no change"}
+		if o.format {
+			return tools.Result{Output: "Already formatted: " + rel, Summary: "no change"}
+		}
+		return tools.Result{Output: "Imports already organized: " + rel, Summary: "no change"}
 	}
-	t.m.FileChanged(abs)
-	diff := diffSummary(changed, t.m.RelPath)
+	m.FileChanged(abs)
+	diff := diffSummary(changed, m.RelPath)
 	where := rel
 	if ranged {
-		where = fmt.Sprintf("%s lines %d-%d", rel, a.StartLine, a.EndLine)
+		where = fmt.Sprintf("%s lines %d-%d", rel, o.startLine, o.endLine)
 	}
 	return tools.Result{
 		Output:  fmt.Sprintf("%s in %s", strings.Join(steps, "; "), where),

@@ -59,6 +59,14 @@ func (a *App) wire(ctx context.Context) error {
 	a.ext.jobs = exec.NewJobs(exec.Options{Allow: a.Cfg.Allow, Deny: a.Cfg.Deny, ToolTimeout: a.toolTimeout(), StateDir: jobDir})
 	exec.Register(a.Tools, a.ext.jobs)
 	a.ext.lsp = lsp.NewManager(a.Workdir)
+	// Language servers are recorded per Scribe process, so one left behind by
+	// a Scribe that died is stopped here. Ephemeral runs record nothing.
+	lspDir := ""
+	if !a.opts.Ephemeral {
+		lspDir = filepath.Join(config.Home(), "lsp")
+	}
+	go lsp.ReapOrphans(lspDir) // bounded by its own budget; boot does not wait
+	a.ext.lsp.SetStateDir(lspDir)
 	a.ext.lsp.SetDisabled(a.Cfg.DisabledLSPServers)
 	lsp.Register(a.Tools, a.ext.lsp)
 	// Start the language servers for the project's languages in the background,
