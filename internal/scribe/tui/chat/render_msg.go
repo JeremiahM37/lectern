@@ -390,27 +390,100 @@ func (v *View) renderBody(rec *Record, cw int, now time.Time) builder {
 // (spec 01 §2.12). Settled text is drawn at full strength.
 const streamOpacity = 0.65
 
-// textThemeFor returns the theme a text segment is drawn with. While the
-// segment is still streaming, its body colours step back toward the
-// background so the reveal reads as provisional; once it settles, the theme
-// is returned unchanged.
+// textThemeFor returns the theme a text segment is drawn with at its steady
+// state: streaming text at streamOpacity while open, settled text unchanged.
+// textThemeAt adds the fades on top of this.
 func textThemeFor(th theme.Theme, open bool) theme.Theme {
 	if !open {
 		return th
 	}
-	c := streamingColour(th)
+	return blendedText(th, streamOpacity)
+}
+
+// textThemeAt returns the theme a text segment is drawn with at now. While it
+// fades in or out, its body colours move between the background and full
+// strength; once the fade has finished the theme is returned unchanged, so a
+// settled segment draws the same as it always did.
+func textThemeAt(th theme.Theme, s *Segment, now time.Time) theme.Theme {
+	return blendedText(th, streamAlpha(s, now))
+}
+
+// blendedText sets the body text colours to a, where 0 is the background and 1
+// is full strength. With truecolour the colour is blended. Without it there is
+// nothing to blend (a transparent background, NO_COLOR, an ANSI palette), so
+// the text steps down to TextFaint for the first half of a fade and TextDim
+// after, and returns to the theme once it reaches full strength.
+func blendedText(th theme.Theme, a float64) theme.Theme {
+	if a >= 1 {
+		return th
+	}
+	var c lipgloss.TerminalColor
+	switch {
+	case isHexColour(th.BgApp) && isHexColour(th.TextPrimary):
+		c = theme.Lerp(th.BgApp, th.TextPrimary, a)
+	case a < 0.5:
+		c = th.TextFaint
+	default:
+		c = th.TextDim
+	}
 	th.TextPrimary, th.TextSecondary = c, c
 	return th
 }
 
-// streamingColour blends the primary text colour toward the app background by
-// streamOpacity. Without two hex colours there is nothing to blend (a
-// transparent background, NO_COLOR, an ANSI palette), so it steps to TextDim.
-func streamingColour(th theme.Theme) lipgloss.TerminalColor {
-	if !isHexColour(th.BgApp) || !isHexColour(th.TextPrimary) {
-		return th.TextDim
+// streamAlpha is how far a text segment is blended toward the background at
+// now. It rises from 0 to streamOpacity over fadeIn after the segment opens,
+// holds there while it streams, then rises to 1 over fadeOut after it closes.
+// A segment that was never seen open, or that has finished fading, is 1.
+func streamAlpha(s *Segment, now time.Time) float64 {
+	if s.Open {
+		if s.openedAt.IsZero() {
+			return streamOpacity
+		}
+		return fadeInAlpha(now.Sub(s.openedAt))
 	}
-	return theme.Lerp(th.BgApp, th.TextPrimary, streamOpacity)
+	if s.openedAt.IsZero() || s.closedAt.IsZero() {
+		return 1
+	}
+	since := now.Sub(s.closedAt)
+	if since >= fadeOut {
+		return 1
+	}
+	from := fadeInAlpha(s.closedAt.Sub(s.openedAt))
+	if since <= 0 {
+		return from
+	}
+	return from + (1-from)*outQuad(float64(since)/float64(fadeOut))
+}
+
+// fadeInAlpha is the opacity of an open segment that has been streaming for
+// elapsed: 0 at the start, streamOpacity from fadeIn on.
+func fadeInAlpha(elapsed time.Duration) float64 {
+	if elapsed <= 0 {
+		return 0
+	}
+	if elapsed >= fadeIn {
+		return streamOpacity
+	}
+	return streamOpacity * outQuad(float64(elapsed)/float64(fadeIn))
+}
+
+// outQuad is the ease-out quadratic curve over t in [0, 1].
+func outQuad(t float64) float64 {
+	t = math.Max(0, math.Min(1, t))
+	return 1 - (1-t)*(1-t)
+}
+
+// fading reports whether a text segment is still inside a fade at now, which
+// is what keeps its record redrawing. Once it reports false the segment is
+// settled and its record can be cached.
+func (s *Segment) fading(now time.Time) bool {
+	if s.Kind != "text" || s.openedAt.IsZero() {
+		return false
+	}
+	if s.Open {
+		return now.Sub(s.openedAt) < fadeIn
+	}
+	return !s.closedAt.IsZero() && now.Sub(s.closedAt) < fadeOut
 }
 
 // isHexColour reports whether c is a truecolor value (#rgb or #rrggbb).
@@ -438,7 +511,7 @@ func (v *View) renderSeg(s *Segment, cw int, now time.Time, afterTools bool) bui
 		if v.opt.Verbose && afterTools && len([]rune(trimmed(txt))) > 20 {
 			b.add(fg(v.th.TextFaint, strings.Repeat("─", minInt(60, cw))))
 		}
-		b.add(splitLines(render.Markdown(src, cw, textThemeFor(v.th, s.Open), s.Open))...)
+		b.add(splitLines(render.Markdown(src, cw, textThemeAt(v.th, s, now), s.Open))...)
 	case "reasoning":
 		return v.renderReasoning(s, cw, now)
 	case "plan":

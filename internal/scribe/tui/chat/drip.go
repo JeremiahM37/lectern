@@ -16,6 +16,31 @@ const (
 	maxDripSteps = 64
 )
 
+// Fade durations for streaming text (spec 01 §2.12): the text eases in to its
+// streaming opacity when a segment opens, and to full strength when it closes.
+const (
+	fadeIn  = 300 * time.Millisecond
+	fadeOut = 250 * time.Millisecond
+)
+
+// stampFade records when an open text segment was first seen open and when it
+// was first seen closed. Only a segment that was seen open is stamped closed,
+// so a restored transcript (never seen open) does not fade out on load.
+func stampFade(s *Segment, now time.Time) {
+	if s.Kind != "text" {
+		return
+	}
+	if s.Open {
+		if s.openedAt.IsZero() {
+			s.openedAt = now
+		}
+		return
+	}
+	if !s.openedAt.IsZero() && s.closedAt.IsZero() {
+		s.closedAt = now
+	}
+}
+
 // advanceSeg moves the reveal of an open text segment up to now.
 func advanceSeg(s *Segment, now time.Time) {
 	n := len([]rune(s.Text))

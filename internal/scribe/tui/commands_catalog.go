@@ -35,7 +35,7 @@ func init() {
 			}},
 		&command{Name: "status", Desc: "System status: model, mode, context, git, servers, jobs", Group: "System",
 			Run: func(m *Model, _ string) tea.Cmd {
-				m.openInfo("Status", "gauge", m.statusLines())
+				m.openStatusModal()
 				return nil
 			}},
 		&command{Name: "diagnose", Desc: "Health check: code map, language and MCP servers, provider keys", Group: "Intelligence",

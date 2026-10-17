@@ -384,8 +384,12 @@ func (r *dispatchRun) attempt(ctx context.Context, idx int, role string, purpose
 	if dispatchStop {
 		err = errDispatchCancelled
 	}
+	report := lastAssistantText(sub.Messages())
+	if err != nil && report == "" {
+		report = salvageReport(r.bus.Findings(), id, stats.FilesRead, stats.FilesEdited)
+	}
 	return attempt{
-		report:   lastAssistantText(sub.Messages()),
+		report:   report,
 		err:      err,
 		usage:    stats.Tokens,
 		cost:     stats.CostUSD,
@@ -394,6 +398,26 @@ func (r *dispatchRun) attempt(ctx context.Context, idx int, role string, purpose
 		reg:      sub.opts.Tools,
 		attempts: 1 + stats.Retries,
 	}
+}
+
+// salvageReport is what a subagent that stopped with an error and wrote no
+// answer still hands back: the findings it posted. The files it read and
+// edited are listed by the task report itself. It is "" when the subagent
+// did no work to salvage (spec 03 §3.6).
+func salvageReport(findings []Finding, id string, read, edited []string) string {
+	var mine []string
+	for _, f := range findings {
+		if f.Agent == id {
+			mine = append(mine, formatFinding(f))
+		}
+	}
+	switch {
+	case len(mine) > 0:
+		return "Agent failed but produced partial results. Findings it posted before it stopped:\n" + strings.Join(mine, "\n")
+	case len(read) > 0 || len(edited) > 0:
+		return "Agent failed but produced partial results: the files it read and edited are listed below."
+	}
+	return ""
 }
 
 // launch runs one attempt unless the circuit breaker is open, and counts

@@ -1184,8 +1184,13 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 					Text: fmt.Sprintf("%s. Auto-retrying (%d/%d)…", st.notice(), stalls, limit)})
 				continue
 			}
+			// cause is the provider's error, without the partial text.
+			cause, pf := err, (*partialError)(nil)
+			if errors.As(err, &pf) {
+				cause = pf.err
+			}
 			if !optionRetried {
-				if dropped := a.dropRejected(a.CurrentModel().Ref, err); len(dropped) > 0 {
+				if dropped := a.dropRejected(a.CurrentModel().Ref, cause); len(dropped) > 0 {
 					optionRetried = true
 					a.emit(Event{Kind: EvWarning, Text: fmt.Sprintf(
 						"%s rejected these options (%s), so this step was retried without them. The rest of this turn leaves them out too.",
@@ -1193,22 +1198,31 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 					continue
 				}
 			}
-			cat, retry := llm.Classify(err)
-			status := statusOf(err)
+			cat, retry := llm.Classify(cause)
+			status := statusOf(cause)
 			if !retry {
-				a.emit(Event{Kind: EvError, Category: cat, Text: err.Error(), Status: status})
-				return llm.Message{}, "", err
+				a.emit(Event{Kind: EvError, Category: cat, Text: cause.Error(), Status: status})
+				return llm.Message{}, "", cause
 			}
 			if attempt == a.opts.MaxRetries {
 				break
 			}
-			d := backoffFrom(a.opts.RetryBase, attempt, err)
+			// A failure that left answer text is resumed from that text, so
+			// the retry does not stream what the reader already has.
+			if pf != nil {
+				resume = pf.partial
+			}
+			d := backoffFrom(a.opts.RetryBase, attempt, cause)
 			attempt++
 			a.countRetry()
-			a.emit(Event{Kind: EvRetry, Attempt: attempt, MaxAttempts: a.opts.MaxRetries, Category: cat, Text: err.Error(), Delay: d, Status: status})
+			a.emit(Event{Kind: EvRetry, Attempt: attempt, MaxAttempts: a.opts.MaxRetries, Category: cat, Text: cause.Error(), Delay: d, Status: status})
 			select {
 			case <-time.After(d):
 			case <-ctx.Done():
+				// An abort during the wait keeps the text already shown (spec 03 §2.3).
+				if pf != nil {
+					return llm.AssistantText(pf.partial), "", ctx.Err()
+				}
 				return llm.Message{}, "", ctx.Err()
 			}
 		}
@@ -1288,6 +1302,48 @@ func (e *stallError) describe() string {
 }
 
 func (e *stallError) Error() string { return e.describe() }
+
+// partialError is a transient stream failure after the reply had produced
+// answer text. partial is that text, resume text included. The retry
+// continues it, so the text the reader already has is not streamed again
+// (spec 03 §2.7 step 4).
+type partialError struct {
+	partial string
+	err     error
+}
+
+func (e *partialError) Error() string { return e.err.Error() }
+func (e *partialError) Unwrap() error { return e.err }
+
+// partialFailure marks a transient error as resumable when the reply had
+// answer text. Other errors, and replies that completed a tool call, are
+// returned unchanged.
+func partialFailure(parts []llm.Part, err error) error {
+	if _, retry := llm.Classify(err); !retry {
+		return err
+	}
+	text, ok := resumableText(parts)
+	if !ok || text == "" {
+		return err
+	}
+	return &partialError{partial: text, err: err}
+}
+
+// resumableText is the answer text of a reply and whether a retry can
+// continue it as text. It cannot when a tool call already completed: the
+// call would be made again, since its result is not in the text.
+func resumableText(parts []llm.Part) (string, bool) {
+	var b strings.Builder
+	for _, p := range parts {
+		switch p.Type {
+		case llm.PartText:
+			b.WriteString(p.Text)
+		case llm.PartToolCall:
+			return "", false
+		}
+	}
+	return b.String(), true
+}
 
 // errContentFilter ends a step whose reply the provider's safety filter cut
 // short. It is not retried and the partial reply is not kept.
@@ -1443,7 +1499,7 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 				if ctx.Err() != nil {
 					return textOnly(parts), "", ctx.Err()
 				}
-				return llm.Message{}, "", ev.Err
+				return llm.Message{}, "", partialFailure(parts, ev.Err)
 			}
 			if !timer.Stop() {
 				select {
@@ -1456,24 +1512,16 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 	}
 	if stalled {
 		releaseHeld()
-		if ctx.Err() != nil {
-			return llm.Message{}, "", ctx.Err()
-		}
 		flushText()
+		// The user may have aborted while the stream was stalled. The text
+		// shown so far is kept, as it is for any other abort (spec 03 §2.3).
+		if ctx.Err() != nil {
+			return textOnly(parts), "", ctx.Err()
+		}
 		// A finished tool call cannot be resumed as text alone, so an
 		// attempt that already produced one restarts instead.
-		var partial strings.Builder
-		hasCall := false
-		for _, p := range parts {
-			switch p.Type {
-			case llm.PartText:
-				partial.WriteString(p.Text)
-			case llm.PartToolCall:
-				hasCall = true
-			}
-		}
-		if !hasCall {
-			stall.partial = partial.String()
+		if text, ok := resumableText(parts); ok {
+			stall.partial = text
 		}
 		return llm.Message{}, "", stall
 	}
@@ -1688,7 +1736,17 @@ func (a *Agent) runTool(ctx context.Context, call llm.Part) llm.Part {
 			out = "(no output)"
 		}
 	}
+	if call.ToolName == "dispatch" {
+		out = dispatchResult(out)
+	}
 	return llm.Part{Type: llm.PartToolResult, ToolCallID: call.ToolCallID, ToolName: call.ToolName, Result: out, IsError: res.IsError}
+}
+
+// dispatchResult is a dispatch output as the model reads it. The tags set the
+// subagent reports apart from the model's own text (spec 03 §3.1). The user
+// still sees the plain output, which the tool event carries.
+func dispatchResult(out string) string {
+	return "<dispatch_result>\n" + out + "\n</dispatch_result>"
 }
 
 // toolFailureObserver is implemented by hooks that see failed calls

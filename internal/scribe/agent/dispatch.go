@@ -63,6 +63,10 @@ type Dispatcher struct {
 	// ArchiveDir receives the full text of a subagent report too long to show
 	// inline (dispatch_archive.go). Empty saves nothing.
 	ArchiveDir string
+	// TaskStatus is told how a task that names a taskId ended: "done" when
+	// it finished, "blocked" when it failed or never ran. The host uses it to
+	// mark the task list item. Nil does nothing.
+	TaskStatus func(taskID, status string)
 	// WorkDir is the project root that task file targets are checked against.
 	// It is also in env, but a dispatch with no env workdir skips the check.
 
@@ -175,6 +179,7 @@ func (dispatchTool) Spec() llm.ToolSpec {
 					"returnFormat": tools.Enum("What the report should look like: summary (default, findings with file:line), code (pasteable snippets), files (paths only), full (complete analysis), verdict (yes or no and 1-3 sentences)", "summary", "code", "files", "full", "verdict"),
 					"files":        tools.Arr("Files the task is about, optionally with a line range as path:start-end (code tasks: files it may edit)", map[string]any{"type": "string"}),
 					"depends_on":   tools.Arr("Ids of tasks that must finish before this one starts", map[string]any{"type": "string"}),
+					"taskId":       tools.Str("Optional id of a task-list item this task is for; the item is marked done when the task finishes, or blocked when it fails"),
 				},
 				"required": []string{"task", "role"},
 			}),
@@ -189,6 +194,8 @@ type subTask struct {
 	ReturnFormat string   `json:"returnFormat"`
 	Files        []string `json:"files"`
 	DependsOn    []string `json:"depends_on"`
+	// TaskID links the task to an item of the task list (spec 03 §3.1).
+	TaskID string `json:"taskId"`
 }
 
 // maxTasksPerDispatch is the most tasks one dispatch call runs (spec 03 §3.1).
@@ -355,6 +362,7 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 	}
 	wg.Wait()
 	archiveReports(results, runIDs(run.board, n), d.ArchiveDir, env.CallID)
+	markTaskItems(d.TaskStatus, in.Tasks, results)
 
 	// Files that code tasks changed, and the project check that follows them.
 	// The check runs with the caller's context: the breaker must not cancel it.
@@ -495,6 +503,24 @@ func runIDs(b *board, n int) []string {
 	return out
 }
 
+// markTaskItems reports each task that names a task-list item as done or
+// blocked. A task that never ran is blocked too.
+func markTaskItems(status func(taskID, status string), tasks []subTask, results []taskResult) {
+	if status == nil {
+		return
+	}
+	for i, st := range tasks {
+		if st.TaskID == "" {
+			continue
+		}
+		if results[i].err != nil {
+			status(st.TaskID, "blocked")
+		} else {
+			status(st.TaskID, "done")
+		}
+	}
+}
+
 // renderTaskReports writes one section per task: its report, or why it
 // failed, its notes, and the files it read and edited.
 func renderTaskReports(tasks []subTask, plan dispatchPlan, results []taskResult) string {
@@ -504,6 +530,9 @@ func renderTaskReports(tasks []subTask, plan dispatchPlan, results []taskResult)
 		idPart := ""
 		if given := strings.TrimSpace(st.ID); given != "" {
 			idPart = " id=" + given
+		}
+		if item := strings.TrimSpace(st.TaskID); item != "" {
+			idPart += " taskId=" + item
 		}
 		fmt.Fprintf(&b, "## Agent %d (%s%s): %s\n", i+1, st.Role, idPart, firstLine(clip(st.Task, 120)))
 		for _, note := range r.notes {

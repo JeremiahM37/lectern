@@ -4,9 +4,20 @@ package tui
 // backend answers them through IndexDiagnoser; the popup itself and its
 // Diagnoser contract stay in modal_diagnose.go. This file wraps that
 // Diagnoser so the one popup shows both sets of checks.
+//
+// Wave 25 (REAUDIT4 #4): /diagnose opens the Health Check popup when the
+// backend implements HealthChecker. That popup shows one block per backend,
+// each probe with a pass, warn or fail state, its latency and a one-line
+// reason. The older checklist stays as the fallback for backends without it.
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
 )
 
 // IndexDiagnoser is optionally implemented by a Backend that can probe the
@@ -21,6 +32,29 @@ type IndexDiagnoser interface {
 // area is "Model routing". It sends no model request.
 type RoutingDiagnoser interface {
 	DiagnoseRouting() []DiagnoseCheck
+}
+
+// HealthProbe is one probe under a backend in the Health Check popup.
+type HealthProbe struct {
+	Name   string
+	State  string // pass, warn, fail or info (a check that does not apply)
+	Reason string // one line: what the probe found
+	Fix    string // one line: what to do about a warn or fail
+	Ms     int    // how long the probe took; -1 when it was not timed
+}
+
+// HealthBackend is one block in the Health Check popup: a provider, the
+// router, the language servers, the code map and so on.
+type HealthBackend struct {
+	Name   string
+	Probes []HealthProbe
+}
+
+// HealthChecker is optionally implemented by a Backend that runs the Health
+// Check. It must return within a few seconds and must not send a model
+// request.
+type HealthChecker interface {
+	HealthChecks() []HealthBackend
 }
 
 // combinedDiagnoser runs the base checks, then the index probes, then the
@@ -44,6 +78,11 @@ func init() {
 	overrideCommands(&command{Name: "diagnose", Desc: "Health check: providers, language and MCP servers, git, disk, parsers, semantic index", Group: "Intelligence",
 		Run: func(m *Model, _ string) tea.Cmd {
 			be := m.cur().be
+			if hc, ok := be.(HealthChecker); ok {
+				p := &healthPopup{th: m.th, be: hc, loading: true}
+				m.pushModal(p)
+				return p.run()
+			}
 			d, ok := be.(Diagnoser)
 			if !ok {
 				m.openInfo("Diagnose", "bug", m.diagnoseLines())
@@ -56,4 +95,178 @@ func init() {
 			m.pushModal(p)
 			return p.run()
 		}})
+}
+
+// healthDone carries one run's results back to the popup. gen says which run
+// produced them, so a slow earlier run cannot overwrite a newer one.
+type healthDone struct {
+	gen      int
+	backends []HealthBackend
+}
+
+// healthPopup is the Health Check modal. It opens at once, runs the probes in
+// the background and re-runs on r. Keys stay live while it runs, so Esc and r
+// always work.
+type healthPopup struct {
+	th       theme.Theme
+	be       HealthChecker
+	backends []HealthBackend
+	loading  bool
+	gen      int
+	off      int
+}
+
+// run starts the probes in the background.
+func (p *healthPopup) run() tea.Cmd {
+	be, gen := p.be, p.gen
+	return func() tea.Msg { return healthDone{gen: gen, backends: be.HealthChecks()} }
+}
+
+// Title implements Modal.
+func (p *healthPopup) Title() string { return "Health Check" }
+
+// Icon implements Iconed.
+func (p *healthPopup) Icon() string { return "brain" }
+
+// Footer implements Footered.
+func (p *healthPopup) Footer() string { return "↑↓ scroll · r re-run · Esc close" }
+
+// Size implements Sized: the spec's frame, 65% of the width and at most 30 rows.
+func (p *healthPopup) Size(cols, rows int) (int, int) {
+	return min(80, max(56, cols*65/100)), min(30, max(16, rows-4))
+}
+
+// Update implements Modal. Only Esc closes; keys the popup does not use are
+// swallowed.
+func (p *healthPopup) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
+	switch msg := msg.(type) {
+	case healthDone:
+		if msg.gen != p.gen {
+			return p, nil, false
+		}
+		p.backends, p.loading, p.off = msg.backends, false, 0
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc":
+			return p, nil, true
+		case "r":
+			p.gen++
+			p.loading = true
+			return p, p.run(), false
+		case "up", "k":
+			p.off = max(0, p.off-1)
+		case "down", "j":
+			p.off++
+		case "pgup":
+			p.off = max(0, p.off-8)
+		case "pgdown":
+			p.off += 8
+		}
+	}
+	return p, nil, false
+}
+
+// View implements Modal.
+func (p *healthPopup) View(w, h int) string {
+	th := p.th
+	if p.loading && p.backends == nil {
+		return strings.Join(fitLines([]string{fg(th.TextFaint).Render("  Running probes…")}, w, h), "\n")
+	}
+	rows := []string{healthSummary(th, p.backends)}
+	for _, b := range p.backends {
+		rows = append(rows, "")
+		glyph, col := healthBadge(th, b)
+		rows = append(rows, render.Truncate(fg(col).Render(glyph)+" "+fgb(th.TextSecondary).Render(b.Name), w))
+		if len(b.Probes) == 0 {
+			rows = append(rows, "    "+fg(th.TextFaint).Render("no probes ran"))
+		}
+		for _, pr := range b.Probes {
+			glyph, col := healthGlyph(th, pr.State)
+			line := "    " + fg(col).Render(glyph) + " " + fg(th.TextPrimary).Render(padRight(pr.Name, 14)) +
+				" " + fg(col).Render(padRight(pr.State, 4)) + " " + fg(th.TextDim).Render(padRight(healthMs(pr.Ms), 7))
+			line += " " + fg(th.TextDim).Render(render.Truncate(oneLine(pr.Reason), max(8, w-40)))
+			rows = append(rows, render.Truncate(line, w))
+			if pr.Fix != "" && (pr.State == "warn" || pr.State == "fail") {
+				rows = append(rows, render.Truncate("      "+fg(th.TextFaint).Render("→ "+oneLine(pr.Fix)), w))
+			}
+		}
+	}
+	if p.loading {
+		rows = append(rows, "", fg(th.TextFaint).Render("  Running probes again…"))
+	}
+	p.off = min(p.off, max(0, len(rows)-h))
+	end := min(len(rows), p.off+h)
+	return strings.Join(fitLines(rows[p.off:end], w, h), "\n")
+}
+
+// healthSummary counts the probes by state, so the top line says how the
+// machine stands before the detail below it is read.
+func healthSummary(th theme.Theme, bs []HealthBackend) string {
+	var pass, warn, fail int
+	for _, b := range bs {
+		for _, pr := range b.Probes {
+			switch pr.State {
+			case "pass":
+				pass++
+			case "warn":
+				warn++
+			case "fail":
+				fail++
+			}
+		}
+	}
+	return "  " + fg(th.Success).Render(itoa(pass)+" pass") + fg(th.TextDim).Render(" · ") +
+		fg(th.Warning).Render(itoa(warn)+" warn") + fg(th.TextDim).Render(" · ") +
+		fg(th.Error).Render(itoa(fail)+" fail")
+}
+
+// healthBadge is the marker for a backend: ✗ when nothing passes and something
+// fails, ◐ when some probes are not passing, ● when all pass, ○ when nothing
+// applies, and ◌ when no probe has reported yet.
+func healthBadge(th theme.Theme, b HealthBackend) (string, lipgloss.TerminalColor) {
+	if len(b.Probes) == 0 {
+		return "◌", th.TextDim
+	}
+	var pass, notPass, fail int
+	for _, pr := range b.Probes {
+		switch pr.State {
+		case "pass":
+			pass++
+		case "fail":
+			fail++
+			notPass++
+		case "warn":
+			notPass++
+		}
+	}
+	switch {
+	case fail > 0 && pass == 0:
+		return "✗", th.Error
+	case notPass > 0:
+		return "◐", th.Warning
+	case pass > 0:
+		return "●", th.Success
+	}
+	return "○", th.TextDim
+}
+
+// healthGlyph is the marker and colour for one probe's state.
+func healthGlyph(th theme.Theme, state string) (string, lipgloss.TerminalColor) {
+	switch state {
+	case "pass":
+		return "✓", th.Success
+	case "warn":
+		return "!", th.Warning
+	case "fail":
+		return "✗", th.Error
+	}
+	return "·", th.TextDim
+}
+
+// healthMs is the latency column: "12ms", or blank when the probe was not timed.
+func healthMs(ms int) string {
+	if ms < 0 {
+		return ""
+	}
+	return itoa(ms) + "ms"
 }

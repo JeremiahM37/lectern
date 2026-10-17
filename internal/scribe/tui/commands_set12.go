@@ -7,6 +7,11 @@ package tui
 // Wave 17 adds /speed, /tier and /sendreasoning, which read and write the
 // same keys as the settings screen. /pruning has no config key to write (no
 // tool-result pruning setting exists), so it is not registered.
+//
+// Wave 25 adds /thinking, /effort, /toolstream, /seqtools and /perf on the
+// performance.* keys. /codeexec, /computeruse, /cleartools and /clearthinking
+// are not registered: their settings do not exist in config or llm.Request,
+// and a command for them would store a value nothing reads.
 
 import (
 	"fmt"
@@ -15,6 +20,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
 )
 
@@ -33,6 +39,16 @@ func init() {
 			Run: func(m *Model, args string) tea.Cmd { return tierCommand(m, strings.TrimSpace(args)) }},
 		&command{Name: "sendreasoning", Args: "[on|off]", Desc: "Send earlier reasoning back to the provider: show it, or turn it on or off", Group: "Settings",
 			Run: func(m *Model, args string) tea.Cmd { return sendReasoningCommand(m, strings.TrimSpace(args)) }},
+		&command{Name: "thinking", Args: "[default|off|adaptive|enabled]", Desc: "Claude thinking mode: show it, or set it", Group: "Settings",
+			Run: func(m *Model, args string) tea.Cmd { return thinkingCommand(m, strings.TrimSpace(args)) }},
+		&command{Name: "effort", Args: "[off|low|medium|high|xhigh|max]", Desc: "Claude reasoning effort: show it, or set it", Group: "Settings",
+			Run: func(m *Model, args string) tea.Cmd { return effortCommand(m, strings.TrimSpace(args)) }},
+		&command{Name: "toolstream", Args: "[on|off]", Desc: "Stream tool arguments as they are written (Claude): show it, or turn it on or off", Group: "Settings",
+			Run: func(m *Model, args string) tea.Cmd { return toolStreamCommand(m, strings.TrimSpace(args)) }},
+		&command{Name: "seqtools", Args: "[on|off]", Desc: "Run one tool at a time instead of several per turn: show it, or turn it on or off", Group: "Settings",
+			Run: func(m *Model, args string) tea.Cmd { return seqToolsCommand(m, strings.TrimSpace(args)) }},
+		&command{Name: "perf", Desc: "Show the performance settings in effect: thinking, effort, speed, tool and reasoning options", Group: "Settings",
+			Run: func(m *Model, args string) tea.Cmd { return perfCommand(m, strings.TrimSpace(args)) }},
 	)
 }
 
@@ -73,14 +89,20 @@ func budgetCommand(m *Model, arg string) tea.Cmd {
 	if arg == "" {
 		limit := fields7(t.be).DailyBudget()
 		d := t.be.ContextDetail()
+		var text string
 		if limit <= 0 {
-			return flashCmd("info", fmt.Sprintf("No daily token budget. Used today: %s. /budget 2m sets one.", render.HumanTokens(d.Today)))
+			text = fmt.Sprintf("No daily token budget. Used today: %s. /budget 2m sets one.", render.HumanTokens(d.Today))
+		} else {
+			pct := int(math.Round(100 * float64(d.Today) / float64(limit)))
+			text = fmt.Sprintf("Daily budget %s: %s used today (%d%%)", render.HumanTokens(limit), render.HumanTokens(d.Today), pct)
 		}
-		pct := 0
-		if limit > 0 {
-			pct = int(math.Round(100 * float64(d.Today) / float64(limit)))
+		if cb, ok := chatBudgetOf(t.be); ok {
+			text += "; " + chatBudgetShort(cb)
 		}
-		return flashCmd("info", fmt.Sprintf("Daily budget %s: %s used today (%d%%)", render.HumanTokens(limit), render.HumanTokens(d.Today), pct))
+		return flashCmd("info", text)
+	}
+	if rest, ok := strings.CutPrefix(strings.ToLower(arg), "chat"); ok {
+		return chatBudgetCommand(m, strings.TrimSpace(rest))
 	}
 	n := 0
 	switch strings.ToLower(arg) {
@@ -99,6 +121,42 @@ func budgetCommand(m *Model, arg string) tea.Cmd {
 		return flashCmd("ok", "Daily token budget off")
 	}
 	return flashCmd("ok", "Daily token budget set to "+render.HumanTokens(n))
+}
+
+// chatBudgetShort is this chat's spend for a one-line flash.
+func chatBudgetShort(cb ChatBudget) string {
+	if cb.Limit > 0 {
+		return fmt.Sprintf("this chat %s of %s", render.HumanTokens(cb.Today), render.HumanTokens(cb.Limit))
+	}
+	return fmt.Sprintf("this chat %s (no per-chat budget; /budget chat 500k sets one)", render.HumanTokens(cb.Today))
+}
+
+// chatBudgetCommand is /budget chat [tokens|off]: the per-chat daily budget.
+func chatBudgetCommand(m *Model, arg string) tea.Cmd {
+	cb, ok := m.cur().be.(ChatBudgeter)
+	if !ok {
+		return cmdErrText("this session has no per-chat budget")
+	}
+	if arg == "" {
+		return flashCmd("info", "Per-chat daily budget: "+chatBudgetShort(cb.ChatBudget()))
+	}
+	n := 0
+	switch arg {
+	case "off", "none", "no", "unlimited":
+	default:
+		v, err := parseTokenCount(arg)
+		if err != nil {
+			return cmdErrText("Usage: /budget chat [tokens|off], e.g. /budget chat 500k")
+		}
+		n = v
+	}
+	if err := cb.SetChatBudget(n); err != nil {
+		return cmdErr(err)
+	}
+	if n == 0 {
+		return flashCmd("ok", "Per-chat daily budget off")
+	}
+	return flashCmd("ok", "Per-chat daily budget set to "+render.HumanTokens(n))
 }
 
 // speedChoices are the values of performance.speed. "off" is the provider
@@ -184,6 +242,106 @@ func sendReasoningCommand(m *Model, arg string) tea.Cmd {
 	return flashCmd("ok", savedText("Send reasoning "+choice, key))
 }
 
+// thinkingChoices are the values of performance.thinking. "default" stores an
+// empty value, which leaves the provider's own choice in place. adaptive and
+// enabled take effect only on models of the matching reasoning style; the
+// settings screen shows the same rule.
+var thinkingChoices = []string{"default", "off", "adaptive", "enabled"}
+
+// thinkingCommand is /thinking [default|off|adaptive|enabled].
+func thinkingCommand(m *Model, arg string) tea.Cmd {
+	cur := fields7(m.cur().be).Performance.Thinking
+	return choiceCommand(m, "/thinking", "Thinking", "performance.thinking", cur, "default", thinkingChoices, arg)
+}
+
+// effortChoices are the values of performance.effort, as the Claude settings
+// rows show them. "off" stores an empty value, the provider default.
+var effortChoices = []string{"off", "low", "medium", "high", "xhigh", "max"}
+
+// effortCommand is /effort [off|low|medium|high|xhigh|max].
+func effortCommand(m *Model, arg string) tea.Cmd {
+	cur := fields7(m.cur().be).Performance.Effort
+	return choiceCommand(m, "/effort", "Effort", "performance.effort", cur, "off", effortChoices, arg)
+}
+
+// toolStreamCommand is /toolstream [on|off]. Tool streaming is on unless the
+// config says otherwise, so an unset value reads as on.
+func toolStreamCommand(m *Model, arg string) tea.Cmd {
+	cur := config.Bool(fields7(m.cur().be).Performance.ToolStreaming, true)
+	return toggleCommand(m, "/toolstream", "Tool streaming", "performance.tool_streaming", cur, arg)
+}
+
+// seqToolsCommand is /seqtools [on|off]. On means one tool call per turn: it
+// writes performance.disable_parallel_tool_use, so the value is the same as
+// the settings row "One tool at a time".
+func seqToolsCommand(m *Model, arg string) tea.Cmd {
+	cur := config.Bool(fields7(m.cur().be).Performance.DisableParallelToolUse, false)
+	return toggleCommand(m, "/seqtools", "One tool at a time", "performance.disable_parallel_tool_use", cur, arg)
+}
+
+// perfCommand is /perf. It reads the performance block and changes nothing:
+// the spec names the command but gives no view for it, so this lists what is
+// in effect and the command that changes each value.
+func perfCommand(m *Model, arg string) tea.Cmd {
+	if arg != "" {
+		return cmdErrText("Usage: /perf takes no argument. It shows the performance settings; change them with /thinking, /effort, /speed, /toolstream, /seqtools and /sendreasoning.")
+	}
+	p := fields7(m.cur().be).Performance
+	return flashCmd("info", perfSummary(p))
+}
+
+// perfSummary is the one-line /perf reply.
+func perfSummary(p config.Performance) string {
+	parts := []string{
+		"thinking " + orWord(p.Thinking, "default"),
+		"effort " + orOff(p.Effort),
+		"speed " + orOff(p.Speed),
+		"cache lifetime " + orWord(p.CacheTTL, "default"),
+		"tool streaming " + onOff(config.Bool(p.ToolStreaming, true)),
+		"send reasoning " + onOff(config.Bool(p.SendReasoning, false)),
+		"one tool at a time " + onOff(config.Bool(p.DisableParallelToolUse, false)),
+	}
+	return "Performance: " + strings.Join(parts, ", ") + ". Cache lifetime is in /settings."
+}
+
+// choiceCommand is the shared body of the choice-valued commands. With no
+// argument it shows the stored value and the choices. An argument must be one
+// of choices (any case); blank names the choice that stores an empty value.
+func choiceCommand(m *Model, cmd, label, key, cur, blank string, choices []string, arg string) tea.Cmd {
+	if arg == "" {
+		return flashCmd("info", choiceStatus(label, orWord(cur, blank), choices, cmd))
+	}
+	choice, ok := matchChoice(arg, choices)
+	if !ok {
+		return cmdErrText(invalidChoice(cmd, arg, choices))
+	}
+	value := choice
+	if choice == blank {
+		value = ""
+	}
+	if err := m.saveFlatIn(key, value, false); err != nil {
+		return cmdErr(err)
+	}
+	return flashCmd("ok", savedText(label+" set to "+choice, key))
+}
+
+// toggleCommand is the shared body of the on/off commands. cur is the value in
+// effect, already resolved against the setting's default.
+func toggleCommand(m *Model, cmd, label, key string, cur bool, arg string) tea.Cmd {
+	choices := []string{"on", "off"}
+	if arg == "" {
+		return flashCmd("info", choiceStatus(label, onOff(cur), choices, cmd))
+	}
+	choice, ok := matchChoice(arg, choices)
+	if !ok {
+		return cmdErrText(invalidChoice(cmd, arg, choices))
+	}
+	if err := m.saveFlatIn(key, choice == "on", false); err != nil {
+		return cmdErr(err)
+	}
+	return flashCmd("ok", savedText(label+" set to "+choice, key))
+}
+
 // matchChoice finds arg among choices, ignoring case, and returns the
 // choice as written in the list.
 func matchChoice(arg string, choices []string) (string, bool) {
@@ -216,8 +374,13 @@ func savedText(msg, key string) string {
 
 // orOff shows an empty stored value as the provider default.
 func orOff(v string) string {
+	return orWord(v, "off")
+}
+
+// orWord shows an empty stored value as word, the name the choices give it.
+func orWord(v, word string) string {
 	if v == "" {
-		return "off"
+		return word
 	}
 	return v
 }

@@ -929,7 +929,7 @@ func (m *Model) boxLines(t *tab, w int, modeCol lipgloss.TerminalColor) []string
 	th := m.th
 	s := t.in
 	s.ta.FocusedStyle.Prompt = lipgloss.NewStyle().Bold(true).Foreground(modeCol)
-	ph, phStyle := inputPlaceholder(t, th)
+	ph, phStyle := inputPlaceholderAt(t, th, m.frame)
 	// The textarea cuts a long placeholder at its width without a mark; cut
 	// it here with an ellipsis instead (one cell is kept for the cursor).
 	if room := s.ta.Width() - 1; room > 1 && ansi.StringWidth(ph) > room {

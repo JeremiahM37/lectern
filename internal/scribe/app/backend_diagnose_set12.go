@@ -125,22 +125,31 @@ type routeChoice struct {
 // DiagnoseRouting implements tui.RoutingDiagnoser.
 func (b *scribeBackend) DiagnoseRouting() []tui.DiagnoseCheck {
 	a := b.current()
-	parent := ""
+	return routingChecks(a.Cfg.Router, parentModelRef(a), a.Cfg.AgentFeatures.Enabled("tier_routing"), routeProbeFor(a, dialBaseURL))
+}
+
+// parentModelRef is the model the session is on, or "" before one is set.
+func parentModelRef(a *App) string {
 	if a.Agent != nil {
-		parent = a.Agent.CurrentModel().Ref
+		return a.Agent.CurrentModel().Ref
 	}
+	return ""
+}
+
+// routeProbeFor is the routing probe for a running app. dial is injected so
+// the Health Check can time the connect.
+func routeProbeFor(a *App, dial func(context.Context, string) error) routeProbe {
 	reg := a.Registry
-	p := routeProbe{
+	return routeProbe{
 		lookup: func(id string) (registry.ProviderInfo, bool) {
 			if reg == nil {
 				return registry.ProviderInfo{}, false
 			}
 			return reg.Lookup(id)
 		},
-		dial:   dialBaseURL,
+		dial:   dial,
 		ollama: func() bool { return reg != nil && ollamaReachable(reg) },
 	}
-	return routingChecks(a.Cfg.Router, parent, a.Cfg.AgentFeatures.Enabled("tier_routing"), p)
 }
 
 // routingChecks builds the rows: tier routing on or off, one row per slot,

@@ -9,6 +9,7 @@ var (
 	_ tui.APIDumper           = (*scribeBackend)(nil)
 	_ tui.CheckpointBrancher  = (*scribeBackend)(nil)
 	_ tui.CheckpointSaver     = (*scribeBackend)(nil)
+	_ tui.ChatBudgeter        = (*scribeBackend)(nil)
 	_ tui.ConfigMover         = (*scribeBackend)(nil)
 	_ tui.ContextWindower     = (*scribeBackend)(nil)
 	_ tui.ContextClearer      = (*scribeBackend)(nil)
@@ -44,4 +45,5 @@ var (
 	_ tui.TaskClearer         = (*scribeBackend)(nil)
 	_ tui.UpdateChecker       = (*scribeBackend)(nil)
 	_ tui.RoutingDiagnoser    = (*scribeBackend)(nil)
+	_ tui.HealthChecker       = (*scribeBackend)(nil)
 )

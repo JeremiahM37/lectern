@@ -79,7 +79,19 @@ func (v *View) dynamic(i int, rec *Record) bool {
 	case roleSystem:
 		return i == len(v.msgs)-1 || (rec.Kind == "compact" && !rec.Done)
 	}
-	return !rec.Done || rec == v.live || rec.hasOpen() || v.tasksLingering(rec)
+	return !rec.Done || rec == v.live || rec.hasOpen() || v.tasksLingering(rec) || v.textFading(rec)
+}
+
+// textFading reports whether a text segment in rec is still fading. Its colour
+// changes with the clock until the fade ends, so the record is drawn fresh.
+func (v *View) textFading(rec *Record) bool {
+	now := v.clock()
+	for _, s := range rec.Segments {
+		if s.fading(now) {
+			return true
+		}
+	}
+	return false
 }
 
 // tasksLingering reports whether a finished record holds a task list that is
@@ -98,6 +110,7 @@ func (v *View) tasksLingering(rec *Record) bool {
 func (v *View) advanceAll(now time.Time) {
 	for _, r := range v.msgs {
 		for _, s := range r.Segments {
+			stampFade(s, now)
 			if s.Kind == "text" && s.Open {
 				advanceSeg(s, now)
 			}

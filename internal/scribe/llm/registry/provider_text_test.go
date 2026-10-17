@@ -25,14 +25,25 @@ func TestBuiltinsHaveDescriptions(t *testing.T) {
 	}
 }
 
-// The spec gives no key page for any provider, so none is invented. The field
-// stays empty until the docs are checked.
-func TestKeyURLEmptyUntilSourced(t *testing.T) {
+// Key pages are listed exactly, so a wrong or guessed URL fails here. A provider
+// gets a page only when its docs confirm the URL; everything else stays empty.
+func TestKeyURLsAreTheConfirmedPages(t *testing.T) {
+	want := map[string]string{
+		"anthropic":  "https://console.anthropic.com/settings/keys",
+		"openai":     "https://platform.openai.com/api-keys",
+		"deepseek":   "https://platform.deepseek.com/api_keys",
+		"openrouter": "https://openrouter.ai/keys",
+		"gemini":     "https://aistudio.google.com/apikey",
+		"groq":       "https://console.groq.com/keys",
+	}
 	isolate(t)
 	r := New(config.Config{})
 	for _, p := range r.List() {
-		if p.KeyURL != "" {
-			t.Errorf("%s has keyUrl %q with no source in the spec", p.ID, p.KeyURL)
+		if p.Custom {
+			continue
+		}
+		if got := p.KeyURL; got != want[p.ID] {
+			t.Errorf("%s keyUrl = %q, want %q", p.ID, got, want[p.ID])
 		}
 	}
 }

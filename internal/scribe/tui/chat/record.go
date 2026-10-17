@@ -75,6 +75,12 @@ type Segment struct {
 	dripAt time.Time
 	// seen is the time of the last reasoning delta, for Spent.
 	seen time.Time
+
+	// Fade timing for text segments (spec 01 §2.12). advanceAll stamps both on
+	// the first frame that sees the change, so they can lag the real edge by
+	// one tick. Neither is saved: a restored segment is settled.
+	openedAt time.Time
+	closedAt time.Time
 }
 
 // Call is one tool invocation.

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
@@ -21,18 +22,72 @@ func slashPopupRows(termRows int) int { return clamp(termRows/4, 4, 8) }
 // historyPopupRows is how many matches the Ctrl+R popup shows.
 func historyPopupRows(termRows int) int { return clamp(termRows/5, 3, 8) }
 
-// inputPlaceholder is the text shown in an empty input box, and its style.
-// Scribe's own copy: the rotating tips live in the footer instead. Browsing
-// only names the rewind while no turn runs: a message sent mid-turn steers
-// that turn (input.go), so the rewind prompt would be false then.
+// placeholderTipEvery is how long each idle placeholder tip stays up (spec 01
+// §4.2 item 4: every 12 s while the input is empty and idle).
+const placeholderTipEvery = 12 * time.Second
+
+// idleTips are the rotating placeholder tips for an empty, idle input, in the
+// spec's "text · hint" shape. Each key or command was checked against its
+// handler; the tests check the commands. The first tip is the copy Scribe
+// has always shown, so the first 12 s look the same as before.
+var idleTips = []string{
+	"Ask about your code, or type / for commands",
+	"Search your prompt history · Ctrl+R",
+	"Every key and command, from an empty box · ?",
+	"Filter every command in the palette · Ctrl+K",
+	"Switch models · Ctrl+L",
+	"Stash the draft for later, then bring it back · Alt+S / Alt+P",
+	"Run a shell command in the project · !command",
+	"Mention a file from the project · @path",
+	"Add a line without sending · Shift+Enter",
+	"Cycle the working mode · Shift+Tab",
+	"Hide the model's thinking, or ask for more · /reasoning",
+	"Expand or collapse tool output · Ctrl+O",
+	"Copy the message the transcript is focused on · Ctrl+Y",
+	"Copy the last answer to the clipboard · /copy",
+	"Export the session as markdown or JSON · /export",
+	"Browse earlier sessions · Ctrl+P",
+	"Start a new session · Ctrl+N",
+	"Open a new tab, up to five at once · Ctrl+T",
+	"Switch between open tabs · Alt+1 to Alt+5",
+	"Open the git menu: status, diff, commit · Ctrl+G",
+	"Show what a turn changed · /diff",
+	"List the turns that changed files · /checkpoints",
+	"Step back through checkpoints · Ctrl+B",
+	"Undo the last turn and restore its files · Ctrl+Z",
+	"Open the error log · Alt+R",
+	"Show or hide the checkpoint rail · Alt+C",
+	"Shorten a long conversation · /compact",
+	"Preview colour themes as you move through them · /theme",
+}
+
+// idleTip returns the tip for an idle empty input at the given frame. The
+// frame clock moves once per frameGap, so frame × frameGap is the elapsed
+// time and the tip changes every placeholderTipEvery of it, with no timer.
+func idleTip(frame int) string {
+	slot := time.Duration(frame) * frameGap / placeholderTipEvery
+	return idleTips[int(slot)%len(idleTips)]
+}
+
+// inputPlaceholder is the placeholder at frame 0. Callers that have the
+// model should use inputPlaceholderAt so the idle tip rotates.
 func inputPlaceholder(t *tab, th theme.Theme) (string, lipgloss.Style) {
+	return inputPlaceholderAt(t, th, 0)
+}
+
+// inputPlaceholderAt is the text shown in an empty input box, and its style.
+// The first match wins, in the spec's order: checkpoint browsing, busy, then
+// the rotating idle tip. Browsing only names the rewind while no turn runs: a
+// message sent mid-turn steers that turn (input.go), so the rewind prompt
+// would be false then. The idle tip is the only one that depends on frame.
+func inputPlaceholderAt(t *tab, th theme.Theme, frame int) (string, lipgloss.Style) {
 	if cp := browsedCheckpoint(t); cp != nil && !t.busy {
 		return icons.Icon("rewind") + " send a message to rewind to checkpoint #" + itoa(cp.Turn), fg(th.Warning)
 	}
 	if t.busy {
 		return "'/' for commands · or steer by sending a new message", fg(th.TextMuted)
 	}
-	return "Ask about your code, or type / for commands", fg(th.TextMuted)
+	return idleTip(frame), fg(th.TextMuted)
 }
 
 // searchPopupLines draws the Ctrl+R list above the box: a header with the

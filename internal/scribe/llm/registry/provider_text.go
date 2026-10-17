@@ -3,21 +3,21 @@ package registry
 // providerText is the user-facing text for each built-in provider, keyed by
 // provider id. The setup screens show it next to the provider name.
 //
-// KeyURL is empty everywhere on purpose. The behavioural spec names no page
-// where a key is created, and a guessed URL sends a user to the wrong place.
-// Fill it from the provider's own docs when those are checked; the TUI shows
-// it only when it is set.
+// KeyURL is set only where the provider's own key page is known exactly. The
+// behavioural spec names no key pages, so these come from the provider docs;
+// a guessed URL sends a user to the wrong place. Leave a provider empty until
+// its page is confirmed. The TUI shows the link only when it is set.
 //
 // Descriptions follow the spec's provider table (spec 03, section 4.2) and
 // say what the provider is, not how it is priced. Providers the spec table
 // does not list get a plain description of their service.
 var providerText = map[string]struct{ KeyURL, Description string }{
-	"anthropic":      {Description: "Claude models through the Anthropic API."},
-	"openai":         {Description: "GPT and o-series models through the OpenAI API."},
+	"anthropic":      {KeyURL: "https://console.anthropic.com/settings/keys", Description: "Claude models through the Anthropic API."},
+	"openai":         {KeyURL: "https://platform.openai.com/api-keys", Description: "GPT and o-series models through the OpenAI API."},
 	"xai":            {Description: "Grok models from xAI, with reasoning."},
-	"gemini":         {Description: "Gemini models through Google's Generative AI API."},
-	"groq":           {Description: "Fast hosted Llama, Qwen and GPT-OSS models."},
-	"deepseek":       {Description: "DeepSeek chat and reasoning models."},
+	"gemini":         {KeyURL: "https://aistudio.google.com/apikey", Description: "Gemini models through Google's Generative AI API."},
+	"groq":           {KeyURL: "https://console.groq.com/keys", Description: "Fast hosted Llama, Qwen and GPT-OSS models."},
+	"deepseek":       {KeyURL: "https://platform.deepseek.com/api_keys", Description: "DeepSeek chat and reasoning models."},
 	"mistral":        {Description: "Mistral's hosted models."},
 	"fireworks":      {Description: "Hosted open-weight models with tiered per-token pricing."},
 	"together":       {Description: "Open-weight models hosted by Together AI."},
@@ -28,7 +28,7 @@ var providerText = map[string]struct{ KeyURL, Description string }{
 	"minimax":        {Description: "MiniMax models through the MiniMax API."},
 	"bedrock":        {Description: "Claude and other models through AWS Bedrock, using your AWS account."},
 	"llmgateway":     {Description: "Models from many vendors behind one key, through LLM Gateway."},
-	"openrouter":     {Description: "Models from many vendors behind one key, with live pricing and context sizes."},
+	"openrouter":     {KeyURL: "https://openrouter.ai/keys", Description: "Models from many vendors behind one key, with live pricing and context sizes."},
 	"vercel_gateway": {Description: "Models from many vendors through the Vercel AI Gateway."},
 	"github-models":  {Description: "Models through GitHub Models, billed by per-token multipliers."},
 	"copilot":        {Description: "Your GitHub Copilot subscription, through its OpenAI-compatible endpoint. Unofficial."},

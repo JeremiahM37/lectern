@@ -61,9 +61,46 @@ func contextLines(t *tab) []string {
 	} else {
 		lines = append(lines, fmt.Sprintf("  Tokens         %s (no daily budget; set daily_token_budget)", render.HumanTokens(d.Today)))
 	}
+	if cb, ok := chatBudgetOf(t.be); ok {
+		lines = append(lines, chatBudgetLine(cb))
+	}
 	lines = append(lines, "", "/context clear unloads skills and memory recall",
 		"/compact shrinks the conversation")
 	return lines
+}
+
+// ChatBudget is this chat's share of today's token budget: what the chat has
+// spent today, and its chat_daily_token_budget (0 when there is none).
+type ChatBudget struct {
+	Today, Limit int
+}
+
+// ChatBudgeter is implemented by backends that know the per-chat budget.
+// It is optional, so a backend without it simply shows no per-chat row.
+// SetChatBudget saves chat_daily_token_budget in the global config, the way
+// /budget saves daily_token_budget.
+type ChatBudgeter interface {
+	ChatBudget() ChatBudget
+	SetChatBudget(n int) error
+}
+
+// chatBudgetOf returns the per-chat budget when the backend exposes it.
+func chatBudgetOf(be Backend) (ChatBudget, bool) {
+	cb, ok := be.(ChatBudgeter)
+	if !ok {
+		return ChatBudget{}, false
+	}
+	return cb.ChatBudget(), true
+}
+
+// chatBudgetLine is this chat's row in the Today section. With no per-chat
+// limit it still shows the spend, because the count runs regardless and a
+// limit set later should start from the real figure.
+func chatBudgetLine(cb ChatBudget) string {
+	if cb.Limit > 0 {
+		return fmt.Sprintf("  This chat      %s of %s tokens today (%d%%)", render.HumanTokens(cb.Today), render.HumanTokens(cb.Limit), pct(cb.Today, cb.Limit))
+	}
+	return fmt.Sprintf("  This chat      %s tokens today (no per-chat budget; set chat_daily_token_budget)", render.HumanTokens(cb.Today))
 }
 
 // maxModelRows caps the per-model table; the rest are summed into one row so

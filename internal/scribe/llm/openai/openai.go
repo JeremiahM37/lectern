@@ -382,10 +382,16 @@ func (p *Provider) translate(req llm.Request) []wireMessage {
 	if req.System != "" {
 		out = append(out, wireMessage{Role: "system", Content: req.System})
 	}
-	for _, m := range req.Messages {
+	// SendReasoning=false keeps only the turn in progress, as the Anthropic
+	// adapter does. Before that turn, reasoning is left off the wire.
+	turn := 0
+	if req.SendReasoning != nil && !*req.SendReasoning {
+		turn = currentTurnStart(req.Messages)
+	}
+	for i, m := range req.Messages {
 		switch m.Role {
 		case llm.RoleAssistant:
-			out = append(out, p.assistantMessage(m))
+			out = append(out, p.assistantMessage(m, i >= turn))
 		default: // user and tool
 			out = append(out, userAndToolMessages(m)...)
 		}
@@ -393,7 +399,35 @@ func (p *Provider) translate(req llm.Request) []wireMessage {
 	return out
 }
 
-func (p *Provider) assistantMessage(m llm.Message) wireMessage {
+// currentTurnStart returns the index of the user message that opens the turn
+// in progress. A user message that carries only tool results continues the
+// turn, so it does not count. Without a user turn, every message is before it.
+func currentTurnStart(msgs []llm.Message) int {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == llm.RoleUser && !onlyToolResults(msgs[i]) {
+			return i
+		}
+	}
+	return len(msgs)
+}
+
+// onlyToolResults reports whether every part of m is a tool result.
+func onlyToolResults(m llm.Message) bool {
+	if len(m.Parts) == 0 {
+		return false
+	}
+	for _, part := range m.Parts {
+		if part.Type != llm.PartToolResult {
+			return false
+		}
+	}
+	return true
+}
+
+// assistantMessage builds one assistant turn. Reasoning is echoed only where
+// the provider needs it (DeepSeek, on tool-call turns), and only when keep is
+// true. The caller sets keep from SendReasoning and the turn position.
+func (p *Provider) assistantMessage(m llm.Message, keep bool) wireMessage {
 	var text, reasoning strings.Builder
 	var calls []wireToolCall
 	for _, part := range m.Parts {
@@ -425,7 +459,7 @@ func (p *Provider) assistantMessage(m llm.Message) wireMessage {
 	default:
 		wm.Content = text.String()
 	}
-	if p.opts.ID == "deepseek" && len(calls) > 0 {
+	if p.opts.ID == "deepseek" && len(calls) > 0 && keep {
 		rc := reasoning.String()
 		wm.ReasoningContent = &rc
 	}
