@@ -364,7 +364,9 @@ func codeTUI(args []string, stderr io.Writer) int {
 	}
 	if cont {
 		root := app.FindRoot(cwd)
-		if metas := session.NewStore(root).List(); len(metas) > 0 {
+		// Only sessions this Scribe home recorded: one from another
+		// SCRIBE_HOME is not ours to reopen here.
+		if metas := session.NewStore(root).ListHere(); len(metas) > 0 {
 			opts.Resume = metas[0].ID // newest first
 			// Re-run its interrupted turn, if it has one, once the UI is up.
 			tuiArgs = append(tuiArgs, "--continue-turn")

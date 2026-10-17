@@ -47,11 +47,12 @@ func (b *scribeBackend) DiagnoseIndex() []tui.DiagnoseCheck {
 		out = append(out, tui.DiagnoseCheck{Area: "Parsers", Name: "languages", State: "info", Detail: "no source files in the map"})
 	}
 
-	idx := tui.DiagnoseCheck{Area: "Semantic index", Name: "symbols", State: "ok",
-		Detail: fmt.Sprintf("%d symbols, %d edges in %d files", st.Symbols, st.Edges, st.Files)}
+	idx := tui.DiagnoseCheck{Area: "Semantic index", Name: "code map", State: "ok",
+		Detail: fmt.Sprintf("built: %d files, %d symbols, %d edges", st.Files, st.Symbols, st.Edges)}
 	if st.Symbols == 0 {
 		idx.State = "warn"
-		idx.Detail = "the map has files but no symbols; run /repo-map rebuild"
+		idx.Detail = "the map has files but no symbols"
+		idx.Fix = "run /repo-map rebuild"
 	}
 	out = append(out, idx)
 

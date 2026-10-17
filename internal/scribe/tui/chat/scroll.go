@@ -25,6 +25,9 @@ func (v *View) build() {
 	if v.earlier > 0 {
 		lines = append(lines, earlierDivider(v.earlier, w, v.th.TextFaint), "")
 	}
+	// Records keep one column clear of the transcript's right border: the
+	// frame has no padding of its own, so a line as wide as the view touches it.
+	rw := maxInt(1, w-1)
 	v.recStart = make([]int, len(v.msgs))
 	for i, rec := range v.msgs {
 		if i > 0 {
@@ -33,13 +36,13 @@ func (v *View) build() {
 		v.recStart[i] = len(lines)
 		var rb builder
 		dyn := v.dynamic(i, rec)
-		if c := rec.cache; !dyn && c != nil && c.gen == v.gen && c.width == w &&
+		if c := rec.cache; !dyn && c != nil && c.gen == v.gen && c.width == rw &&
 			c.verbose == v.opt.Verbose && c.reasoning == v.opt.ShowReasoning && c.style == v.opt.ChatStyle {
 			rb = builder{lines: c.lines, hits: c.hits}
 		} else {
-			rb = v.renderRecord(i, rec, w, now)
+			rb = v.renderRecord(i, rec, rw, now)
 			if !dyn {
-				rec.cache = &cached{gen: v.gen, width: w, verbose: v.opt.Verbose, reasoning: v.opt.ShowReasoning,
+				rec.cache = &cached{gen: v.gen, width: rw, verbose: v.opt.Verbose, reasoning: v.opt.ShowReasoning,
 					style: v.opt.ChatStyle, lines: rb.lines, hits: rb.hits}
 			}
 		}

@@ -335,6 +335,18 @@ func contextWindow(t *tab) int {
 	if t.ctxWin > 0 {
 		return t.ctxWin
 	}
+	// Before the first usage event (a resumed session, a fresh launch) the
+	// backend knows the window of the model in use; the default is only for a
+	// backend that cannot say.
+	if cw, ok := t.be.(ContextWindower); ok && t.be != nil {
+		_, window, override := cw.ContextWindow()
+		if override > 0 {
+			return override
+		}
+		if window > 0 {
+			return window
+		}
+	}
 	return defaultContextWindow
 }
 

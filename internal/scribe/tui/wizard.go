@@ -10,6 +10,8 @@ package tui
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -427,7 +429,7 @@ func (w *wizard) choose() tea.Cmd {
 		case 0:
 			w.note = "still looking for " + p.Name + "…"
 		case 2:
-			w.note = p.Name + " is not running on this machine. Start it, or pick another provider."
+			w.note = p.Name + " is not running " + localWhere(p.ID) + ". Start it, or pick another provider."
 		default:
 			return w.enterModel(p)
 		}
@@ -817,6 +819,48 @@ func (w *wizard) providerList(th theme.Theme, width int) []string {
 	return append(out, custom)
 }
 
+// localHost is the address a local provider is reached at when it is not this
+// machine: OLLAMA_HOST for Ollama. "" means this machine (the default address).
+func localHost(id string) string {
+	if id != "ollama" {
+		return ""
+	}
+	host := strings.TrimSpace(os.Getenv("OLLAMA_HOST"))
+	if host == "" {
+		return ""
+	}
+	u := host
+	if !strings.Contains(u, "://") {
+		u = "http://" + u
+	}
+	parsed, err := url.Parse(u)
+	if err != nil || parsed.Host == "" {
+		return host
+	}
+	switch parsed.Hostname() {
+	case "localhost", "127.0.0.1", "::1", "0.0.0.0", "":
+		return ""
+	}
+	return parsed.Host
+}
+
+// localRunningWhere names where a local provider answered: this machine, or
+// the remote host from OLLAMA_HOST.
+func localRunningWhere(id string) string {
+	if h := localHost(id); h != "" {
+		return "running on " + h
+	}
+	return "running on this machine"
+}
+
+// localWhere is the "on this machine" / "at <host>" phrase for a local provider.
+func localWhere(id string) string {
+	if h := localHost(id); h != "" {
+		return "at " + h
+	}
+	return "on this machine"
+}
+
 // providerRow draws one provider with its status.
 func (w *wizard) providerRow(th theme.Theme, p ProviderStatus, sel bool, width int) string {
 	mark := "  "
@@ -832,9 +876,9 @@ func (w *wizard) providerRow(th theme.Theme, p ProviderStatus, sel bool, width i
 		case 0:
 			status = fg(th.TextFaint).Render("checking…")
 		case 1:
-			status = fg(th.Success).Render("✓ running on this machine")
+			status = fg(th.Success).Render("✓ " + localRunningWhere(p.ID))
 		default:
-			status = fg(th.TextFaint).Render("not running")
+			status = fg(th.TextFaint).Render("not running " + localWhere(p.ID))
 		}
 	case p.HasKey:
 		status = fg(th.Success).Render(keyStatus(p))

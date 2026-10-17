@@ -380,6 +380,19 @@ func garble(s string, seed int) string {
 	return b.String()
 }
 
+// IsGarbled reports whether s is mid-transition garble: it has a rune from
+// the garble pool, so it is not a word anyone can read.
+func IsGarbled(s string) bool {
+	for _, r := range s {
+		for _, g := range garblePool {
+			if r == g {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // argsOf decodes tool arguments into a map; a bad payload gives an empty map.
 func argsOf(raw json.RawMessage) map[string]any {
 	m := map[string]any{}

@@ -566,6 +566,21 @@ func memUpdated(t, now time.Time) string {
 	return "updated " + age + " ago"
 }
 
+// hiddenHint names the hidden memories when a scope tab is empty, so an empty
+// Project tab does not hide that memories were only put away. It says nothing
+// when none are hidden.
+func (b *memoryBrowser) hiddenHint() string {
+	n := len(b.hidden)
+	if n == 0 {
+		return ""
+	}
+	word := "memory is"
+	if n != 1 {
+		word = "memories are"
+	}
+	return fmt.Sprintf(" %d hidden %s kept on the Hidden tab: Tab to it to restore one.", n, word)
+}
+
 func (b *memoryBrowser) View(w, h int) string {
 	th := b.th
 	counts := []string{
@@ -667,6 +682,13 @@ func (b *memoryBrowser) listRows(w, h int) []string {
 		var out []string
 		for _, l := range wrapLines(msg, max(8, w-2)) {
 			out = append(out, fg(th.TextFaint).Render("  "+l))
+		}
+		if hint := b.hiddenHint(); hint != "" {
+			// its own paragraph, so the count stays on one line
+			out = append(out, "")
+			for _, l := range wrapLines(strings.TrimSpace(hint), max(8, w-2)) {
+				out = append(out, fg(th.TextMuted).Render("  "+l))
+			}
 		}
 		return out
 	}

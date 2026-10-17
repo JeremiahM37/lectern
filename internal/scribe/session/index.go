@@ -114,3 +114,18 @@ func ListAll() []Meta {
 	sortMeta(out)
 	return out
 }
+
+// ListHere returns this project's sessions that the current Scribe home
+// knows about, newest first. The global index is per home (SCRIBE_HOME), so
+// a session made under another home is left out: --continue must not reopen
+// a conversation the current home never recorded.
+func (s *Store) ListHere() []Meta {
+	idx := readIndex()
+	var out []Meta
+	for _, m := range s.List() {
+		if idx[m.ID] == s.Root {
+			out = append(out, m)
+		}
+	}
+	return out
+}

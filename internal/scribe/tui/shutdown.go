@@ -121,12 +121,13 @@ func (m *Model) startShutdown() tea.Cmd {
 	for _, t := range m.tabs {
 		bes = append(bes, t.be)
 	}
-	resume := ""
+	// The resume command is printed once, by SavedBannerLines after the
+	// terminal is restored, with the full session id. The quit screen does not
+	// show a second, shorter one.
 	if id := m.cur().be.SessionID(); id != "" {
-		resume = "lectern code --resume " + short(id)
-		m.resumeLine = "resume: " + resume
+		m.resumeLine = "resume: lectern code -s " + id
 	}
-	m.sd = &shutdownState{start: time.Now(), resume: resume, backends: bes}
+	m.sd = &shutdownState{start: time.Now(), backends: bes}
 	return func() tea.Msg {
 		for _, be := range bes {
 			_ = be.Close()

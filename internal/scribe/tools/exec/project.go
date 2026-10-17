@@ -86,7 +86,9 @@ func (t *projectTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessa
 	if dir != env.Workdir && !within(env.Workdir, dir) {
 		return tools.Errorf("cwd %q is outside the project. Pass a package directory inside it.", a.Cwd)
 	}
-	profile := Detect(dir)
+	// A cwd (or a Workdir below the repo root) may hold no toolchain marker of
+	// its own; the project's toolchain is in an ancestor, so look up to the root.
+	profile, dir := detectNearest(dir, env.Workdir)
 
 	if action == "list" {
 		return listResult(profile, dir, env.Workdir)
@@ -101,8 +103,12 @@ func (t *projectTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessa
 	target := strings.TrimSpace(a.Target)
 	cmd := commandFor(profile, action, target)
 	if cmd == "" {
+		msg := fmt.Sprintf("No %s command detected for this project. Use shell to run it manually.", action)
+		if profile.Ecosystem == "" {
+			msg = fmt.Sprintf("No project toolchain found in %s or above it, up to the project root. Use action list, or pass cwd as a package directory. Use shell to run it manually.", dir)
+		}
 		return tools.Result{
-			Output:  fmt.Sprintf("No %s command detected for this project. Use shell to run it manually.", action),
+			Output:  msg,
 			IsError: true,
 			Summary: "no " + action + " command",
 			Meta:    map[string]any{"error": "no command", "ecosystem": profile.Ecosystem},
@@ -140,6 +146,29 @@ func (t *projectTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessa
 		}
 	}
 	return projectResult(action, cmd, fg, timeout)
+}
+
+// detectNearest returns the toolchain of dir. When dir has none, it walks up
+// through its parents, stopping at root, and uses the first directory that has
+// one: the project's commands live there, not in a package subdirectory. The
+// directory it returns is where the command runs. Nothing found returns dir
+// itself with an empty profile.
+func detectNearest(dir, root string) (Profile, string) {
+	cur := dir
+	for {
+		if p := Detect(cur); p.Ecosystem != "" {
+			return p, cur
+		}
+		if cur == root {
+			break
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur || !within(root, parent) {
+			break
+		}
+		cur = parent
+	}
+	return Detect(dir), dir
 }
 
 // envPairs turns the env argument into NAME=value pairs. Names must be plain

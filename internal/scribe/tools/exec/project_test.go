@@ -224,3 +224,29 @@ func TestProjectListAndNoCommand(t *testing.T) {
 		t.Fatalf("unknown action should be an error")
 	}
 }
+
+// A cwd that is a package below the project root has no toolchain marker of
+// its own. The project's toolchain is found in the root, so the test command
+// is the root's, not "No test command detected".
+func TestProjectFindsToolchainAboveCwd(t *testing.T) {
+	root := fixture(t, map[string]string{"go.mod": "module x\n", "internal/calc/calc.go": "package calc\n"})
+	r, _ := newTestRegistry(t, Options{})
+
+	list := runTool(t, r, "project", newTestEnv(root, nil), map[string]any{"action": "list", "cwd": "internal/calc"})
+	if list.IsError || !strings.Contains(list.Output, "Detected: go") || !strings.Contains(list.Output, "go test ./...") {
+		t.Fatalf("list from a package below the root: %q", list.Output)
+	}
+	if p, dir := detectNearest(filepath.Join(root, "internal", "calc"), root); p.Ecosystem != "go" || dir != root {
+		t.Fatalf("detectNearest = %q in %q, want go in the root", p.Ecosystem, dir)
+	}
+}
+
+// The walk up stops at the project root: a toolchain above the root is not
+// the project's.
+func TestDetectNearestStopsAtRoot(t *testing.T) {
+	outer := fixture(t, map[string]string{"go.mod": "module outer\n", "proj/main.txt": "x"})
+	root := filepath.Join(outer, "proj")
+	if p, dir := detectNearest(root, root); p.Ecosystem != "" || dir != root {
+		t.Fatalf("detectNearest above the root = %q in %q, want none in the root", p.Ecosystem, dir)
+	}
+}

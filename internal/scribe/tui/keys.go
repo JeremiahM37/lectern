@@ -55,6 +55,9 @@ func (m *Model) handleGlobalKey(km tea.KeyMsg) (tea.Cmd, bool) {
 		if t.busy {
 			t.be.Abort()
 			m.setFlash("info", "Stopping…")
+		} else if vimEnabled(t) {
+			// idle with vim keys on: Esc goes to the input (normal mode)
+			return nil, false
 		}
 	case "ctrl+x":
 		if t.busy {

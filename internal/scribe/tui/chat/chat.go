@@ -260,7 +260,7 @@ var imageTag = regexp.MustCompile(`\[image-\d+\]`)
 
 func stripImageTags(s string) string { return strings.TrimSpace(imageTag.ReplaceAllString(s, "")) }
 
-// AddSystem appends a system row. kind is info, error, retry or interrupted.
+// AddSystem appends a system row. kind is info, shell, error, retry or interrupted.
 func (v *View) AddSystem(kind, text string) {
 	switch kind {
 	case "error":
@@ -269,9 +269,25 @@ func (v *View) AddSystem(kind, text string) {
 		v.addRecord(&Record{Role: roleSystem, Kind: "retry", Text: text})
 	case "interrupted":
 		v.addRecord(&Record{Role: roleSystem, Kind: "interrupted"})
+	case "shell":
+		v.addShell(text)
 	default:
 		v.addRecord(&Record{Role: roleSystem, Kind: "info", Text: text})
 	}
+}
+
+// addShell keeps a "!command" as one system row. The command echo ("$ ...")
+// opens the row; the output that follows joins it, so the row has one header.
+func (v *View) addShell(text string) {
+	if n := len(v.msgs); n > 0 {
+		if r := v.msgs[n-1]; r.Role == roleSystem && r.Kind == "shell" && !r.Done {
+			r.Text += "\n" + text
+			r.Done = true
+			v.gen++
+			return
+		}
+	}
+	v.addRecord(&Record{Role: roleSystem, Kind: "shell", Text: text, Done: !strings.HasPrefix(text, "$ ")})
 }
 
 // Apply consumes one agent event. Events from subagents (AgentID set) update

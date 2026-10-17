@@ -766,7 +766,7 @@ func (v *subagentsView) View(w, h int) string {
 		state := fg(col).Render(g+" ") + fg(th.TextMuted).Render(padRight(s.Status, 10))
 		tokens := render.HumanTokens(s.Tokens.InputTokens + s.Tokens.OutputTokens)
 		cells := padRight(s.ID, 5) + padRight(s.Role, 8) + state + padRight(render.Truncate(s.Model, 21), 22) +
-			padRight(fmt.Sprint(s.Step), 6) + padRight(tokens, 8) + render.Truncate(oneLine(last), max(8, w-62))
+			padRight(fmt.Sprint(s.Step), 6) + padRight(tokens, 8) + tailTruncate(subagentLast(oneLine(last), v.be.Workdir()), max(8, w-62))
 		if i == v.cursor {
 			body = append(body, fgb(th.BrandSecondary).Render("› ")+fgb(th.TextPrimary).Render(cells))
 		} else {
@@ -775,6 +775,17 @@ func (v *subagentsView) View(w, h int) string {
 	}
 	foot := []string{"", fg(th.TextFaint).Render(subagentCount(len(list)))}
 	return scrollList(head, body, foot, w, h, &v.off, v.cursor)
+}
+
+// subagentLast shows a subagent's last action with paths relative to the
+// project, so the part that differs (the file) is what the row shows. A path
+// outside the project stays absolute; the caller cuts the row from the left.
+func subagentLast(last, workdir string) string {
+	dir := strings.TrimRight(workdir, "/")
+	if dir == "" {
+		return last
+	}
+	return strings.ReplaceAll(last, dir+"/", "")
 }
 
 // subagentCount is "1 subagent" or "<n> subagents".

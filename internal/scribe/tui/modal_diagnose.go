@@ -34,6 +34,7 @@ type DiagnoseCheck struct {
 	Name   string
 	State  string // ok, warn, fail or info
 	Detail string
+	Fix    string // one line: what to do about a warn or fail
 }
 
 // Diagnoser is optionally implemented by a Backend that can run the checks.
@@ -121,6 +122,9 @@ func (p *diagnosePopup) View(w, h int) string {
 			line += " " + fg(th.TextDim).Render(render.Truncate(oneLine(c.Detail), max(8, w-26)))
 		}
 		rows = append(rows, render.Truncate(line, w))
+		if c.Fix != "" && (c.State == "warn" || c.State == "fail") {
+			rows = append(rows, render.Truncate("      "+fg(th.TextFaint).Render("→ "+oneLine(c.Fix)), w))
+		}
 	}
 	if len(rows) == 0 {
 		rows = []string{fg(th.TextFaint).Render("  Nothing to check yet.")}

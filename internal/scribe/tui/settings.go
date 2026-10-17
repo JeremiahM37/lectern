@@ -479,16 +479,31 @@ func (s *settings) intRow(label, key string, cur int, note string) setRow {
 }
 
 func (s *settings) floatRow(label, key string, cur float64) setRow {
-	return setRow{label: label, value: fmt.Sprintf("%.0f%%", cur*100), note: "fraction of the window", key: key, raw: cur, act: func() tea.Cmd {
-		return s.prompt(label, "0.5 to 0.95", strconv.FormatFloat(cur, 'f', -1, 64), func(v string) tea.Cmd {
-			f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
-			if err != nil || f < 0.3 || f > 0.95 {
-				s.say("err", "enter a fraction between 0.3 and 0.95")
+	// The row shows a percentage, so the editor takes one too ("80" or
+	// "80%"); a fraction such as 0.8 is still read for old habits.
+	return setRow{label: label, value: fmt.Sprintf("%.0f%%", cur*100), note: "percent of the window", key: key, raw: cur, act: func() tea.Cmd {
+		return s.prompt(label+" (percent)", "30 to 95", strconv.FormatFloat(cur*100, 'f', -1, 64), func(v string) tea.Cmd {
+			f, ok := parsePercent(v)
+			if !ok || f < 0.3 || f > 0.95 {
+				s.say("err", "enter a percentage between 30 and 95")
 				return nil
 			}
 			return s.set(key, f)
 		})
 	}}
+}
+
+// parsePercent reads "80", "80%" or "0.8" as the fraction 0.8.
+func parsePercent(v string) (float64, bool) {
+	v = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(v), "%"))
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return 0, false
+	}
+	if f > 1 {
+		f /= 100
+	}
+	return f, true
 }
 
 // prompt opens a single-line input over the settings screen.
@@ -718,7 +733,14 @@ func (s *settings) View(w, h int) string {
 
 	var out []string
 	out = append(out, ansi.Truncate(modalTabs(th, stTabNames, s.tab), w, ""))
-	out = append(out, s.scopeLine(th))
+	// The scope bar only appears where a save can land in a config file. On a
+	// tab with no config-backed rows it would offer a choice that changes
+	// nothing, so the line stays blank to keep the layout.
+	if hasConfigRows(rows) {
+		out = append(out, s.scopeLine(th))
+	} else {
+		out = append(out, "")
+	}
 	out = append(out, "")
 	cols := layoutCols(rows, w)
 	end := min(len(rows), s.off+avail)
@@ -730,6 +752,17 @@ func (s *settings) View(w, h int) string {
 	}
 	out = fitLines(out, w, h-1)
 	return strings.Join(append(out, s.noteLine(w, len(rows), avail)), "\n")
+}
+
+// hasConfigRows reports whether any row on the tab is a config key, so a save
+// from the tab goes to the global or project file and the scope applies.
+func hasConfigRows(rows []setRow) bool {
+	for _, r := range rows {
+		if r.key != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // scopeLine shows where changes are saved.

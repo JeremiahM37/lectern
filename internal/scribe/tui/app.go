@@ -108,9 +108,10 @@ type tab struct {
 	local    bool // provider runs locally: show "Local" instead of cost
 	model    string
 
-	steerQ []string // steering messages sent but not yet consumed
-	browse int      // checkpoint browsing: index into cps, -1 = live
-	cps    []CheckpointInfo
+	lastPhrase string   // last readable busy-line word, shown when a frame is garbled
+	steerQ     []string // steering messages sent but not yet consumed
+	browse     int      // checkpoint browsing: index into cps, -1 = live
+	cps        []CheckpointInfo
 
 	defModel   string  // the model the tab opened with; another one gets a badge
 	compacting bool    // a compaction is running
@@ -998,18 +999,57 @@ func (m *Model) busyLine(t *tab) string {
 	if !t.since.IsZero() {
 		elapsed = render.Elapsed(now.Sub(t.since))
 	}
-	phrase := fg(theme.Breath(m.th.TextMuted, m.th.Brand, m.frame, 60)).Render(t.chat.LivePhrase(now))
-	left := fgb(m.th.Brand).Render(spin) + " " + phrase +
-		" " + fg(m.th.TextDim).Render(elapsed)
-	// While text streams, an estimate of the tokens received so far.
-	if n := t.chat.StreamTokenEstimate(); n > 0 {
-		left += fg(m.th.TextDim).Render(" · ~" + render.HumanTokens(n) + " tokens")
+	left := fgb(m.th.Brand).Render(spin) + " "
+	if m.flash != "" {
+		// A flash (a commit, a cancel) takes the phrase's place at the front,
+		// where a long phrase and token count cannot push it off the row.
+		col := m.th.TextSecondary
+		switch m.flashKind {
+		case "ok":
+			col = m.th.Success
+		case "err":
+			col = m.th.Error
+		}
+		text := render.Truncate(m.flash, max(12, m.width-40))
+		left += fg(col).Render(text) + " " + fg(m.th.TextDim).Render(elapsed)
+	} else {
+		phrase := fg(theme.Breath(m.th.TextMuted, m.th.Brand, m.frame, 60)).Render(busyPhrase(t, now))
+		left += phrase + " " + fg(m.th.TextDim).Render(elapsed)
+		// While text streams, an estimate of the tokens received so far.
+		if n := t.chat.StreamTokenEstimate(); n > 0 {
+			left += fg(m.th.TextDim).Render(" · ~" + render.HumanTokens(n) + " tokens")
+		}
 	}
 	right := fgb(m.th.Error).Render("■ Esc to stop")
-	if m.flash != "" {
-		left += "  " + fg(m.th.TextDim).Render(m.flash)
-	}
 	return spaceBetween(left, right, m.width)
+}
+
+// busyPhrase is the status word on the busy line. It is always a readable
+// word: a turn waiting on the user says so, and a garbled frame (the chat's
+// glitch-in between phrases) shows the last readable word instead.
+func busyPhrase(t *tab, now time.Time) string {
+	if t.pui != nil {
+		if t.pui.kind == "approval" {
+			return "Waiting for your approval"
+		}
+		return "Waiting for your answer"
+	}
+	if len(t.prompts) > 0 {
+		// queued behind an open prompt: still the user's turn
+		if t.prompts[0].Approval != nil {
+			return "Waiting for your approval"
+		}
+		return "Waiting for your answer"
+	}
+	p := t.chat.LivePhrase(now)
+	if chat.IsGarbled(p) || p == "" {
+		if t.lastPhrase != "" {
+			return t.lastPhrase
+		}
+		return "Working"
+	}
+	t.lastPhrase = p
+	return p
 }
 
 // steerLines shows queued steering messages above the input.

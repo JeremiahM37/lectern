@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -253,6 +254,11 @@ func init() {
 				m.setFlash("info", "Compacting context…")
 				return func() tea.Msg {
 					if err := be.Compact(context.Background()); err != nil {
+						// Too short to shorten is not a failure: nothing was
+						// lost and nothing needed doing yet.
+						if errors.Is(err, agent.ErrNotEnoughHistory) || strings.Contains(err.Error(), agent.ErrNotEnoughHistory.Error()) {
+							return flashMsg{kind: "info", text: "Nothing to compact yet: the chat is too short to shorten."}
+						}
 						return flashMsg{kind: "err", text: "Compaction failed: " + err.Error()}
 					}
 					return flashMsg{kind: "ok", text: "Context compacted"}

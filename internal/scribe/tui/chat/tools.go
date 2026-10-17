@@ -145,7 +145,21 @@ func isEditTool(tool string) bool {
 	return false
 }
 
-func pathOf(c *Call) string { return argStr(argsOf(c.Args), "path") }
+func pathOf(c *Call) string { return argStr(argsOf(c.Args), "path", "file_path", "file") }
+
+// batchTarget is the file a batch row names. A call whose args name no file
+// (a failed edit, say) says so, with its error, rather than a blank label.
+func (v *View) batchTarget(cs []*Call, p string) string {
+	if p != "" {
+		return v.relPath(p)
+	}
+	for _, c := range cs {
+		if c.Result != nil && c.Result.IsError {
+			return "file not named: " + clip(firstLine(c.Result.Output), 40)
+		}
+	}
+	return "file not named"
+}
 
 // rowT is one line group in a rail: its lines and the call it stands for.
 type rowT struct {
@@ -328,7 +342,7 @@ func (v *View) callDetails(c *Call, cw int) []string {
 		if c.Result == nil {
 			return nil
 		}
-		lines = v.readDetail(c, argStr(m, "path"))
+		lines = v.readDetail(c, readPath(m))
 	default:
 		if c.Result == nil {
 			return nil
@@ -615,7 +629,7 @@ func (v *View) batchRow(kind string, calls []*Call, now time.Time, cw int) rowT 
 		byPath[p] = append(byPath[p], c)
 	}
 	if len(paths) < 2 {
-		name := v.relPath(paths[0])
+		name := v.batchTarget(calls, paths[0])
 		r.lines = []string{joinNonEmpty(" ", status, iconStr, label(verb), fg(th.TextPrimary, name)+fg(th.TextMuted, counts))}
 		r.lines = append(r.lines, v.batchDetails(calls, cw)...)
 		return r
@@ -635,8 +649,8 @@ func (v *View) batchRow(kind string, calls []*Call, now time.Time, cw int) rowT 
 				summary = c.Result.Summary
 			}
 		}
-		shown := v.relPath(p)
-		if kind == "read" {
+		shown := v.batchTarget(cs, p)
+		if kind == "read" && p != "" {
 			shown = v.outsideTreePath(p)
 		}
 		line := fg(th.TextFaint, "  "+conn) + st + " " + fg(th.TextPrimary, shown)

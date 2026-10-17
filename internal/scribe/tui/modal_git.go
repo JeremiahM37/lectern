@@ -627,16 +627,43 @@ func (c *commitModal) commit(msg, subject string) tea.Cmd {
 		} else {
 			err = be.GitCommit(msg)
 		}
+		hash := ""
+		if err == nil {
+			hash = headShort(be)
+		}
 		return func() (tea.Cmd, bool) {
 			if err != nil {
 				c.busy = ""
 				c.err = "Commit failed: " + err.Error()
 				return nil, false
 			}
-			m.setFlash("ok", "Committed: "+subject)
+			text := "Committed: " + subject
+			if hash != "" {
+				text = "Committed " + hash + ": " + subject
+			}
+			m.setFlash("ok", text)
 			return nil, true
 		}
 	})
+}
+
+// headShort is the abbreviated hash of HEAD, or "" when git does not give one.
+// It runs off the UI goroutine, after a commit, so the flash can name it.
+func headShort(be Backend) string {
+	out, code, err := shellRun(be, "git rev-parse --short HEAD", 2*time.Second)
+	if err != nil || code != 0 {
+		return ""
+	}
+	h := strings.TrimSpace(out)
+	if len(h) < 4 || len(h) > 12 {
+		return ""
+	}
+	for _, r := range h {
+		if !strings.ContainsRune("0123456789abcdef", r) {
+			return ""
+		}
+	}
+	return h
 }
 
 // Update implements Modal.

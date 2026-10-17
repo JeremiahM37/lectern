@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"sync"
 
@@ -270,10 +271,22 @@ func Decode(args json.RawMessage, v any) error {
 	if len(args) == 0 || string(args) == "null" {
 		return nil
 	}
-	if err := json.Unmarshal(args, v); err != nil {
-		// Say what to do next: a model that only hears "invalid" tends to
-		// give up on the tool and write its output as prose instead.
-		return fmt.Errorf("invalid arguments: %w. Match the tool's schema and call it again", err)
+	err := json.Unmarshal(args, v)
+	if err == nil {
+		return nil
 	}
-	return nil
+	// A near-miss shape (a string for a list, "10" for a number) is read
+	// as the field's type. Decode into a fresh value, since the failed
+	// decode may have half-filled v.
+	if fixed, ok := coerceArgs(args, v); ok {
+		if rv := reflect.ValueOf(v); rv.Kind() == reflect.Pointer && !rv.IsNil() {
+			rv.Elem().Set(reflect.Zero(rv.Elem().Type()))
+		}
+		if json.Unmarshal(fixed, v) == nil {
+			return nil
+		}
+	}
+	// Say what to do next: a model that only hears "invalid" tends to
+	// give up on the tool and write its output as prose instead.
+	return fmt.Errorf("invalid arguments: %w. Match the tool's schema and call it again", err)
 }

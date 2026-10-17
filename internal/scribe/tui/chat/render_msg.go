@@ -290,6 +290,9 @@ func (v *View) renderAssistant(rec *Record, w int, now time.Time) builder {
 func finishedFooter(rec *Record, th theme.Theme) string {
 	text := ""
 	switch {
+	case cancelledTurn(rec):
+		// The user stopped the turn at a plan: it must not read as success.
+		text = "⊘ Cancelled"
 	case answerText(rec) == "" && len(allCalls(rec)) > 0:
 		text = "✓ Done"
 	case rec.Duration > 0:
@@ -309,6 +312,17 @@ func finishedFooter(rec *Record, th theme.Theme) string {
 		return ""
 	}
 	return fg(th.TextFaint, text)
+}
+
+// cancelledTurn reports whether the user cancelled a plan in this turn. The
+// turn still ends, but its footer must not say it finished.
+func cancelledTurn(rec *Record) bool {
+	for _, s := range rec.Segments {
+		if s.Kind == "plan" && s.Plan != nil && s.Plan.Outcome == "cancelled" {
+			return true
+		}
+	}
+	return false
 }
 
 // renderBody lays out an assistant turn's segments. Verbose keeps them in

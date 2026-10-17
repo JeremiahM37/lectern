@@ -361,8 +361,8 @@ func TestQuitSequenceShowsResume(t *testing.T) {
 	if m.phase != phaseShutdown {
 		t.Fatalf("shutdown should switch screens")
 	}
-	if !strings.Contains(m.resumeLine, "lectern code --resume 7f3c9a21") {
-		t.Fatalf("resume hint should carry the 8-char session id, got %q", m.resumeLine)
+	if !strings.Contains(m.resumeLine, "lectern code -s ") || strings.Contains(m.resumeLine, "--resume") {
+		t.Fatalf("resume hint should use the full-id form, got %q", m.resumeLine)
 	}
 }
 

@@ -395,9 +395,10 @@ func rowPrefix(r diffRow, gw int, first, numbers bool, th theme.Theme) (string, 
 		sb.WriteString(style(th.TextDim).Render(oldS + " " + newS + " "))
 		w += 2*gw + 2
 	}
-	sign := " "
+	sign := continuationMark
 	signColor := th.TextDim
 	if first {
+		sign = " "
 		switch r.kind {
 		case '+':
 			sign, signColor = "+", th.DiffAddedSign
@@ -428,7 +429,7 @@ func unifiedBody(rows []diffRow, inner int, lang string, th theme.Theme, numbers
 		if contentW < 1 {
 			contentW = 1
 		}
-		for k, chunk := range chunkCells(cells, contentW) {
+		for k, chunk := range wrapDiffCells(cells, contentW) {
 			prefix, _ := rowPrefix(r, gw, k == 0, numbers, th)
 			line := prefix + paint(chunk, th)
 			out = append(out, fillRow(line, bg, inner))
@@ -456,8 +457,7 @@ func sideBySide(rows []diffRow, inner int, lang string, th theme.Theme, numbers 
 		if contentW < 1 {
 			contentW = 1
 		}
-		chunks := chunkCells(rowCells(*r, lang, th), contentW)
-		line := prefix + paint(chunks[0], th)
+		line := prefix + paint(cutDiffCells(rowCells(*r, lang, th), contentW), th)
 		return fillRow(line, bg, sideW)
 	}
 	emitPair := func(l, r *diffRow) {
@@ -499,6 +499,90 @@ func sideBySide(rows []diffRow, inner int, lang string, th theme.Theme, numbers 
 		i = j
 	}
 	return out
+}
+
+// continuationMark opens a wrapped continuation row in the sign column.
+const continuationMark = "↳"
+
+// wrapDiffCells splits a diff row into rows no wider than w cells. It breaks
+// after a space or a separator when one falls in the back half of the row, and
+// hard-breaks only when a word cannot fit, so words are not split when a
+// space or separator is available. An empty input gives one empty row.
+func wrapDiffCells(cells []cell, w int) [][]cell {
+	if w < 1 {
+		w = 1
+	}
+	if len(cells) == 0 {
+		return [][]cell{{}}
+	}
+	var rows [][]cell
+	for len(cells) > 0 {
+		n, cw := 0, 0
+		for n < len(cells) {
+			rw := runewidth.RuneWidth(cells[n].r)
+			if cw+rw > w && n > 0 {
+				break
+			}
+			cw += rw
+			n++
+		}
+		if n == len(cells) {
+			rows = append(rows, cells)
+			break
+		}
+		cut, next := n, n
+		for k := n; k*2 > n; k-- {
+			if isBreakRune(cells[k-1].r) {
+				cut, next = k, k
+				if cells[k].r == ' ' {
+					for next < len(cells) && cells[next].r == ' ' {
+						next++
+					}
+				}
+				break
+			}
+		}
+		rows = append(rows, cells[:cut])
+		cells = cells[next:]
+	}
+	return rows
+}
+
+// isBreakRune reports whether a line may wrap after r.
+func isBreakRune(r rune) bool {
+	switch r {
+	case ' ', '\t', ',', ';', ':', '/', '.', ')', ']', '}', '-':
+		return true
+	}
+	return false
+}
+
+// cutDiffCells returns the cells that fit in w, ending with "…" when the row is
+// longer, so a cut line says it was cut.
+func cutDiffCells(cells []cell, w int) []cell {
+	if w < 1 {
+		w = 1
+	}
+	total := 0
+	for _, c := range cells {
+		total += runewidth.RuneWidth(c.r)
+	}
+	if total <= w {
+		return cells
+	}
+	keep, cw := 0, 0
+	for keep < len(cells) && cw+runewidth.RuneWidth(cells[keep].r) <= w-1 {
+		cw += runewidth.RuneWidth(cells[keep].r)
+		keep++
+	}
+	out := append([]cell{}, cells[:keep]...)
+	mark := cell{r: '…'}
+	if keep > 0 {
+		mark.kind, mark.bg = cells[keep-1].kind, cells[keep-1].bg
+	} else if len(cells) > 0 {
+		mark.bg = cells[0].bg
+	}
+	return append(out, mark)
 }
 
 // fillRow pads a rendered line to width cells using the row background.

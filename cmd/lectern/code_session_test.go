@@ -79,3 +79,29 @@ func TestCodeTUIResumeDoesNotContinue(t *testing.T) {
 		t.Fatalf("resume alone re-ran a turn: args %q", rec.args)
 	}
 }
+
+// --continue only reopens a session the current SCRIBE_HOME recorded. The
+// newer session here was made under another home, so the older one wins.
+func TestCodeTUIContinueIgnoresOtherScribeHome(t *testing.T) {
+	dir := t.TempDir()
+	homeA, homeB := t.TempDir(), t.TempDir()
+	t.Setenv("SCRIBE_HOME", homeA)
+	mineA := session.Meta{Workdir: dir, Title: "made here"}
+	if err := session.NewStore(dir).Create(&mineA); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SCRIBE_HOME", homeB)
+	other := session.Meta{Workdir: dir, Title: "made under another home"}
+	if err := session.NewStore(dir).Create(&other); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SCRIBE_HOME", homeA)
+	rec := withTUI(t)
+	var errOut bytes.Buffer
+	if code := codeTUI([]string{"--continue", "--cwd", dir}, &errOut); code != 0 {
+		t.Fatalf("code %d err %q", code, errOut.String())
+	}
+	if rec.opts.Resume != mineA.ID {
+		t.Fatalf("resume %q, want %q (the session of this home), not %q", rec.opts.Resume, mineA.ID, other.ID)
+	}
+}

@@ -2,6 +2,7 @@ package chat
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -15,6 +16,15 @@ import (
 
 // reasoningTail is how much of a streaming reasoning block is shown.
 const reasoningTail = 4096
+
+// stepNumberRe is the "N." or "N)" a step text may start with. The card
+// already numbers steps, or draws a bullet, so the number is dropped.
+var stepNumberRe = regexp.MustCompile(`^\s*\d{1,3}[.)]\s+`)
+
+// stepLabel is a plan step's text as shown in a card: without a leading number.
+func stepLabel(text string) string {
+	return stepNumberRe.ReplaceAllString(text, "")
+}
 
 // renderReasoning draws a reasoning block: one line when collapsed, a
 // bordered box when expanded.
@@ -453,15 +463,16 @@ func (v *View) renderPlanTasks(s *Segment, tasks []agent.Task, cw int, now time.
 	for i := start; i < end; i++ {
 		st := p.Steps[i]
 		var glyph, text string
+		label := stepLabel(st.Text)
 		switch st.Status {
 		case "done":
-			glyph, text = fg(th.Success, icons.Icon("success")), fg(th.TextMuted, st.Text)
+			glyph, text = fg(th.Success, icons.Icon("success")), fg(th.TextMuted, label)
 		case "skipped":
-			glyph, text = fg(th.TextDim, icons.Icon("skip")), fg(th.TextDim, st.Text)
+			glyph, text = fg(th.TextDim, icons.Icon("skip")), fg(th.TextDim, label)
 		case "active":
-			glyph, text = fg(th.Brand, render.Frame(render.Braille, frameAt(now))), bold(th.TextPrimary, st.Text)
+			glyph, text = fg(th.Brand, render.Frame(render.Braille, frameAt(now))), bold(th.TextPrimary, label)
 		default:
-			glyph, text = fg(th.TextMuted, "○"), fg(th.TextMuted, st.Text)
+			glyph, text = fg(th.TextMuted, "○"), fg(th.TextMuted, label)
 		}
 		body = append(body, glyph+" "+clip(text, cw-6))
 		if st.Status == "active" {
@@ -543,7 +554,7 @@ func (v *View) renderStructuredPlan(p *agent.Plan, cw int) builder {
 			body = append(body, fg(th.TextMuted, fmt.Sprintf("+%d more", len(p.Steps)-5)))
 			break
 		}
-		body = append(body, fg(th.BrandAlt, fmt.Sprintf("%d.", i+1))+" "+fg(th.TextSecondary, clip(st.Text, cw-8)))
+		body = append(body, fg(th.BrandAlt, fmt.Sprintf("%d.", i+1))+" "+fg(th.TextSecondary, clip(stepLabel(st.Text), cw-8)))
 	}
 	body = append(body, planVerifySection(p.Verification, th)...)
 	b.add(boxed(title, body, cw, 1, th.TextFaint, nil)...)

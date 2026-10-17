@@ -56,6 +56,7 @@ type inputState struct {
 	imageN int // last chip label handed out; back to 0 when the chips are gone
 	clip   clipboardReader
 	cwd    string // working directory the stashes belong to
+	vim    vimState
 }
 
 // inputImage is one attached image.
@@ -623,6 +624,18 @@ func (m *Model) handleInputKey(km tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 	}
+	// Vim keys (the "vim" setting). Off, the state is dropped so turning it
+	// back on starts in insert mode.
+	if !vimEnabled(t) {
+		s.vim = vimState{}
+	} else if s.vim.normal {
+		if cmd, handled := m.vimKey(t, km); handled {
+			return cmd
+		}
+	} else if key == "esc" {
+		s.vimToNormal()
+		return nil
+	}
 	switch key {
 	case "enter":
 		return m.submit(s.value())
@@ -911,6 +924,9 @@ func (m *Model) boxLines(t *tab, w int, modeCol lipgloss.TerminalColor) []string
 		}
 		if strings.Contains(s.value(), "\n") {
 			footer = "Shift+⏎ newline · ^U del line"
+		}
+		if vimEnabled(t) {
+			footer = vimModeLabel(s)
 		}
 		if s.probing {
 			// the right-hand slot of the box while the clipboard is read

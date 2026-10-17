@@ -1214,11 +1214,15 @@ func (v *InfoView) Footer() string { return "↑↓ scroll · PgUp/PgDn page · 
 
 // Size implements Sized. The frame fits the text, so a five-line report is
 // not a screen-high box of blank lines; long text stops at 30 rows and scrolls.
+// The width is at least cols minus two overlayMinMargin strips, so on a narrow
+// screen the side margins are ones overlay blanks completely. A wider margin
+// would show the screen behind the box, and at 80 columns the help text read
+// as broken borders beside it.
 func (v *InfoView) Size(cols, rows int) (int, int) {
-	w := min(88, int(float64(cols)*0.8))
+	w := min(88, max(int(float64(cols)*0.8), cols-2*overlayMinMargin))
 	n := 0
 	for _, l := range v.lines {
-		n += strings.Count(render.Wrap(l, max(w-4, 10)), "\n") + 1
+		n += strings.Count(render.WrapPath(l, max(w-4, 10)), "\n") + 1
 	}
 	return w, clamp(n+2, 6, min(rows-4, 30))
 }
@@ -1258,7 +1262,7 @@ func (v *InfoView) View(w, h int) string {
 	}
 	var wrapped []string
 	for _, l := range v.lines {
-		wrapped = append(wrapped, strings.Split(render.Wrap(l, w), "\n")...)
+		wrapped = append(wrapped, strings.Split(render.WrapPath(l, w), "\n")...)
 	}
 	end := min(len(wrapped), v.off+h)
 	start := clamp(v.off, 0, max(0, len(wrapped)-1))

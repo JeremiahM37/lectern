@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -209,8 +210,7 @@ func (t planTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage)
 	for _, f := range pl.Files {
 		listed[f.Path] = true
 	}
-	for i, s := range in.Steps {
-		id := fmt.Sprint(i + 1)
+	for _, s := range in.Steps {
 		var paths []string
 		for _, f := range s.Files {
 			if f.Path == "" {
@@ -226,9 +226,14 @@ func (t planTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage)
 				}
 			}
 		}
-		pl.Steps = append(pl.Steps, PlanStep{ID: id, Text: s.Text, Files: paths, Symbols: s.Symbols, Status: "pending"})
-		if len(s.Symbols) > 0 {
-			ex.symbols[id] = s.Symbols
+		// A step packed with a numbered list becomes one step per item, each
+		// carrying the step's files and symbols.
+		for _, text := range splitStepText(s.Text) {
+			id := fmt.Sprint(len(pl.Steps) + 1)
+			pl.Steps = append(pl.Steps, PlanStep{ID: id, Text: text, Files: paths, Symbols: s.Symbols, Status: "pending"})
+			if len(s.Symbols) > 0 {
+				ex.symbols[id] = s.Symbols
+			}
 		}
 	}
 	md := renderPlan(pl, ex)
@@ -324,6 +329,61 @@ func (t planTool) depth() string {
 	}
 	used, window := t.p.Agent.ContextUsed()
 	return PlanDepth(used, window)
+}
+
+// leadingStepNumberRE is the number a model puts in front of a step: "3. Add
+// X", "3) Add X" or "Step 3: Add X".
+var leadingStepNumberRE = regexp.MustCompile(`^\s*(?:[Ss]tep\s+)?\d{1,2}\s*[.):]\s+`)
+
+// inlineStepMarkerRE finds a number that starts an item inside a step's text:
+// "1. Add X 2. Add Y". The number must follow the start of the text or a space,
+// so "v2.1" and "3.5 MB" do not count.
+var inlineStepMarkerRE = regexp.MustCompile(`(^|\s)(\d{1,2})[.)]\s+`)
+
+// splitStepText normalises the text of one plan step. A leading number is
+// dropped, since the plan already numbers its steps. A text that holds a
+// numbered list starting at 1 ("1. Add X 2. Add Y") becomes one text per
+// item. Anything else is returned as one text, trimmed.
+func splitStepText(text string) []string {
+	t := strings.TrimSpace(text)
+	marks := inlineStepMarkerRE.FindAllStringSubmatchIndex(t, -1)
+	var starts []int // where each accepted item's text begins
+	var ends []int   // where each accepted item's text ends
+	next := 1
+	for _, m := range marks {
+		if n, err := strconv.Atoi(t[m[4]:m[5]]); err != nil || n != next {
+			continue
+		}
+		if len(starts) > 0 {
+			ends = append(ends, m[0])
+		}
+		starts = append(starts, m[1])
+		next++
+	}
+	// The list must begin the text and hold at least two items.
+	if len(starts) < 2 || marks[0][0] != 0 || t[marks[0][4]:marks[0][5]] != "1" {
+		return []string{stripLeadingStepNumber(t)}
+	}
+	ends = append(ends, len(t))
+	var out []string
+	for i := range starts {
+		if item := strings.TrimSpace(t[starts[i]:ends[i]]); item != "" {
+			out = append(out, item)
+		}
+	}
+	if len(out) == 0 {
+		return []string{stripLeadingStepNumber(t)}
+	}
+	return out
+}
+
+// stripLeadingStepNumber removes a leading "3." (or "3)", "Step 3:") from a
+// step's text. A text that is only a number is left as it is.
+func stripLeadingStepNumber(t string) string {
+	if out := strings.TrimSpace(leadingStepNumberRE.ReplaceAllString(t, "")); out != "" {
+		return out
+	}
+	return t
 }
 
 // stepFile is one entry of a step's files. The schema asks for a path, but

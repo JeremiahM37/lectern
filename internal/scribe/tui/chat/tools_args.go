@@ -9,17 +9,50 @@ import (
 // readArgs is the args column of a read row: "N files" for several paths,
 // otherwise the path with its detail (formatReadDetail).
 func readArgs(v *View, m map[string]any) string {
-	if p, ok := m["paths"].([]any); ok && len(p) > 1 {
-		return fmt.Sprintf("%d files", len(p))
+	if n := readFileCount(m); n > 1 {
+		return fmt.Sprintf("%d files", n)
 	}
 	if argStr(m, "symbol") != "" {
 		return symbolArgs(v, m)
 	}
-	p := v.relPath(argStr(m, "path"))
+	p := v.relPath(readPath(m))
 	if d := readDetail(m); d != "" {
 		return p + " " + d
 	}
 	return p
+}
+
+// readPath is the file a read call names. The read tool takes path, or a
+// one-file paths or files list, and a near-miss file_path or file key is
+// read the same way: a row must never lose the file it is about.
+func readPath(m map[string]any) string {
+	for _, k := range []string{"path", "file_path", "file"} {
+		if p := argStr(m, k); p != "" {
+			return p
+		}
+	}
+	if ps, ok := m["paths"].([]any); ok && len(ps) > 0 {
+		if p, ok := ps[0].(string); ok {
+			return p
+		}
+	}
+	if fs, ok := m["files"].([]any); ok && len(fs) > 0 {
+		if f, ok := fs[0].(map[string]any); ok {
+			return readPath(f)
+		}
+	}
+	return ""
+}
+
+// readFileCount is how many files one read call names.
+func readFileCount(m map[string]any) int {
+	if ps, ok := m["paths"].([]any); ok && len(ps) > 1 {
+		return len(ps)
+	}
+	if fs, ok := m["files"].([]any); ok && len(fs) > 1 {
+		return len(fs)
+	}
+	return 0
 }
 
 // readDetail is formatReadDetail for the one range Scribe's read takes: a

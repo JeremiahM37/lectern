@@ -146,6 +146,7 @@ func (b *scribeBackend) Diagnose() []tui.DiagnoseCheck {
 				c.State, c.Detail = "ok", "answering on its address"
 			} else {
 				c.State, c.Detail = "warn", "not answering on its address"
+				c.Fix = "start Ollama, or set OLLAMA_HOST to a server that is running"
 			}
 		case p.Local:
 			c.Detail = "local, no key needed"
@@ -164,13 +165,16 @@ func (b *scribeBackend) Diagnose() []tui.DiagnoseCheck {
 		switch {
 		case s.State == "failed" || s.LastError != "":
 			c.State, c.Detail = "fail", oneLineStr(s.LastError)
+			c.Fix = "install or fix the server named in the detail, then run /diagnose again"
 		case s.Command == "":
 			c.State, c.Detail = "warn", "server binary not found on PATH"
+			c.Fix = "install the server, then run /diagnose again"
 		case s.State == "starting":
 			c.State = "info"
 		}
 		out = append(out, c)
 	}
+	out = append(out, lspGapChecks(a, b.LSPSessions())...)
 	for _, s := range b.Servers() {
 		if s.Kind != "mcp" {
 			continue
@@ -181,11 +185,14 @@ func (b *scribeBackend) Diagnose() []tui.DiagnoseCheck {
 			c.State, c.Detail = "ok", fmt.Sprintf("%d tools", s.Tools)
 		case "failed":
 			c.State, c.Detail = "fail", oneLineStr(s.Error)
+			c.Fix = "check its command and env in the config, then restart it from /mcp"
 		}
 		out = append(out, c)
 	}
 	out = append(out, gitCheck(b.Git(), a.Workdir))
 	out = append(out, diskCheck(a.Workdir))
+	out = append(out, homeCheck())
+	out = append(out, hooksChecks(a.Workdir)...)
 	return out
 }
 
@@ -193,7 +200,8 @@ func (b *scribeBackend) Diagnose() []tui.DiagnoseCheck {
 func gitCheck(g tui.GitStatus, dir string) tui.DiagnoseCheck {
 	c := tui.DiagnoseCheck{Area: "Git", Name: "repository", State: "ok"}
 	if _, err := exec.LookPath("git"); err != nil {
-		return tui.DiagnoseCheck{Area: "Git", Name: "git", State: "fail", Detail: "not found on PATH"}
+		return tui.DiagnoseCheck{Area: "Git", Name: "git", State: "fail", Detail: "not found on PATH",
+			Fix: "install git and put it on PATH"}
 	}
 	if g.Branch == "" {
 		c.State, c.Detail = "info", "not a git repository: "+dir
@@ -202,6 +210,7 @@ func gitCheck(g tui.GitStatus, dir string) tui.DiagnoseCheck {
 	c.Detail = "branch " + g.Branch
 	if g.Dirty {
 		c.State, c.Detail = "warn", c.Detail+", uncommitted changes"
+		c.Fix = "commit or stash when you want a clean baseline for /diff"
 	}
 	return c
 }
@@ -217,9 +226,9 @@ func diskCheck(dir string) tui.DiagnoseCheck {
 	c.Detail = fmt.Sprintf("%.1f GB free", float64(free)/(1<<30))
 	switch {
 	case free < diskFailBytes:
-		c.State = "fail"
+		c.State, c.Fix = "fail", "free space: sessions and checkpoints are written to this disk"
 	case free < diskWarnBytes:
-		c.State = "warn"
+		c.State, c.Fix = "warn", "free space: sessions and checkpoints are written to this disk"
 	}
 	return c
 }

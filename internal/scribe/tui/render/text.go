@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/mattn/go-runewidth"
 )
 
 // Truncate cuts s to at most w cells, ANSI-aware, ending with "…" when it cuts.
@@ -108,4 +109,97 @@ func RelTime(t, now time.Time) string {
 	default:
 		return t.Format("Jan 2")
 	}
+}
+
+// WrapPath is Wrap for text that carries paths and identifiers. A word wider
+// than a line breaks after a path separator ("/" or a space) when one falls
+// early enough to leave a useful piece, so "/tmp/a/b" wraps as "/tmp/a/" and
+// "b". Only when there is no such point does it fall back to punctuation such
+// as "-" (inside a UUID, say), and only when there is none at all is the run
+// cut at the edge. Newlines are kept, and text with ANSI sequences falls back
+// to Wrap.
+func WrapPath(s string, w int) string {
+	if w <= 0 {
+		return s
+	}
+	if strings.Contains(s, "\x1b") {
+		return Wrap(s, w)
+	}
+	var out []string
+	for _, para := range strings.Split(s, "\n") {
+		out = append(out, wrapPathLine([]rune(para), w)...)
+	}
+	return strings.Join(out, "\n")
+}
+
+// pathSep reports a preferred break: after a path separator or a space.
+func pathSep(r rune) bool { return r == ' ' || r == '/' || r == '\\' }
+
+// pathPunct reports a fallback break: after punctuation inside a segment.
+func pathPunct(r rune) bool {
+	switch r {
+	case '-', '_', '.', ',', ':', '=', '&', '?', ';':
+		return true
+	}
+	return false
+}
+
+// wrapPathLine wraps one line of runes to w cells.
+func wrapPathLine(in []rune, w int) []string {
+	if runewidthOf(in) <= w {
+		return []string{string(in)}
+	}
+	var lines []string
+	var line []rune
+	lw := 0
+	minBrk := w / 4
+	// sep and punct are the indexes just after the last preferred and the last
+	// fallback break in line, or -1.
+	sep, punct := -1, -1
+	note := func(i int) {
+		if pathSep(line[i-1]) {
+			sep = i
+		} else if pathPunct(line[i-1]) {
+			punct = i
+		}
+	}
+	for _, r := range in {
+		rw := runewidthOf([]rune{r})
+		if lw+rw > w && len(line) > 0 {
+			cut := -1
+			switch {
+			case sep >= minBrk:
+				cut = sep
+			case punct >= minBrk:
+				cut = punct
+			default:
+				cut = len(line)
+			}
+			lines = append(lines, strings.TrimRight(string(line[:cut]), " "))
+			rest := append([]rune{}, line[cut:]...)
+			for len(rest) > 0 && rest[0] == ' ' {
+				rest = rest[1:]
+			}
+			line, lw, sep, punct = rest, runewidthOf(rest), -1, -1
+			for i := 1; i <= len(line); i++ {
+				note(i)
+			}
+		}
+		line = append(line, r)
+		lw += rw
+		note(len(line))
+	}
+	if len(line) > 0 {
+		lines = append(lines, string(line))
+	}
+	return lines
+}
+
+// runewidthOf is the cell width of runes, one cell for the common cases.
+func runewidthOf(rs []rune) int {
+	n := 0
+	for _, r := range rs {
+		n += runewidth.RuneWidth(r)
+	}
+	return n
 }
