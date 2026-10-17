@@ -55,6 +55,10 @@ type Pane struct {
 	exited       bool
 	code         int
 
+	// raw holds the newest RawRingSize bytes of program output, exactly as
+	// the program sent them. It has its own lock, so it is not guarded by mu.
+	raw *rawRing
+
 	notify   chan struct{} // capacity 1; wakeups coalesce
 	done     chan struct{} // closed when the process has exited
 	readDone chan struct{} // closed when readLoop returns
@@ -62,7 +66,8 @@ type Pane struct {
 
 // New starts cmd (argv[0] plus arguments) in dir on a new pseudo-terminal of
 // w x h cells. The environment is inherited, with TERM set for an
-// xterm-compatible program.
+// xterm-compatible program. It is not scrubbed (spec 05 §9.5): a pane is the
+// user's own shell, and tools such as gh need their tokens there.
 func New(cmd []string, dir string, w, h int) (*Pane, error) {
 	if len(cmd) == 0 || cmd[0] == "" {
 		return nil, errors.New("no command to run")
@@ -92,6 +97,7 @@ func New(cmd []string, dir string, w, h int) (*Pane, error) {
 		pty:      pt,
 		cmd:      c,
 		emu:      vt.NewEmulator(w, h),
+		raw:      newRawRing(RawRingSize),
 		w:        w,
 		h:        h,
 		notify:   make(chan struct{}, 1),
@@ -127,6 +133,7 @@ func (p *Pane) readLoop() {
 	for {
 		n, err := p.pty.Read(buf)
 		if n > 0 {
+			_, _ = p.raw.Write(buf[:n])
 			p.mu.Lock()
 			_, _ = p.emu.Write(buf[:n])
 			p.mu.Unlock()
@@ -190,6 +197,11 @@ func FrameGap() time.Duration { return frameGap }
 
 // Done is closed when the program has exited.
 func (p *Pane) Done() <-chan struct{} { return p.done }
+
+// RawOutput is the newest RawRingSize bytes the program wrote to the pty,
+// oldest first, with its escape sequences intact. It is a copy. Use Text for
+// the rendered screen.
+func (p *Pane) RawOutput() []byte { return p.raw.Bytes() }
 
 // Write sends raw bytes to the program. It does not move the scrollback.
 func (p *Pane) Write(keys []byte) error {

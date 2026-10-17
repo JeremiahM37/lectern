@@ -32,7 +32,8 @@ type imageProbeMsg struct {
 }
 
 // clipImageMax is the largest image attached. The API takes 5 MB of base64,
-// which is about 3.75 MB of raw bytes.
+// which is about 3.75 MB of raw bytes. A larger image is shrunk to fit (see
+// image_shrink.go), and refused only when it cannot be.
 const clipImageMax = 3_750_000
 
 // clipTimeout bounds one clipboard helper run.
@@ -67,9 +68,8 @@ func systemClipboardImage() ([]byte, string, error) {
 	if mt == "" {
 		return nil, "", errNoClipboardImage
 	}
-	if len(data) > clipImageMax {
-		return nil, "", imageTooBig(len(data))
-	}
+	// An oversize image is shrunk when it is attached (attachFitted), which
+	// is also where the user is told about it.
 	return data, mt, nil
 }
 
@@ -212,12 +212,17 @@ func loadImageFile(path string) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	if st.Size() > clipImageMax {
+	if st.Size() > shrinkMaxInput {
 		return nil, "", imageTooBig(int(st.Size()))
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, "", err
+	}
+	if len(data) > clipImageMax {
+		// attachFitted shrinks it, or refuses with the size error. Only an
+		// image can be shrunk, so a big file that is not one gets that too.
+		return data, sniffImage(data), nil
 	}
 	mt := sniffImage(data)
 	if mt == "" {

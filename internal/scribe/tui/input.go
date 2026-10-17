@@ -167,9 +167,25 @@ func (m *Model) finishImageProbe(msg imageProbeMsg) tea.Cmd {
 		m.setFlash(kind, err.Error())
 		return nil
 	}
-	n := t.in.attach(msg.data, msg.mt)
-	m.setFlash("ok", fmt.Sprintf("Attached image %d from the clipboard", n))
+	m.attachFitted(t, msg.data, msg.mt, "Attached image %d from the clipboard", "the clipboard image")
 	return nil
+}
+
+// attachFitted attaches an image, shrinking it first when it is over the size
+// limit, and says which happened. okText takes the image number; what names
+// the image in an error.
+func (m *Model) attachFitted(t *tab, data []byte, mt, okText, what string) {
+	f, err := fitImage(data, mt)
+	if err != nil {
+		m.setFlash("err", "Can't attach "+what+": "+err.Error())
+		return
+	}
+	n := t.in.attach(f.data, f.mediaType)
+	if f.resized {
+		m.setFlash("ok", fmt.Sprintf("Attached image %d. ", n)+resizeNotice(f)+".")
+		return
+	}
+	m.setFlash("ok", fmt.Sprintf(okText, n))
 }
 
 // attachImageFile attaches an image named by a pasted file path.
@@ -179,8 +195,7 @@ func (m *Model) attachImageFile(t *tab, path string) {
 		m.setFlash("err", "Can't attach "+path+": "+err.Error())
 		return
 	}
-	n := t.in.attach(data, mt)
-	m.setFlash("ok", fmt.Sprintf("Attached image %d", n))
+	m.attachFitted(t, data, mt, "Attached image %d", path)
 }
 
 func (s *inputState) value() string { return s.ta.Value() }

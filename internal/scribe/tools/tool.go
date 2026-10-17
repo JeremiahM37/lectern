@@ -70,6 +70,8 @@ type Question struct {
 	Kind string `json:"kind,omitempty"`
 	// Body is extra content to show with the question (the plan markdown).
 	Body string `json:"body,omitempty"`
+	// NoSkip means the question must be answered: Esc does not skip it.
+	NoSkip bool `json:"no_skip,omitempty"`
 }
 
 // Host is what the agent's surroundings (TUI, headless runner, Lectern

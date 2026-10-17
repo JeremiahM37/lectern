@@ -89,6 +89,11 @@ func (ui *promptUI) optionCount() int {
 	return n + 1 // "Type an answer…"
 }
 
+// questionAllowsSkip reports whether Esc may skip a question. One asked with
+// allow_skip false must be answered, so Esc says so instead of sending an
+// empty answer (spec 01 §6).
+func questionAllowsSkip(q *tools.Question) bool { return q == nil || !q.NoSkip }
+
 // denyFor is the reply that means "no" for a prompt, used by Ctrl+C.
 func denyFor(ui *promptUI) PromptReply {
 	switch ui.kind {
@@ -142,6 +147,9 @@ func (m *Model) handlePromptKey(km tea.KeyMsg) (tea.Cmd, bool) {
 	}
 	switch key {
 	case "esc":
+		if ui.kind == "question" && !questionAllowsSkip(ui.p.Question) {
+			return flashCmd("info", "This question needs an answer"), true
+		}
 		return m.resolvePrompt(t, denyFor(ui)), true
 	case "up", "shift+tab", "left":
 		ui.sel = (ui.sel - 1 + n) % n
@@ -169,6 +177,13 @@ func (m *Model) handlePromptKey(km tea.KeyMsg) (tea.Cmd, bool) {
 		}
 	case "enter":
 		return m.promptChoose(t), true
+	case " ":
+		// Space picks the highlighted option in plan review and questions,
+		// as Enter does (spec 01 §8.2). Approvals keep Enter and y/a/n, so a
+		// stray space cannot allow a tool call.
+		if ui.kind != "approval" {
+			return m.promptChoose(t), true
+		}
 	}
 	return nil, true
 }
@@ -333,6 +348,9 @@ func (m *Model) questionLines(ui *promptUI, w int) []string {
 		body = append(body, m.optionRow("Type an answer…", ui.sel == len(q.Options), th.Brand))
 	}
 	footer := "↑↓ select · Enter confirm · Esc skip"
+	if !questionAllowsSkip(q) {
+		footer = "↑↓ select · Enter confirm"
+	}
 	if ui.typing {
 		footer = "Enter send · Esc back"
 	}

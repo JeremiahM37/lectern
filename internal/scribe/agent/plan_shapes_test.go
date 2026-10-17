@@ -45,3 +45,16 @@ func TestPlanToolAcceptsStringStepsAndFiles(t *testing.T) {
 		})
 	}
 }
+
+func TestAskUserAllowSkipFalseSetsNoSkip(t *testing.T) {
+	h := newPlanHarness(t, "default", "yes")
+	h.fake.setPick(scripted(t,
+		turn(sseTurn{calls: []sseCall{{id: "call_q", name: "ask_user", args: `{"question":"Proceed?","options":["yes","no"],"allow_skip":false}`}}}),
+		turn(sseTurn{text: []string{"ok"}}),
+	))
+	_, err := h.agent.Run(context.Background(), "go", nil)
+	must(t, err)
+	if len(h.host.asked) != 1 || !h.host.asked[0].NoSkip {
+		t.Fatalf("asked = %+v, want one question with NoSkip", h.host.asked)
+	}
+}

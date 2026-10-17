@@ -164,16 +164,22 @@ func DefaultModel(reg *registry.Registry) string {
 // startConfig loads the merged config for a session. A broken project config
 // must not stop Scribe (spec 5.5): the global config is used alone and the
 // returned warning says so. A broken global file, or an unknown preset, still
-// fails.
+// fails. A global file missing on first run is created with defaults (spec
+// 02 5.5); if that cannot be done, for example in a read-only home, Scribe
+// still starts on built-in defaults and the warning says why.
 func startConfig(root, preset string) (config.Config, string, error) {
-	cfg, err := config.Load(root)
 	warn := ""
+	if _, err := config.EnsureGlobal(); err != nil {
+		warn = fmt.Sprintf("could not create %s: %v", config.GlobalPath(), err)
+	}
+	cfg, err := config.Load(root)
 	if err != nil {
 		g, gerr := config.Load("")
 		if gerr != nil {
 			return config.Config{}, "", fmt.Errorf("config: %w", gerr)
 		}
-		cfg, warn = g, fmt.Sprintf("project config ignored: %v", err)
+		cfg = g
+		warn = joinWarnings(warn, fmt.Sprintf("project config ignored: %v", err))
 	}
 	if preset == "" {
 		return cfg, warn, nil
@@ -183,6 +189,17 @@ func startConfig(root, preset string) (config.Config, string, error) {
 		return config.Config{}, "", fmt.Errorf("config: %w", perr)
 	}
 	return config.ApplyPreset(cfg, p), warn, nil
+}
+
+// joinWarnings joins two startup notes, skipping an empty one.
+func joinWarnings(a, b string) string {
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	}
+	return a + "; " + b
 }
 
 // Open builds a session.

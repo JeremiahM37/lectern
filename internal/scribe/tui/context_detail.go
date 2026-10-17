@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
 )
 
@@ -33,24 +34,101 @@ func contextLines(t *tab) []string {
 			lines = append(lines, fmt.Sprintf("  %-16s %6s  %s", p.name, render.HumanTokens(p.n), shareBar(p.n, scale, 20)))
 		}
 	}
+	h := foldHistory(t.be.Transcript())
 	lines = append(lines, "", "This session",
 		fmt.Sprintf("  Input          %s", render.HumanTokens(u.InputTokens)),
 		fmt.Sprintf("  Output         %s", render.HumanTokens(u.OutputTokens)),
 		fmt.Sprintf("  Cache read     %s", render.HumanTokens(u.CacheReadTokens)),
+		fmt.Sprintf("  Cache write    %s", render.HumanTokens(u.CacheWriteTokens)),
 	)
+	if pct, ok := cacheHitPercent(u); ok {
+		lines = append(lines, fmt.Sprintf("  Cache hit      %d%% of input read from cache", pct))
+	} else {
+		lines = append(lines, "  Cache hit      n/a (no input yet)")
+	}
 	switch {
 	case t.local:
 		lines = append(lines, "  Cost           free (local model)")
 	default:
 		lines = append(lines, fmt.Sprintf("  Cost           $%.4f", cost))
 	}
+	lines = append(lines, subagentLine(h, t.local), compactionLine(h))
+	lines = append(lines, "", "By model (main agent)")
+	lines = append(lines, modelTableLines(h.Models)...)
 	lines = append(lines, "", "Today")
 	if d.DailyBudget > 0 {
 		lines = append(lines, fmt.Sprintf("  Tokens         %s of %s daily budget (%d%%)", render.HumanTokens(d.Today), render.HumanTokens(d.DailyBudget), pct(d.Today, d.DailyBudget)))
 	} else {
 		lines = append(lines, fmt.Sprintf("  Tokens         %s (no daily budget; set daily_token_budget)", render.HumanTokens(d.Today)))
 	}
-	lines = append(lines, "", "/context clear unloads skills and memory recall · /compact shrinks the conversation")
+	lines = append(lines, "", "/context clear unloads skills and memory recall",
+		"/compact shrinks the conversation")
+	return lines
+}
+
+// maxModelRows caps the per-model table; the rest are summed into one row so
+// a session that switched models often does not push the panel off screen.
+const maxModelRows = 5
+
+// subagentLine says how much of the session's spend came from subagents.
+// Their tokens and cost are already counted in the totals above it.
+func subagentLine(h contextHistory, local bool) string {
+	if h.Subagents == 0 {
+		return "  Subagents      none this session"
+	}
+	noun := "dispatches"
+	if h.Subagents == 1 {
+		noun = "dispatch"
+	}
+	line := fmt.Sprintf("  Subagents      %d %s, %s tokens", h.Subagents, noun, render.HumanTokens(total(h.SubagentUsage)))
+	if !local {
+		line += fmt.Sprintf(", $%.4f", h.SubagentCost)
+	}
+	return line + " (in the totals above)"
+}
+
+// compactionLine counts the compactions that ran and sizes the latest one.
+func compactionLine(h contextHistory) string {
+	switch {
+	case h.Compactions == 0:
+		return "  Compactions    none this session"
+	case h.Last.Before > 0:
+		return fmt.Sprintf("  Compactions    %d (last: %d to %d messages)", h.Compactions, h.Last.Before, h.Last.After)
+	}
+	return fmt.Sprintf("  Compactions    %d", h.Compactions)
+}
+
+// modelTableLines is the per-model table: calls, tokens and cache hit for
+// each model the main agent answered with.
+func modelTableLines(models []modelUsage) []string {
+	if len(models) == 0 {
+		return []string{"  No model calls in this session's transcript yet."}
+	}
+	lines := []string{fmt.Sprintf("  %-30s %5s %7s %7s %9s", "Model", "Calls", "Input", "Output", "Cache hit")}
+	shown := models
+	if len(shown) > maxModelRows {
+		shown = shown[:maxModelRows]
+	}
+	for _, m := range shown {
+		hit := "-"
+		if pct, ok := cacheHitPercent(m.Usage); ok {
+			hit = fmt.Sprintf("%d%%", pct)
+		}
+		lines = append(lines, fmt.Sprintf("  %-30s %5d %7s %7s %9s",
+			render.Truncate(m.Ref, 30), m.Calls,
+			render.HumanTokens(m.Usage.InputTokens), render.HumanTokens(m.Usage.OutputTokens), hit))
+	}
+	if rest := models[len(shown):]; len(rest) > 0 {
+		var calls int
+		var u llm.Usage
+		for _, m := range rest {
+			calls += m.Calls
+			u.Add(m.Usage)
+		}
+		lines = append(lines, fmt.Sprintf("  %-30s %5d %7s %7s %9s",
+			fmt.Sprintf("+%d more models", len(rest)), calls,
+			render.HumanTokens(u.InputTokens), render.HumanTokens(u.OutputTokens), "-"))
+	}
 	return lines
 }
 

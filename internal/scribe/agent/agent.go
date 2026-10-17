@@ -1225,6 +1225,15 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 			sig = ""
 		}
 	}
+	// gate holds back text that may be a tool call written as text (see
+	// textcalls.go). releaseHeld shows what it still holds, for the paths
+	// that end the stream without a recovery pass.
+	gate := newLeakGate(resume)
+	releaseHeld := func() {
+		if out := gate.stop(); out != "" {
+			a.emit(Event{Kind: EvText, Text: out, Step: step})
+		}
+	}
 	// idle is the threshold for the next event: first-token until there is
 	// content, inter-token after that. Every stream part resets it.
 	idle := func() time.Duration {
@@ -1261,7 +1270,9 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 				hasContent = true
 				flushReason()
 				text.WriteString(ev.Text)
-				a.emit(Event{Kind: EvText, Text: ev.Text, Step: step})
+				if out := gate.feed(ev.Text); out != "" {
+					a.emit(Event{Kind: EvText, Text: out, Step: step})
+				}
 			case llm.EvReasoning:
 				flushText()
 				reason.WriteString(ev.Text)
@@ -1272,12 +1283,14 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 				hasContent = true
 				flushText()
 				flushReason()
+				releaseHeld()
 				a.emit(Event{Kind: EvToolStart, CallID: ev.ToolCallID, Tool: ev.ToolName})
 			case llm.EvToolCallDelta:
 				a.emit(Event{Kind: EvToolArgs, CallID: ev.ToolCallID, Text: ev.ArgsDelta})
 			case llm.EvToolCallEnd:
 				flushText()
 				flushReason()
+				releaseHeld()
 				id := ev.ToolCallID
 				if id == "" {
 					id = fmt.Sprintf("call_%d_%d", step, len(parts))
@@ -1305,6 +1318,7 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 			case llm.EvError:
 				flushText()
 				flushReason()
+				releaseHeld()
 				if ctx.Err() != nil {
 					return textOnly(parts), "", ctx.Err()
 				}
@@ -1320,6 +1334,7 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 		}
 	}
 	if stalled {
+		releaseHeld()
 		if ctx.Err() != nil {
 			return llm.Message{}, "", ctx.Err()
 		}
@@ -1343,6 +1358,7 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 	}
 	if ctx.Err() != nil {
 		// Abort keeps the answer text produced so far (spec 03 §2.3).
+		releaseHeld()
 		flushText()
 		return textOnly(parts), "", ctx.Err()
 	}
@@ -1350,6 +1366,13 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 	flushText()
 	if finish == llm.FinishError {
 		return llm.Message{}, "", errors.New("the model ended the response with an error")
+	}
+	// A reply with no real call may have written its call as text; turn that
+	// into calls before anything reads the parts.
+	var unseen string
+	parts, unseen = recoverStepCalls(parts, gate, offeredNames(req.Tools))
+	if unseen != "" {
+		a.emit(Event{Kind: EvText, Text: unseen, Step: step})
 	}
 	a.mu.Lock()
 	a.total.Add(usage)

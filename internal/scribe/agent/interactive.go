@@ -186,12 +186,12 @@ var slugRE = regexp.MustCompile(`[^a-z0-9]+`)
 
 func (t planTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage) tools.Result {
 	var in struct {
-		Title   string     `json:"title"`
-		Summary string     `json:"summary"`
-		Files   flexList[planFileIn] `json:"files"`
-		Steps   flexList[planStepIn] `json:"steps"`
-		Verification []string `json:"verification"`
-		Body         string   `json:"body"`
+		Title        string               `json:"title"`
+		Summary      string               `json:"summary"`
+		Files        flexList[planFileIn] `json:"files"`
+		Steps        flexList[planStepIn] `json:"steps"`
+		Verification []string             `json:"verification"`
+		Body         string               `json:"body"`
 	}
 	if err := tools.Decode(args, &in); err != nil {
 		return tools.Errorf("%v", err)
@@ -719,16 +719,23 @@ func (askTool) Spec() llm.ToolSpec {
 		Schema: tools.Schema(map[string]any{
 			"question": tools.Str("The question"),
 			"options":  tools.Arr("Choices", map[string]any{"type": "string"}),
+			"allow_skip": map[string]any{"type": "boolean",
+				"description": "Whether the user may skip the question (default true). Set false only when you cannot continue without an answer."},
 		}, "question"),
 	}
 }
 
 func (askTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage) tools.Result {
-	var in tools.Question
-	if err := tools.Decode(args, &in); err != nil {
+	var raw struct {
+		tools.Question
+		AllowSkip *bool `json:"allow_skip"`
+	}
+	if err := tools.Decode(args, &raw); err != nil {
 		return tools.Errorf("%v", err)
 	}
+	in := raw.Question
 	in.AllowFreeText = true
+	in.NoSkip = raw.AllowSkip != nil && !*raw.AllowSkip
 	if env.Host == nil {
 		if len(in.Options) > 0 {
 			return tools.Result{Output: "No user is available; proceed with: " + in.Options[0]}
