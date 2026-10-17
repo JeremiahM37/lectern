@@ -2,7 +2,9 @@ package registry
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -266,9 +268,79 @@ func TestCustomProviderRenaming(t *testing.T) {
 	}
 }
 
+// ollamaServer answers the native Ollama API: /api/tags lists one model, and
+// /api/show reports its context window. It records the last path it saw.
+type ollamaServer struct {
+	*httptest.Server
+	mu   sync.Mutex
+	path string
+	chat []byte
+}
+
+func newOllamaServer(t *testing.T, window int) *ollamaServer {
+	t.Helper()
+	sv := &ollamaServer{}
+	sv.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sv.mu.Lock()
+		sv.path = r.URL.Path
+		sv.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/tags":
+			fmt.Fprint(w, `{"models":[{"name":"served-model","model":"served-model"}]}`)
+		case "/api/show":
+			fmt.Fprintf(w, `{"model_info":{"qwen35moe.context_length":%d},"capabilities":["tools"]}`, window)
+		case "/api/chat":
+			raw, _ := io.ReadAll(r.Body)
+			sv.mu.Lock()
+			sv.chat = raw
+			sv.mu.Unlock()
+			fmt.Fprint(w, `{"message":{"content":"ok"},"done":true,"done_reason":"stop"}`+"\n")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(sv.Close)
+	return sv
+}
+
+func (o *ollamaServer) lastPath() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.path
+}
+
+// chatNumCtx streams one tiny request through the registry's ollama provider
+// and returns the options.num_ctx the server received.
+func chatNumCtx(t *testing.T, r *Registry, model string, srv *ollamaServer) float64 {
+	t.Helper()
+	p, m, err := r.Resolve("ollama/" + model)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	ch, err := p.Stream(context.Background(), llm.Request{Model: m, Messages: []llm.Message{llm.UserText("hi")}})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	for range ch {
+	}
+	srv.mu.Lock()
+	raw := srv.chat
+	srv.mu.Unlock()
+	var body struct {
+		Options struct {
+			NumCtx float64 `json:"num_ctx"`
+		} `json:"options"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatalf("chat body: %v (%s)", err, raw)
+	}
+	return body.Options.NumCtx
+}
+
 func TestOllamaBaseFromOLLAMA_HOST(t *testing.T) {
 	isolate(t)
-	srv := newModelServer(t)
+	srv := newOllamaServer(t, 8192)
 	t.Setenv("OLLAMA_HOST", strings.TrimPrefix(srv.URL, "http://"))
 
 	r := New(config.Config{})
@@ -283,8 +355,84 @@ func TestOllamaBaseFromOLLAMA_HOST(t *testing.T) {
 	if len(models) != 1 || models[0].ID != "served-model" {
 		t.Fatalf("models = %+v", models)
 	}
-	if _, auth, path := srv.snapshot(); path != "/v1/models" || auth != "" {
-		t.Fatalf("path = %q auth = %q", path, auth)
+	if got := srv.lastPath(); got != "/api/show" {
+		t.Fatalf("last path = %q, want /api/show (listing goes to /api/tags first)", got)
+	}
+}
+
+func TestOllamaProviderUsesNativeRootWithOrWithoutV1(t *testing.T) {
+	for _, suffix := range []string{"", "/v1", "/v1/"} {
+		isolate(t)
+		srv := newOllamaServer(t, 8192)
+		t.Setenv("OLLAMA_HOST", srv.URL+suffix)
+
+		r := New(config.Config{})
+		if _, err := r.Provider("ollama"); err != nil {
+			t.Fatalf("suffix %q: Provider: %v", suffix, err)
+		}
+		if n := chatNumCtx(t, r, "served-model", srv); n != 65536 {
+			t.Fatalf("suffix %q: num_ctx = %v, want 65536", suffix, n)
+		}
+		if got := srv.lastPath(); got != "/api/chat" {
+			t.Fatalf("suffix %q: chat path = %q, want /api/chat", suffix, got)
+		}
+	}
+}
+
+func TestOllamaWindowCapAndPrecedence(t *testing.T) {
+	isolate(t)
+	t.Setenv("SCRIBE_OLLAMA_NUM_CTX", "")
+	srv := newOllamaServer(t, 262144)
+	t.Setenv("OLLAMA_HOST", srv.URL)
+
+	// No listing yet: the static fallback is 128000, capped to 65536.
+	r := New(config.Config{})
+	if w := r.ModelInfo("ollama/served-model").ContextWindow; w != 65536 {
+		t.Fatalf("uncached window = %d, want 65536", w)
+	}
+	// The listing reports 262144 and the cap still applies to it.
+	models, err := r.ListModels(context.Background(), "ollama")
+	if err != nil || len(models) != 1 {
+		t.Fatalf("ListModels: %v %+v", err, models)
+	}
+	if models[0].ContextWindow != 65536 {
+		t.Fatalf("listed window = %d, want 65536", models[0].ContextWindow)
+	}
+	if w := r.ModelInfo("ollama/served-model").ContextWindow; w != 65536 {
+		t.Fatalf("cached window = %d, want 65536", w)
+	}
+	if n := chatNumCtx(t, r, "served-model", srv); n != 65536 {
+		t.Fatalf("num_ctx = %v, want the header window 65536", n)
+	}
+
+	// SCRIBE_OLLAMA_NUM_CTX replaces the cap, and is what num_ctx carries.
+	t.Setenv("SCRIBE_OLLAMA_NUM_CTX", "32768")
+	r2 := New(config.Config{})
+	if w := r2.ModelInfo("ollama/served-model").ContextWindow; w != 32768 {
+		t.Fatalf("env window = %d, want 32768", w)
+	}
+	if n := chatNumCtx(t, r2, "served-model", srv); n != 32768 {
+		t.Fatalf("env num_ctx = %v, want 32768", n)
+	}
+	// A value that is not a positive integer is ignored.
+	t.Setenv("SCRIBE_OLLAMA_NUM_CTX", "lots")
+	if w := New(config.Config{}).ModelInfo("ollama/served-model").ContextWindow; w != 65536 {
+		t.Fatalf("bad env window = %d, want the cap 65536", w)
+	}
+
+	// A user context override beats both the cap and the env value.
+	t.Setenv("SCRIBE_OLLAMA_NUM_CTX", "32768")
+	ro := New(config.Config{ContextWindowOverrides: map[string]int{"ollama/served-model": 131072}})
+	if w := ro.ModelInfo("ollama/served-model").ContextWindow; w != 131072 {
+		t.Fatalf("override window = %d, want 131072", w)
+	}
+	if n := chatNumCtx(t, ro, "served-model", srv); n != 131072 {
+		t.Fatalf("override num_ctx = %v, want 131072", n)
+	}
+
+	// Other providers keep their own windows.
+	if w := New(config.Config{}).ModelInfo("lab/whatever-1").ContextWindow; w != 128000 {
+		t.Fatalf("non-ollama window = %d, want 128000", w)
 	}
 }
 

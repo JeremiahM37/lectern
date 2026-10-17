@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/anthropic"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/copilot"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/ollama"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/openai"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/proxy"
 )
@@ -26,6 +28,15 @@ const modelCacheTTL = 30 * time.Minute
 // customModelsTimeout bounds model listing and the keyless availability probe
 // for custom providers. Any failure falls back to the static list.
 const customModelsTimeout = 2 * time.Second
+
+// ollamaDefaultCtx caps the context window of local Ollama models. The window
+// is memory on local hardware: a long window costs VRAM for every loaded
+// model, so the default stays modest. The user raises it with the existing
+// context override, or SCRIBE_OLLAMA_NUM_CTX replaces this cap.
+const ollamaDefaultCtx = 65536
+
+// ollamaNumCtxEnv names the environment variable that replaces the Ollama cap.
+const ollamaNumCtxEnv = "SCRIBE_OLLAMA_NUM_CTX"
 
 // metadataTimeout bounds the metadata fetch ModelInfoAsync makes before it
 // answers.
@@ -306,6 +317,17 @@ func (r *Registry) Provider(id string) (llm.Provider, error) {
 		return copilot.New(copilot.Options{OAuthToken: key, HTTPClient: r.client}), nil
 	case d.ID == "proxy":
 		return proxy.New(proxy.Options{BaseURL: base, APIKey: key, HTTPClient: r.client, Headers: d.Headers}), nil
+	case d.ID == "ollama":
+		// Native /api/chat: the OpenAI-compatible endpoint ignores num_ctx.
+		return ollama.New(ollama.Options{
+			ID:         id,
+			BaseURL:    strings.TrimSuffix(base, "/v1"),
+			HTTPClient: r.client,
+			Headers:    d.Headers,
+			NumCtx: func(model string) int {
+				return r.ModelInfo("ollama/" + model).ContextWindow
+			},
+		}), nil
 	case d.Anthropic:
 		return anthropic.New(anthropic.Options{
 			ID:           id,
@@ -423,6 +445,9 @@ func (r *Registry) enrich(provider string, m llm.ModelInfo) llm.ModelInfo {
 	if m.ContextWindow == 0 {
 		m.ContextWindow = known.ContextWindow
 	}
+	if provider == "ollama" {
+		m.ContextWindow = r.ollamaWindow(provider+"/"+m.ID, m.ContextWindow)
+	}
 	if !m.CatalogPriced && m.InputPerMTok == 0 && m.OutputPerMTok == 0 {
 		m.InputPerMTok, m.OutputPerMTok = known.InputPerMTok, known.OutputPerMTok
 		m.CacheReadPerMTok, m.CacheWritePerMTok = known.CacheReadPerMTok, known.CacheWritePerMTok
@@ -453,6 +478,28 @@ func (r *Registry) ModelInfo(ref string) llm.ModelInfo {
 	r.mu.Unlock()
 	if overridden && w > 0 {
 		info.ContextWindow = w
+	} else if pid == "ollama" {
+		info.ContextWindow = r.ollamaWindow(ref, info.ContextWindow)
 	}
 	return info
+}
+
+// ollamaWindow is the window sent to Ollama as num_ctx for ref. A user context
+// override wins and is returned unchanged. Otherwise SCRIBE_OLLAMA_NUM_CTX
+// replaces the cap when it is set to a positive integer, and the default cap
+// is ollamaDefaultCtx. A model with no known window gets the cap too.
+func (r *Registry) ollamaWindow(ref string, w int) int {
+	r.mu.Lock()
+	o, overridden := r.contextOverrides[ref]
+	r.mu.Unlock()
+	if overridden && o > 0 {
+		return o
+	}
+	if v, err := strconv.Atoi(strings.TrimSpace(os.Getenv(ollamaNumCtxEnv))); err == nil && v > 0 {
+		return v
+	}
+	if w > ollamaDefaultCtx || w == 0 {
+		return ollamaDefaultCtx
+	}
+	return w
 }
