@@ -153,3 +153,45 @@ func coerceValue(raw json.RawMessage, t reflect.Type) (json.RawMessage, bool) {
 	}
 	return nil, false
 }
+
+// pathAliases are the names models use for a "path" argument. Live qwen sent
+// edits with the file under another key; the call then failed with "path is
+// required" although the file was named.
+var pathAliases = []string{"file_path", "filePath", "filepath", "filename", "file_name", "file"}
+
+// fillPathAlias sets an empty top-level string field tagged "path" from the
+// first alias key in args that holds a string. It changes nothing when the
+// struct has no such field, the field is set, or no alias is present.
+func fillPathAlias(args json.RawMessage, v any) {
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Pointer || rv.IsNil() || rv.Elem().Kind() != reflect.Struct {
+		return
+	}
+	sv := rv.Elem()
+	st := sv.Type()
+	field := -1
+	for i := 0; i < st.NumField(); i++ {
+		f := st.Field(i)
+		if tag, _, _ := strings.Cut(f.Tag.Get("json"), ","); tag == "path" && f.Type.Kind() == reflect.String && f.IsExported() {
+			field = i
+			break
+		}
+	}
+	if field < 0 || sv.Field(field).String() != "" {
+		return
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(args, &obj) != nil {
+		return
+	}
+	if _, ok := obj["path"]; ok {
+		return // the model sent path itself, even if empty
+	}
+	for _, k := range pathAliases {
+		var s string
+		if raw, ok := obj[k]; ok && json.Unmarshal(raw, &s) == nil && strings.TrimSpace(s) != "" {
+			sv.Field(field).SetString(strings.TrimSpace(s))
+			return
+		}
+	}
+}

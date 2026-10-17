@@ -69,3 +69,22 @@ func TestDecodeStrictPathUnchanged(t *testing.T) {
 		t.Fatalf("fields = %+v", a)
 	}
 }
+
+func TestDecodeReadsPathFromANearMissKey(t *testing.T) {
+	var in struct {
+		Path      string `json:"path"`
+		OldString string `json:"old_string"`
+	}
+	if err := Decode(json.RawMessage(`{"file_path":"util.go","old_string":"a"}`), &in); err != nil {
+		t.Fatal(err)
+	}
+	if in.Path != "util.go" {
+		t.Fatalf("path = %q, want util.go from file_path", in.Path)
+	}
+	var plain struct {
+		Path string `json:"path"`
+	}
+	if err := Decode(json.RawMessage(`{"path":"a.go","file":"b.go"}`), &plain); err != nil || plain.Path != "a.go" {
+		t.Fatalf("an explicit path must win: %q, %v", plain.Path, err)
+	}
+}

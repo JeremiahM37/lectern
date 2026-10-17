@@ -275,6 +275,7 @@ func Decode(args json.RawMessage, v any) error {
 	}
 	err := json.Unmarshal(args, v)
 	if err == nil {
+		fillPathAlias(args, v)
 		return nil
 	}
 	// A near-miss shape (a string for a list, "10" for a number) is read
@@ -285,6 +286,7 @@ func Decode(args json.RawMessage, v any) error {
 			rv.Elem().Set(reflect.Zero(rv.Elem().Type()))
 		}
 		if json.Unmarshal(fixed, v) == nil {
+			fillPathAlias(fixed, v)
 			return nil
 		}
 	}
