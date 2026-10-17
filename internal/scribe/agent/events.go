@@ -151,6 +151,11 @@ type AgentInfo struct {
 	Tokens llm.Usage `json:"tokens"`
 	Last   string    `json:"last,omitempty"` // last tool/action line
 	Error  string    `json:"error,omitempty"`
+	// Cache is the latest dispatch-cache outcome of this subagent's reads:
+	// hit | wait | store | invalidate. CacheFrom is the subagent it names.
+	// Both are empty when the dispatch cache is off.
+	Cache     string `json:"cache,omitempty"`
+	CacheFrom string `json:"cache_from,omitempty"`
 }
 
 // TurnStats summarises a finished turn.

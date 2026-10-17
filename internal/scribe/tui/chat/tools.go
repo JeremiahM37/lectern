@@ -5,9 +5,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools/fs"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/icons"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // argFn renders a tool's key argument for its row.
@@ -506,9 +510,26 @@ func (v *View) agentLines(c *Call, now time.Time) []string {
 		if cr := a.Tokens.CacheReadTokens; cr > 0 {
 			line += " " + fg(th.Amber, "[cache "+render.HumanTokens(cr)+"]")
 		}
-		line += "  " + fg(th.TextMuted, clip(a.Task, 40))
+		// The dispatch cache's state for this subagent's reads (spec 01 §2.9).
+		// Without the dispatch cache there is no state, so the row is unchanged.
+		stated := false
+		if g, label, col := dispatchCacheState(a, th); g != "" {
+			line += " " + fg(col, g+" "+label)
+			stated = true
+		}
+		// With a cache state shown, the task and error give way to it so the
+		// row stays in the width. Without one the widths are the usual 40 and 50.
+		taskMax := 40
+		if stated {
+			taskMax = min(taskMax, v.rowRoom(line)-2)
+		}
+		line += "  " + fg(th.TextMuted, clip(a.Task, taskMax))
 		if a.Status == "error" && a.Error != "" {
-			line += fg(th.Error, " → "+clip(a.Error, 50))
+			errMax := 50
+			if stated {
+				errMax = min(errMax, v.rowRoom(line)-3)
+			}
+			line += fg(th.Error, " → "+clip(a.Error, errMax))
 		}
 		out = append(out, line)
 		if a.Status == "running" && a.Last != "" {
@@ -516,6 +537,42 @@ func (v *View) agentLines(c *Call, now time.Time) []string {
 		}
 	}
 	return out
+}
+
+// dispatchCacheState is the glyph, label and colour of a subagent's dispatch
+// cache state (spec 01 §2.9). The glyphs come from the icon table, so they
+// fall back to plain symbols when nerd-font icons are off. An empty glyph means
+// there is no state, which is the case whenever the dispatch cache is off.
+func dispatchCacheState(a *agent.AgentInfo, th theme.Theme) (glyph, label string, col lipgloss.TerminalColor) {
+	switch a.Cache {
+	case "hit":
+		label = "from cache"
+		if a.CacheFrom != "" {
+			label = "from " + a.CacheFrom
+		}
+		return "", label, th.TextMuted
+	case "wait":
+		label = "waiting"
+		if a.CacheFrom != "" {
+			label = "waiting on " + a.CacheFrom
+		}
+		return "", label, th.Warning
+	case "store":
+		return "", "cached", th.TextMuted
+	case "invalidate":
+		return "", "updated cache", th.TextMuted
+	}
+	return "", "", nil
+}
+
+// rowRoom is how many columns a subagent row can still take after line. The
+// width is the view's, and 80 when the view has none yet.
+func (v *View) rowRoom(line string) int {
+	w := v.w
+	if w <= 0 {
+		w = 80
+	}
+	return w - ansi.StringWidth(line)
 }
 
 // groupStatus is the glyph for a batch: running, all failed, partial, or ok.

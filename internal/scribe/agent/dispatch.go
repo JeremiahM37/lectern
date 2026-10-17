@@ -269,6 +269,7 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 
 	n := len(in.Tasks)
 	run := newDispatchRun(d, env)
+	run.bus.SetCacheObserver(cacheObserver(run.board))
 	d.lastBoard.Store(run.board)
 	d.lastBus.Store(run.bus)
 	for _, st := range in.Tasks {
@@ -462,6 +463,27 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 		res.Meta["review"] = verdict
 	}
 	return res
+}
+
+// cacheObserver puts each cache outcome on the row of the subagent it is about.
+// A note for an id the board does not hold (a read made outside a subagent) is
+// dropped, since no row could show it.
+func cacheObserver(b *board) func(CacheNote) {
+	return func(n CacheNote) {
+		b.mu.Lock()
+		idx := -1
+		for i, info := range b.infos {
+			if info.ID == n.Agent {
+				idx = i
+				break
+			}
+		}
+		b.mu.Unlock()
+		if idx < 0 {
+			return
+		}
+		b.update(idx, func(a *AgentInfo) { a.Cache, a.CacheFrom = n.Outcome, n.From })
+	}
 }
 
 // runIDs is the subagent id of each of the first n tasks, as the board names them.

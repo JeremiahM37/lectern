@@ -682,7 +682,7 @@ func (a *App) newSubagent(spec agent.SubagentSpec, sink agent.Sink) *agent.Agent
 	reg := a.subagentTools(role)
 	if spec.Bus != nil {
 		if spec.ReadCache {
-			reg = withReadCache(reg, spec.Bus)
+			reg = withReadCacheFor(reg, spec.Bus, spec.ID)
 		}
 		for _, t := range agent.BusTools(id, spec.Bus) {
 			reg.Register(t)
