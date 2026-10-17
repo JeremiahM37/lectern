@@ -917,12 +917,19 @@ func (c *Confirm) Icon() string {
 // Danger reports whether the frame should be red.
 func (c *Confirm) Danger() bool { return c.danger }
 
-// Footer implements Footered.
+// Footer implements Footered. It names the yes button's own action
+// ("Y reset", "Y force-push"), and Enter picks the highlighted button, which
+// on a dangerous dialog starts on the cancel side.
 func (c *Confirm) Footer() string {
-	if c.danger {
-		return "Y/Enter delete · N/Esc cancel · ←→ switch"
+	action := strings.ToLower(strings.TrimPrefix(c.yesLbl, "Yes, "))
+	if action == "yes" || action == "" {
+		action = "confirm"
 	}
-	return "Y/Enter confirm · N/Esc cancel · ←→ switch"
+	no := strings.ToLower(c.noLbl)
+	if no == "no" || no == "" {
+		no = "cancel"
+	}
+	return "Y " + action + " · Enter choose · N/Esc " + no + " · ←→ switch"
 }
 
 // Size implements Sized. A confirm is a compact dialog.

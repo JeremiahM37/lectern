@@ -28,3 +28,11 @@ func TestFitHintDropsMiddleHintsAndKeepsClose(t *testing.T) {
 		t.Fatal("a hint that fits must not change")
 	}
 }
+
+func TestConfirmFooterNamesTheAction(t *testing.T) {
+	m, _ := newTestModel(t, 100, 30)
+	c := NewConfirm(m.th, "Force-push?", "Rewrite the remote branch", true, nil).WithLabels("Force-push", "Cancel")
+	if f := c.Footer(); !strings.Contains(f, "Y force-push") || !strings.Contains(f, "N/Esc cancel") || strings.Contains(f, "delete") {
+		t.Fatalf("footer = %q", f)
+	}
+}

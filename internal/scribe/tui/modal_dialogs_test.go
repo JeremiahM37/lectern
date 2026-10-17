@@ -84,11 +84,11 @@ func TestConfirmDangerDefaultsToNoAndSaysDelete(t *testing.T) {
 	if !strings.Contains(view, "▸ No") || !strings.Contains(view, "Yes, delete") {
 		t.Fatalf("danger confirm buttons:\n%s", view)
 	}
-	if !strings.Contains(c.Footer(), "Y/Enter delete") {
+	if !strings.Contains(c.Footer(), "Y delete") {
 		t.Fatalf("danger footer = %q", c.Footer())
 	}
 	plainC := NewConfirm(th, "Save?", "ok?", false, nil)
-	if !strings.Contains(plain(plainC.View(60, 5)), "▸ Yes") || !strings.Contains(plainC.Footer(), "Y/Enter confirm") {
+	if !strings.Contains(plain(plainC.View(60, 5)), "▸ Yes") || !strings.Contains(plainC.Footer(), "Y confirm") {
 		t.Fatalf("plain confirm should default to Yes:\n%s", plain(plainC.View(60, 5)))
 	}
 }

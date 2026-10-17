@@ -42,3 +42,25 @@ func TestAutoCompactWithShortHistoryIsQuiet(t *testing.T) {
 		t.Fatalf("/compact showed %d notices, want 1", n)
 	}
 }
+
+type cancelledCompactor struct{}
+
+func (cancelledCompactor) Compact(ctx context.Context, _ []llm.Message) ([]llm.Message, string, error) {
+	return nil, "", ctx.Err()
+}
+
+func TestCancelledCompactionIsNotAWarning(t *testing.T) {
+	f := newFake(t)
+	log := &eventLog{}
+	opts := baseOptions(f, lookRegistry(), log, t.TempDir())
+	opts.Compactor = cancelledCompactor{}
+	a := New(opts)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = a.Compact(ctx, "requested")
+	for _, e := range log.snapshot() {
+		if e.Kind == EvWarning {
+			t.Fatalf("cancelled compaction warned: %q", e.Text)
+		}
+	}
+}

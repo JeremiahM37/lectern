@@ -17,7 +17,13 @@ func (a *Agent) setTaskList(list []Task) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.taskList = append([]Task(nil), list...)
+	a.taskIdle = 0
 }
+
+// taskStaleSteps is how many tool steps a list with unfinished items may go
+// unchanged before it is shown again. Live qwen set a list, said it would
+// update it, and never did; the list then sat at 0/5 for the whole turn.
+const taskStaleSteps = 4
 
 // taskReminder returns the task list reminder due after this step, or "".
 // It is due when there is a list whose text differs from the one last sent
@@ -37,9 +43,15 @@ func (a *Agent) taskReminder() string {
 		return ""
 	}
 	if text == a.taskShown {
-		return ""
+		a.taskIdle++
+		if a.taskIdle < taskStaleSteps || !hasOpenTask(a.taskList) {
+			return ""
+		}
+		a.taskIdle = 0
+		return "<system-reminder>\n" + text + "\nThe list has not changed for a while. Mark finished items done now with task_list (action update, the item's id, status done), and the item you are on in_progress.\n</system-reminder>"
 	}
 	a.taskShown = text
+	a.taskIdle = 0
 	return "<system-reminder>\n" + text + "\n</system-reminder>"
 }
 
@@ -55,4 +67,14 @@ func renderTaskList(list []Task) string {
 		fmt.Fprintf(&b, "%s. [%s] %s\n", t.ID, t.Status, t.Text)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// hasOpenTask reports whether any task is not finished.
+func hasOpenTask(list []Task) bool {
+	for _, t := range list {
+		if t.Status != "done" && t.Status != "cancelled" {
+			return true
+		}
+	}
+	return false
 }

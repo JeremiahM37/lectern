@@ -256,6 +256,10 @@ type Agent struct {
 	taskList     []Task
 	taskShown    string
 	taskShownGen int
+	// taskIdle counts tool steps since the list last changed; a list with
+	// unfinished items left unchanged for taskStaleSteps steps is shown again
+	// with a prompt to update it.
+	taskIdle int
 }
 
 // badArg is a tool call whose arguments the provider sent as invalid JSON.
@@ -1881,7 +1885,11 @@ func (a *Agent) compact(ctx context.Context, reason string, auto bool) error {
 			return err
 		}
 		a.emit(done)
-		a.emit(Event{Kind: EvWarning, Text: "compaction failed: " + err.Error()})
+		// A stop or quit cancels it; nothing failed, and the history is
+		// unchanged.
+		if ctx.Err() == nil {
+			a.emit(Event{Kind: EvWarning, Text: "compaction failed: " + err.Error()})
+		}
 		return err
 	}
 	a.mu.Lock()
