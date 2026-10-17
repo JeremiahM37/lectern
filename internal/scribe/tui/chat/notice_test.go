@@ -14,3 +14,11 @@ func TestNoticeEventIsShown(t *testing.T) {
 		t.Fatalf("notice not rendered:\n%s", out)
 	}
 }
+
+func TestClearedPlanHandoverIsNotShownAsTheUsersMessage(t *testing.T) {
+	v, _ := newView(t, Options{})
+	v.Apply(agent.Event{Kind: agent.EvTurnStart, Prompt: agent.ClearedPlanPrefix + "Implement the plan now. SECRET-PLAN-BODY"})
+	if out := plain(v); strings.Contains(out, "SECRET-PLAN-BODY") {
+		t.Fatalf("handover shown as a user message:\n%s", out)
+	}
+}

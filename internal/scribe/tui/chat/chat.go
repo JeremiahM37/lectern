@@ -319,7 +319,7 @@ func (v *View) Apply(e agent.Event) {
 				break
 			}
 		}
-		if e.Prompt != "" && !v.takeLocal(e.Prompt) {
+		if e.Prompt != "" && !strings.HasPrefix(e.Prompt, agent.ClearedPlanPrefix) && !v.takeLocal(e.Prompt) {
 			// A turn this view did not start: a phone message, or any other
 			// prompt the backend ran. It has no row yet, so it gets one here.
 			v.AddUser(e.Prompt, 0, v.when(e.At), false)

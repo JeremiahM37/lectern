@@ -110,6 +110,18 @@ func (m *Model) vimKey(t *tab, km tea.KeyMsg) (tea.Cmd, bool) {
 		s.vim.normal = false
 		return nil, false
 	}
+	if km.Type == tea.KeyRunes && !km.Alt && len(km.Runes) > 1 {
+		// A burst of keys in one read (key repeat, fast typing) is one
+		// command per key; once a key enters insert mode the rest is text.
+		for i, r := range km.Runes {
+			if !s.vim.normal {
+				s.ta.InsertString(string(km.Runes[i:]))
+				break
+			}
+			m.vimKey(t, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		}
+		return nil, true
+	}
 	if km.Type != tea.KeyRunes || km.Alt || len(km.Runes) != 1 {
 		switch km.String() {
 		case "esc":

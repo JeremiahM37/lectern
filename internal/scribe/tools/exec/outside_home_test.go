@@ -53,10 +53,15 @@ func TestRmDescriptionQuotedHomeTarget(t *testing.T) {
 }
 
 func TestUserDeclinedClosesTheMatter(t *testing.T) {
-	msg := userDeclined("delete files", "")
+	msg := userDeclined("delete files", "rm -rf /x", "")
 	for _, bad := range []string{"/tmp", "narrower"} {
 		if strings.Contains(msg, bad) {
 			t.Fatalf("decline text suggests a workaround (%q): %s", bad, msg)
+		}
+	}
+	for _, want := range []string{"rm -rf /x", "this command only"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("decline text should name the command and its scope (%q): %s", want, msg)
 		}
 	}
 }

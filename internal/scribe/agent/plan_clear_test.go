@@ -60,6 +60,20 @@ func TestPlanClearContextLeavesOnlyThePlanMessage(t *testing.T) {
 	if h.planner.takeCleared() != nil {
 		t.Fatal("clear request was not consumed")
 	}
+	// The mode switch and the cleared context are announced, and the
+	// handover message carries the prefix views use to hide it.
+	noticed := false
+	for _, e := range h.log.snapshot() {
+		if e.Kind == EvNotice && strings.Contains(e.Text, "context cleared") && strings.Contains(e.Text, "Default mode") {
+			noticed = true
+		}
+	}
+	if !noticed {
+		t.Fatalf("no notice for the cleared context: %v", h.log.kinds())
+	}
+	if !strings.HasPrefix(first, ClearedPlanPrefix) {
+		t.Fatalf("handover message lacks ClearedPlanPrefix:\n%s", first)
+	}
 }
 
 func TestPlanClearContextKeepsPlanState(t *testing.T) {

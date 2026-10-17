@@ -67,7 +67,7 @@ func gate(ctx context.Context, env *tools.Env, opts Options, tool, command, desc
 		Danger: true,
 	})
 	if dec == tools.Deny {
-		return tools.Errorf("%s", userDeclined(desc, reason())), true
+		return tools.Errorf("%s", userDeclined(desc, command, reason())), true
 	}
 	tools.NoteApproval(ctx, reason())
 	return tools.Result{}, false
@@ -358,7 +358,7 @@ func approveOutsideCwd(ctx context.Context, env *tools.Env, what, command string
 		Danger: outsideDelete.MatchString(command),
 	})
 	if dec == tools.Deny {
-		return tools.Errorf("%s", userDeclined("run a command that reaches outside the project ("+what+")", reason())), true
+		return tools.Errorf("%s", userDeclined("run a command that reaches outside the project ("+what+")", command, reason())), true
 	}
 	tools.NoteApproval(ctx, reason())
 	return tools.Result{}, false
@@ -370,10 +370,15 @@ var outsideDelete = regexp.MustCompile(`(^|[;&|(\s])(rm|rmdir|unlink|truncate)\s
 // userDeclined is what the model reads after the user says no on an approval
 // card. It must close the matter: an earlier wording suggested other routes
 // ("write under /tmp", "use a narrower command") and a live model took them as
-// a way around the refusal, re-issuing the command with cosmetic changes.
-func userDeclined(what, reason string) string {
-	return "Denied: the user chose Deny when asked to " + what + ". This was the user's decision, not a sandbox or tool restriction, so tell them it was not run because they declined. " +
-		"Do not run it again or any variant of it, and do not ask for it another way. " +
+// a way around the refusal, re-issuing the command with cosmetic changes. It
+// must also stay about this one command: a wording without that made a live
+// model refuse a different, later request on its own, so the user was never
+// asked.
+func userDeclined(what, command, reason string) string {
+	return "Denied: the user chose Deny when asked to " + what + " (command: " + clipRunes(command, 200) + "). " +
+		"This was the user's decision, not a sandbox or tool restriction, so tell them it was not run because they declined. " +
+		"Do not run this command again or a variant of it for the current request, and do not ask for it another way. " +
+		"The denial covers this command only: when the user asks for something else later, even something similar, call the tool for it as usual; the user is asked each time and decides. " +
 		"Then continue with whatever else the task needs." +
 		tools.DeniedWithReason(reason)
 }

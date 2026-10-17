@@ -36,6 +36,7 @@ func RunClearing(ctx context.Context, a *Agent, p *Planner, prompt string, image
 			break
 		}
 		a.ResetHistory(nil, "default")
+		a.emit(Event{Kind: EvNotice, Text: "Plan approved: context cleared. Implementing in a fresh conversation in Default mode."})
 		stats, err = a.Run(ctx, clearedPlanMessage(c), nil)
 	}
 	if p != nil {
@@ -44,10 +45,14 @@ func RunClearing(ctx context.Context, a *Agent, p *Planner, prompt string, image
 	return stats, err
 }
 
+// ClearedPlanPrefix starts the message that hands a plan to a cleared
+// context. The user did not type it, so views do not show it as theirs.
+const ClearedPlanPrefix = "The user approved this plan and chose to clear the planning conversation. "
+
 // clearedPlanMessage is the one user message that starts the cleared context.
 func clearedPlanMessage(c *pendingClear) string {
 	var b strings.Builder
-	b.WriteString("The user approved this plan and chose to clear the planning conversation. ")
+	b.WriteString(ClearedPlanPrefix)
 	b.WriteString("Implement the plan now, step by step. Earlier messages are gone; work from this plan alone.\n\n")
 	if c.plan.Path != "" {
 		b.WriteString("Plan file: " + c.plan.Path + "\n\n")
