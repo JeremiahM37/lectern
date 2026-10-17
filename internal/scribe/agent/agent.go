@@ -430,6 +430,11 @@ func (a *Agent) fallbackFor(ref string) []Model {
 // does not run: summarising a handful of messages saves nothing.
 const minCompactMessages = 6
 
+// minCompactShare is the least share of the used context that must be
+// conversation (not system prompt and tools) before automatic compaction
+// runs; below it a summary frees too little to be worth the lost detail.
+const minCompactShare = 0.2
+
 // ModelEvents returns the model log: each model call's usage, and the
 // retries, fallbacks and errors around it, oldest first.
 func (a *Agent) ModelEvents() []Event {
@@ -1827,8 +1832,15 @@ func (a *Agent) maybeCompact(ctx context.Context) error {
 		a.compactLatched = false
 	}
 	latched := a.compactLatched
+	fixed := (a.sysChars + a.toolChars) / 4
 	a.mu.Unlock()
 	if a.opts.Compactor == nil || at < 0 || window <= 0 || float64(used) < at*float64(window) || n < minCompactMessages || latched {
+		return nil
+	}
+	// When the system prompt and tools fill most of the window (a small
+	// local window), the conversation is too small for a summary to free
+	// useful room, and compacting would only throw detail away every turn.
+	if float64(fixed) >= (1-minCompactShare)*float64(used) {
 		return nil
 	}
 	a.mu.Lock()
