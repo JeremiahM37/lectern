@@ -41,7 +41,9 @@ func passthroughDone(command string, err error) tea.Msg {
 	}
 	var ee *osexec.ExitError
 	if errors.As(err, &ee) {
-		return flashMsg{kind: "err", text: fmt.Sprintf("%s exited with status %d", label, ee.ExitCode()), chat: true}
+		// The user's own command ending non-zero is not a Scribe error; it
+		// is said plainly, without an error card.
+		return flashMsg{kind: "info", text: fmt.Sprintf("%s exited with status %d", label, ee.ExitCode())}
 	}
 	return flashMsg{kind: "err", text: "Could not run " + label + ": " + err.Error(), chat: true}
 }

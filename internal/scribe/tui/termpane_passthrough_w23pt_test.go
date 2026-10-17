@@ -49,7 +49,7 @@ func TestPassthroughDoneReportsExitStatus(t *testing.T) {
 	if !ok {
 		t.Fatal("resume did not produce a flash message")
 	}
-	if msg.kind != "err" || !msg.chat || msg.text != "less big.log exited with status 3" {
+	if msg.kind != "info" || msg.chat || msg.text != "less big.log exited with status 3" {
 		t.Fatalf("exit status message = %+v", msg)
 	}
 }
