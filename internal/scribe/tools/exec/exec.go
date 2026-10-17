@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -352,6 +353,9 @@ func approveOutsideCwd(ctx context.Context, env *tools.Env, what, command string
 		Kind:   "shell",
 		Title:  "Run shell command outside the project: " + what,
 		Detail: command,
+		// A delete outside the project cannot be undone by a checkpoint, so
+		// the card starts on Deny like other destructive commands.
+		Danger: outsideDelete.MatchString(command),
 	})
 	if dec == tools.Deny {
 		return tools.Errorf("%s", userDeclined("run a command that reaches outside the project ("+what+")", reason())), true
@@ -360,14 +364,17 @@ func approveOutsideCwd(ctx context.Context, env *tools.Env, what, command string
 	return tools.Result{}, false
 }
 
+// outsideDelete matches commands that remove files rather than create them.
+var outsideDelete = regexp.MustCompile(`(^|[;&|(\s])(rm|rmdir|unlink|truncate)\s`)
+
 // userDeclined is what the model reads after the user says no on an approval
 // card. It must close the matter: an earlier wording suggested other routes
 // ("write under /tmp", "use a narrower command") and a live model took them as
 // a way around the refusal, re-issuing the command with cosmetic changes.
 func userDeclined(what, reason string) string {
-	return "Denied: the user declined to " + what + ". The command did not run. " +
+	return "Denied: the user chose Deny when asked to " + what + ". This was the user's decision, not a sandbox or tool restriction, so tell them it was not run because they declined. " +
 		"Do not run it again or any variant of it, and do not ask for it another way. " +
-		"Tell the user it was not run and continue with whatever else the task needs." +
+		"Then continue with whatever else the task needs." +
 		tools.DeniedWithReason(reason)
 }
 
