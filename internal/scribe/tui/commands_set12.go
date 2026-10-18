@@ -97,7 +97,7 @@ func budgetCommand(m *Model, arg string) tea.Cmd {
 			text = fmt.Sprintf("Daily budget %s: %s used today (%d%%)", render.HumanTokens(limit), render.HumanTokens(d.Today), pct)
 		}
 		if cb, ok := chatBudgetOf(t.be); ok {
-			text += "; " + chatBudgetShort(cb)
+			text += " · " + chatBudgetShort(cb)
 		}
 		return flashCmd("info", text)
 	}
@@ -172,7 +172,7 @@ func speedCommand(m *Model, arg string) tea.Cmd {
 	}
 	choice, ok := matchChoice(arg, speedChoices)
 	if !ok {
-		return cmdErrText(invalidChoice("/speed", arg, speedChoices))
+		return cmdHint(invalidChoice("/speed", arg, speedChoices))
 	}
 	value := choice
 	if choice == "off" {
@@ -208,7 +208,7 @@ func tierCommand(m *Model, arg string) tea.Cmd {
 	}
 	choice, ok := matchChoice(arg, choices)
 	if !ok {
-		return cmdErrText(invalidChoice("/tier", arg, choices))
+		return cmdHint(invalidChoice("/tier", arg, choices))
 	}
 	value := choice
 	if choice == "off" {
@@ -234,7 +234,7 @@ func sendReasoningCommand(m *Model, arg string) tea.Cmd {
 	}
 	choice, ok := matchChoice(arg, choices)
 	if !ok {
-		return cmdErrText(invalidChoice("/sendreasoning", arg, choices))
+		return cmdHint(invalidChoice("/sendreasoning", arg, choices))
 	}
 	if err := m.saveFlatIn(key, choice == "on", false); err != nil {
 		return cmdErr(err)
@@ -313,7 +313,7 @@ func choiceCommand(m *Model, cmd, label, key, cur, blank string, choices []strin
 	}
 	choice, ok := matchChoice(arg, choices)
 	if !ok {
-		return cmdErrText(invalidChoice(cmd, arg, choices))
+		return cmdHint(invalidChoice(cmd, arg, choices))
 	}
 	value := choice
 	if choice == blank {
@@ -334,7 +334,7 @@ func toggleCommand(m *Model, cmd, label, key string, cur bool, arg string) tea.C
 	}
 	choice, ok := matchChoice(arg, choices)
 	if !ok {
-		return cmdErrText(invalidChoice(cmd, arg, choices))
+		return cmdHint(invalidChoice(cmd, arg, choices))
 	}
 	if err := m.saveFlatIn(key, choice == "on", false); err != nil {
 		return cmdErr(err)

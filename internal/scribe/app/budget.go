@@ -81,6 +81,25 @@ func saveDailyUse(u dailyUse) error {
 	return os.Rename(tmp, path)
 }
 
+// turnOnly returns stats with Tokens cut to what this turn added. The agent's
+// TurnStats.Tokens is the session's running total, so counting it as is
+// added every earlier turn again: live, a chat showed 619k of a 500k budget
+// after turns that used 271k, and was refused. before is the agent's total
+// when the turn started. A total that went down (a reset session) counts
+// from zero.
+func turnOnly(stats agent.TurnStats, before llm.Usage) agent.TurnStats {
+	t := stats.Tokens
+	if t.InputTokens < before.InputTokens || t.OutputTokens < before.OutputTokens || t.CacheWriteTokens < before.CacheWriteTokens {
+		return stats
+	}
+	t.InputTokens -= before.InputTokens
+	t.OutputTokens -= before.OutputTokens
+	t.CacheWriteTokens -= before.CacheWriteTokens
+	t.CacheReadTokens = max(0, t.CacheReadTokens-before.CacheReadTokens)
+	stats.Tokens = t
+	return stats
+}
+
 // turnTokens is what one turn counts against the budget: input, output and
 // cache writes. Cache reads are left out: they re-send a prefix the provider
 // already holds and would make a long turn look far larger than it was.
@@ -204,8 +223,9 @@ func (a *App) runTurnBudgeted(ctx context.Context, prompt string, images []llm.P
 	live := a.liveConfig()
 	a.Agent.SetCompaction(live.CompactStrategy, live.CompactKeepRecent)
 	a.Agent.SetMaxToolResults(live.ToolResultsKept())
+	before, _ := a.Agent.Usage()
 	stats, err := agent.RunClearing(ctx, a.Agent, a.Planner, prompt, images)
-	a.recordDailyTokens(stats)
+	a.recordDailyTokens(turnOnly(stats, before))
 	return stats, err
 }
 

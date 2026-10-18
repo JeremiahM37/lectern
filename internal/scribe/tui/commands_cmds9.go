@@ -75,6 +75,13 @@ func cmdErrText(text string) tea.Cmd {
 	return func() tea.Msg { return flashMsg{kind: "err", text: text, chat: true} }
 }
 
+// cmdHint reports a mistake in how a command was typed (an invalid choice).
+// It shows in the flash line only, like a usage hint, so a typo does not
+// leave an error block in the transcript.
+func cmdHint(text string) tea.Cmd {
+	return func() tea.Msg { return flashMsg{kind: "err", text: text} }
+}
+
 // runLine runs another command line, for aliases that name an existing one.
 func runLine(m *Model, line string) tea.Cmd {
 	c, args := findCommand(line)

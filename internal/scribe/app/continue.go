@@ -30,8 +30,9 @@ func (a *App) ContinueTurn(ctx context.Context) (agent.TurnStats, error) {
 	if err := a.dailyBudgetGate(); err != nil {
 		return a.refuseTurn(err)
 	}
+	before, _ := a.Agent.Usage()
 	stats, err := a.Agent.Continue(ctx)
-	a.recordDailyTokens(stats)
+	a.recordDailyTokens(turnOnly(stats, before))
 	if a.Checks != nil {
 		_ = a.Checks.End()
 	}

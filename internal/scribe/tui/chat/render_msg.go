@@ -208,7 +208,11 @@ func (v *View) renderSystem(i int, rec *Record, w int, now time.Time) builder {
 	case "compact":
 		railCol = th.Info
 		if rec.Done {
-			head = fg(th.Info, fmt.Sprintf("✓ Compacted: %d → %d messages", rec.Before, rec.After))
+			if rec.Before == rec.After && rec.TokBefore > rec.TokAfter {
+				head = fg(th.Info, fmt.Sprintf("✓ Compacted: older tool results shortened (%s → %s tokens)", render.HumanTokens(rec.TokBefore), render.HumanTokens(rec.TokAfter)))
+			} else {
+				head = fg(th.Info, fmt.Sprintf("✓ Compacted: %d → %d messages", rec.Before, rec.After))
+			}
 		} else {
 			head = fg(th.Info, render.Frame(render.Compact, frameAt(now))+" Compacting context")
 		}

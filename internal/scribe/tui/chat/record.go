@@ -35,8 +35,12 @@ type Record struct {
 	Delay    time.Duration `json:"delay,omitempty"`
 	Before   int           `json:"before,omitempty"`
 	After    int           `json:"after,omitempty"`
-	Status   int           `json:"status,omitempty"`  // HTTP status of a provider error or retry, when it had one
-	Pending  bool          `json:"pending,omitempty"` // a retry notice whose attempt has not yet made progress
+	// TokBefore and TokAfter are the estimated history tokens around a
+	// compaction, for one that kept the message count but shortened them.
+	TokBefore int  `json:"tok_before,omitempty"`
+	TokAfter  int  `json:"tok_after,omitempty"`
+	Status    int  `json:"status,omitempty"`  // HTTP status of a provider error or retry, when it had one
+	Pending   bool `json:"pending,omitempty"` // a retry notice whose attempt has not yet made progress
 
 	// Assistant turns.
 	Done        bool          `json:"done,omitempty"`

@@ -2033,7 +2033,8 @@ func (a *Agent) compact(ctx context.Context, reason string, auto bool) error {
 	if h, ok := a.opts.Hooks.(postCompactObserver); ok {
 		h.PostCompact(context.WithoutCancel(ctx))
 	}
-	a.emit(Event{Kind: EvCompactDone, Text: summary, Meta: map[string]any{"model": model, "messages_before": len(before), "messages_after": len(kept)}})
+	a.emit(Event{Kind: EvCompactDone, Text: summary, Meta: map[string]any{"model": model, "messages_before": len(before), "messages_after": len(kept),
+		"tokens_before": estimateHistoryTokens(before), "tokens_after": estimateHistoryTokens(kept)}})
 	// The context bar should drop now, not at the next model call.
 	used, _ := a.ContextEstimate()
 	a.emit(Event{Kind: EvContext, ContextUsed: used, ContextWindow: a.CurrentModel().Info.ContextWindow, Estimated: true})

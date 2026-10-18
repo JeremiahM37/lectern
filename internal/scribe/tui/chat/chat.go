@@ -454,6 +454,13 @@ func (v *View) Apply(e agent.Event) {
 		r.Done = true
 		r.Before = metaInt(e.Meta, "messages_before")
 		r.After = metaInt(e.Meta, "messages_after")
+		r.TokBefore = metaInt(e.Meta, "tokens_before")
+		r.TokAfter = metaInt(e.Meta, "tokens_after")
+		if r.Before == r.After && r.TokAfter >= r.TokBefore {
+			// Nothing visible changed ("7 → 7"); a line saying so after
+			// every turn is noise.
+			v.removeRecord(r)
+		}
 	case agent.EvTurnDone:
 		v.finishTurn(e)
 	}
