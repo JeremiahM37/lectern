@@ -268,7 +268,7 @@ func definitionFallback(workdir, abs string, p Point, symbol string, lspErr erro
 // outlineFallback outlines a file without a language server, from the
 // definitions symedit finds. lspErr is what the server said, if anything.
 func outlineFallback(m *Manager, abs string, lspErr error) tools.Result {
-	defs, err := symedit.Outline(abs, readText(abs))
+	defs, err := symedit.Outline(m.RelPath(abs), readText(abs))
 	if err != nil {
 		if lspErr != nil {
 			return missingServer(lspErr)
@@ -424,7 +424,27 @@ func outlineResult(m *Manager, abs string, syms []Symbol) tools.Result {
 	if n == 0 {
 		return tools.Result{Output: "No symbols in " + m.RelPath(abs) + ".", Summary: "none"}
 	}
-	return tools.Result{Output: strings.TrimRight(b.String(), "\n"), Summary: fmt.Sprintf("%d symbols", n)}
+	out := strings.TrimRight(b.String(), "\n")
+	if hint := monikerHint(m.RelPath(abs), readText(abs)); hint != "" {
+		out += "\n" + hint
+	}
+	return tools.Result{Output: out, Summary: fmt.Sprintf("%d symbols", n)}
+}
+
+// monikerHint is one line telling the model how to name a symbol of this file
+// exactly in an edit, with a real example. It is empty when the file's
+// language has no moniker support.
+func monikerHint(rel, text string) string {
+	defs, err := symedit.Outline(rel, text)
+	if err != nil {
+		return ""
+	}
+	for _, d := range defs {
+		if d.Moniker != "" {
+			return "To edit one symbol exactly, ast_edit takes a moniker: path#kind:Parent.Name, e.g. " + d.Moniker
+		}
+	}
+	return ""
 }
 
 // sourceLine returns line n (1-based) of path, trimmed, for display.

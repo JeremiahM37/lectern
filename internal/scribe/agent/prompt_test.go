@@ -63,6 +63,7 @@ func TestLoadInstructionsNearestLast(t *testing.T) {
 		must(t, os.WriteFile(p, []byte(text), 0o644))
 	}
 	write("home/instructions.md", "home rules")
+	write(".git/HEAD", "ref: refs/heads/main\n") // base is the repository root
 	write("AGENTS.md", "root rules")
 	write("proj/SCRIBE.md", "   \n\t\n") // whitespace only: skipped
 	write("proj/CLAUDE.md", "proj rules")
@@ -81,6 +82,23 @@ func TestLoadInstructionsNearestLast(t *testing.T) {
 	want := []string{"home rules", "root rules", "proj rules", "scribe sub", "sub rules"}
 	if strings.Join(ours, " | ") != strings.Join(want, " | ") {
 		t.Fatalf("instruction order = %q, want %q", ours, want)
+	}
+}
+
+// Files above the repository root (a home folder's CLAUDE.md, say) are not
+// project instructions for a repository inside it.
+func TestLoadInstructionsStopsAtTheRepositoryRoot(t *testing.T) {
+	base := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(base, "CLAUDE.md"), []byte("outside rules"), 0o644))
+	repo := filepath.Join(base, "repo")
+	must(t, os.MkdirAll(filepath.Join(repo, ".git"), 0o755))
+	must(t, os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("repo rules"), 0o644))
+	var texts []string
+	for _, ins := range LoadInstructions(repo, "", nil) {
+		texts = append(texts, ins.Text)
+	}
+	if got := strings.Join(texts, "|"); got != "repo rules" {
+		t.Fatalf("instructions = %q, want only the repository's", got)
 	}
 }
 

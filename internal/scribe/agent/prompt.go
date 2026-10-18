@@ -418,6 +418,21 @@ var InstructionSources = []InstructionSource{
 // first in the prompt.
 var DefaultInstructionFiles = []string{"scribe", "codex", "claude"}
 
+// repoRoot is the nearest folder at or above dir holding a .git entry, or
+// "" when there is none.
+func repoRoot(dir string) string {
+	for d := dir; ; {
+		if _, err := os.Stat(filepath.Join(d, ".git")); err == nil {
+			return d
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return ""
+		}
+		d = parent
+	}
+}
+
 // instructionSource finds a source by id.
 func instructionSource(id string) (InstructionSource, bool) {
 	for _, s := range InstructionSources {
@@ -474,14 +489,25 @@ func LoadInstructions(root, home string, names []string) []Instruction {
 			take(p, "global", "instructions.md")
 		}
 	}
-	var dirs []string
-	for d := root; d != ""; {
-		dirs = append([]string{d}, dirs...)
-		parent := filepath.Dir(d)
-		if parent == d {
-			break
+	// Project files come from the project root and the folders above it, but
+	// only up to the git repository root: a repository inside the home
+	// folder must not pick up ~/CLAUDE.md or other files that belong to
+	// whatever sits above it (seen live: a test repo answered as if it were
+	// the user's homelab project). Without a repository, only root is read.
+	dirs := []string{root}
+	if top := repoRoot(root); top != "" {
+		dirs = nil
+		for d := root; ; {
+			dirs = append([]string{d}, dirs...)
+			if d == top {
+				break
+			}
+			parent := filepath.Dir(d)
+			if parent == d {
+				break
+			}
+			d = parent
 		}
-		d = parent
 	}
 	for _, d := range dirs {
 		for _, n := range names {

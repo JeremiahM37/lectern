@@ -274,9 +274,14 @@ func (v *View) callHeader(c *Call, now time.Time) string {
 	}
 
 	label := ""
-	if running {
+	switch {
+	case running:
 		label = bold(th.Brand, d.run)
-	} else if d.done != "" {
+	case c.Status == "error" && d.run != "":
+		// A failed call did not do the thing: "Renamed symbol" over an
+		// error read as a success.
+		label = fg(th.TextMuted, "Failed: "+strings.ToLower(d.run[:1])+d.run[1:])
+	case d.done != "":
 		label = fg(th.TextMuted, d.done)
 	}
 
