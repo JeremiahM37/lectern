@@ -44,11 +44,49 @@ func flashAlertTitle(msg flashMsg) (string, bool) {
 // raiseFlashAlert opens the dismissable alert for a failed flash line. A
 // repeat of an alert already on the stack is not added again.
 func (m *Model) raiseFlashAlert(title, text string) {
-	text = strings.TrimSpace(text)
-	if m.errorAlertShowing(text) {
+	body := alertBody(strings.TrimSpace(text))
+	if m.errorAlertShowing(body) {
 		return
 	}
-	m.showAlert(title, text)
+	m.showAlert(title, body)
+}
+
+// alertBody turns a failed flash line into the body of its alert. A flash line
+// joins the lines of command output with " · " (outputLine), which reads as
+// loose fragments in a popup. Here each fragment is a sentence, and a command
+// such as "git push <name>" gets a line of its own. The flash line itself keeps
+// its separators, since it has to fit on one row.
+func alertBody(text string) string {
+	if !strings.Contains(text, " · ") {
+		return text
+	}
+	var b strings.Builder
+	prevCommand := false
+	for _, part := range strings.Split(text, " · ") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		command := isCommandLine(part)
+		switch {
+		case b.Len() == 0:
+		case command:
+			b.WriteString("\n  ")
+		case prevCommand:
+			b.WriteString("\n")
+		default:
+			b.WriteString(" ")
+		}
+		b.WriteString(part)
+		prevCommand = command
+	}
+	return b.String()
+}
+
+// isCommandLine says whether a fragment of command output is a command to run,
+// which is shown on its own line rather than inside a sentence.
+func isCommandLine(s string) bool {
+	return strings.HasPrefix(s, "git ")
 }
 
 func hasAnyPrefix(s string, prefixes []string) bool {

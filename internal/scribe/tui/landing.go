@@ -113,6 +113,14 @@ func (m *Model) statusBlock() string {
 	return strings.Join(parts, fg(th.TextFaint).Render("  │  "))
 }
 
+// landingTipText is one body tip on the landing page, fitted to the landing
+// width less a margin on each side. A tip is cut only when it does not fit, and
+// then at a word boundary with an ellipsis. The landing used to cap every tip
+// at 68 cells, which cut the longest tips at 120 columns where there was room.
+func landingTipText(tip string, w int) string {
+	return "✦ " + truncWord(tip, w-10)
+}
+
 // viewLanding draws the landing page into exactly rows lines. The input box
 // sits at the bottom of the centred block, 60% of the width on the landing
 // page and growing during the transition (landingPct).
@@ -154,7 +162,7 @@ func (m *Model) viewLanding(w, rows int) []string {
 		base := (m.frame / (6 * 20)) % len(tips)
 		for i := 0; i < 3; i++ {
 			tip := tips[(base+i)%len(tips)]
-			parts = append(parts, center(fg(th.TextSecondary).Render("✦ "+truncWord(tip, min(w-10, 68)))))
+			parts = append(parts, center(fg(th.TextSecondary).Render(landingTipText(tip, w))))
 		}
 		if spacers {
 			parts = append(parts, "")

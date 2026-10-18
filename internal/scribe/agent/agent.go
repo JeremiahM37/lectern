@@ -189,6 +189,9 @@ type Agent struct {
 	// compactLatched is set by an automatic compaction and cleared when the
 	// fill falls below CompactReset (hysteresis).
 	compactLatched bool
+	// learned holds context windows the providers stated in their errors, by
+	// model ref, for this session (ctxscale.go).
+	learned map[string]int
 	// gen counts history replacements (compaction, reset, resume); it is
 	// part of tools.Env.Scope so per-context tool memory starts over.
 	gen      int
@@ -380,7 +383,15 @@ func (a *Agent) SetMode(m string) { a.mu.Lock(); a.mode = m; a.mu.Unlock() }
 func (a *Agent) Mode() string { a.mu.Lock(); defer a.mu.Unlock(); return a.mode }
 
 // SetModel switches model for the next step.
-func (a *Agent) SetModel(m Model) { a.mu.Lock(); a.model = m; a.mu.Unlock() }
+func (a *Agent) SetModel(m Model) {
+	a.mu.Lock()
+	// A window learned from an earlier refusal outranks the catalogue value.
+	if w, ok := a.learned[m.Ref]; ok {
+		m.Info.ContextWindow = w
+	}
+	a.model = m
+	a.mu.Unlock()
+}
 
 // CurrentModel returns the active model.
 func (a *Agent) CurrentModel() Model { a.mu.Lock(); defer a.mu.Unlock(); return a.model }
@@ -1134,6 +1145,9 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 	// optionRetried is set once the step has been retried without the
 	// options a provider refused. The retry is made at most once per step.
 	optionRetried := false
+	// contextRetried is set once a refusal as too long has been answered by
+	// learning the window and compacting. The step is retried at most once.
+	contextRetried := false
 	for i := 0; ; i++ {
 		if i >= len(chain) {
 			// The chain is spent. Go back to the primary, or give up.
@@ -1195,6 +1209,12 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 					a.emit(Event{Kind: EvWarning, Text: fmt.Sprintf(
 						"%s rejected these options (%s), so this step was retried without them. The rest of this turn leaves them out too.",
 						a.CurrentModel().Ref, strings.Join(dropped, ", "))})
+					continue
+				}
+			}
+			if window, long := contextLengthError(cause); long && !contextRetried {
+				contextRetried = true
+				if a.recoverContextLength(ctx, window) {
 					continue
 				}
 			}

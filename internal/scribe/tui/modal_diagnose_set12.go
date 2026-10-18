@@ -173,7 +173,7 @@ func (p *healthPopup) View(w, h int) string {
 	if p.loading && p.backends == nil {
 		return strings.Join(fitLines([]string{fg(th.TextFaint).Render("  Running probes…")}, w, h), "\n")
 	}
-	rows := []string{healthSummary(th, p.backends)}
+	var rows []string
 	for _, b := range p.backends {
 		rows = append(rows, "")
 		glyph, col := healthBadge(th, b)
@@ -196,9 +196,14 @@ func (p *healthPopup) View(w, h int) string {
 	if p.loading {
 		rows = append(rows, "", fg(th.TextFaint).Render("  Running probes again…"))
 	}
-	p.off = min(p.off, max(0, len(rows)-h))
-	end := min(len(rows), p.off+h)
-	return strings.Join(fitLines(rows[p.off:end], w, h), "\n")
+	// The summary stays on the first line while the rows scroll under it, so
+	// the counts can always be checked against the rows that are shown. Before,
+	// it scrolled away with them and a counted warn row could not be matched.
+	bodyH := max(0, h-1)
+	p.off = min(p.off, max(0, len(rows)-bodyH))
+	end := min(len(rows), p.off+bodyH)
+	out := append([]string{healthSummary(th, p.backends)}, rows[p.off:end]...)
+	return strings.Join(fitLines(out, w, h), "\n")
 }
 
 // healthReasonIndent is the indent of a reason that wraps onto its own lines,

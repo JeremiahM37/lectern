@@ -2,8 +2,10 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -136,7 +138,7 @@ func (m *Model) startShutdown() tea.Cmd {
 	}
 	m.sd = &shutdownState{start: time.Now(), backends: bes}
 	return func() tea.Msg {
-		EndSessions(bes, shutdownStopWait)
+		recordShutdownErrors(EndSessions(bes, shutdownStopWait))
 		return closedMsg{}
 	}
 }
@@ -146,34 +148,140 @@ func (m *Model) startShutdown() tea.Cmd {
 // only has to cover an abort taking effect.
 const shutdownStopWait = 5 * time.Second
 
+// ProviderCloser is implemented by backends that can release the connections
+// their LLM providers hold open. It is the "deactivate provider" step of 06
+// §8.3, and runs after every turn has stopped, so no request is cut short.
+type ProviderCloser interface {
+	CloseProviders() error
+}
+
+// ProcessGroupKiller is implemented by backends that own child process groups
+// (background jobs). It is the last step of 06 §8.3, after the sessions are
+// closed, and it kills whatever a session's close left running.
+type ProcessGroupKiller interface {
+	KillProcessGroups() error
+}
+
+// Step bounds. Each step runs in its own goroutine and is abandoned after its
+// bound, so a stuck provider or child process cannot hold the exit. These are
+// variables so tests can shorten them.
+var (
+	providerCloseWait = 2 * time.Second
+	jobKillWait       = 5 * time.Second
+	sessionCloseWait  = 10 * time.Second
+	processGroupWait  = 5 * time.Second
+)
+
+// shutdownErrs keeps what the quit path could not do cleanly, for the caller
+// to print once the terminal is restored. The quit screen is still drawing,
+// so nothing is written during the shutdown itself.
+var shutdownErrs struct {
+	sync.Mutex
+	list []error
+}
+
+// ShutdownErrors returns the failed or timed-out shutdown steps from the last
+// quit, oldest first. Each step is best-effort, so a failure never stops the
+// exit; it is only reported here.
+func ShutdownErrors() []error {
+	shutdownErrs.Lock()
+	defer shutdownErrs.Unlock()
+	return append([]error(nil), shutdownErrs.list...)
+}
+
+// recordShutdownErrors adds the failures of one EndSessions call.
+func recordShutdownErrors(errs []error) {
+	if len(errs) == 0 {
+		return
+	}
+	shutdownErrs.Lock()
+	defer shutdownErrs.Unlock()
+	shutdownErrs.list = append(shutdownErrs.list, errs...)
+}
+
 // EndSessions ends every session as the process leaves, in the order the spec
 // gives (06 §8.3). The order matters across tabs, not just within one:
 //
 //  1. Abort every running turn and wait for them all to stop. A turn still
 //     running would call a provider or an MCP tool after that server closed.
-//  2. Kill the background jobs still running, so no child process outlives
+//  2. Close the idle provider connections ("deactivate provider"). No turn is
+//     running any more, so nothing is cut short.
+//     The intelligence-router step has no counterpart in Scribe: there is no
+//     router object to dispose. A dispatch's subagents run under the turn's
+//     context, so step 1 stops them too.
+//  3. Kill the background jobs still running, so no child process outlives
 //     its session.
-//  3. Close each session. Its close saves the transcript, then stops its MCP
+//  4. Close each session. Its close saves the transcript, then stops its MCP
 //     servers and language servers. Every save has happened by now, so no
 //     tab's MCP shuts down under another tab's unfinished turn.
+//  5. Kill the process groups that step 4 left behind.
 //
-// The Backend interface has no step for the providers or the intelligence
-// router, so those close inside Close, not as their own steps here.
-func EndSessions(list []Backend, timeout time.Duration) {
+// Every step is bounded and best-effort. A step that fails or overruns is
+// returned in the error list, and the next step still runs.
+func EndSessions(list []Backend, timeout time.Duration) []error {
+	var errs []error
+	note := func(err error) {
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
 	for _, be := range list {
 		be.Abort()
 	}
-	waitIdle(list, timeout)
-	for _, be := range list {
-		killRunningJobs(be)
+	if !waitIdle(list, timeout) {
+		note(fmt.Errorf("stop running turns: still running after %s", timeout))
 	}
 	for _, be := range list {
-		_ = be.Close()
+		if p, ok := be.(ProviderCloser); ok {
+			note(boundedStep("close providers", providerCloseWait, p.CloseProviders))
+		}
+	}
+	for _, be := range list {
+		note(boundedStep("kill background jobs", jobKillWait, func() error {
+			killRunningJobs(be)
+			return nil
+		}))
+	}
+	for _, be := range list {
+		note(boundedStep("close session", sessionCloseWait, be.Close))
+	}
+	for _, be := range list {
+		if k, ok := be.(ProcessGroupKiller); ok {
+			note(boundedStep("kill process groups", processGroupWait, k.KillProcessGroups))
+		}
+	}
+	return errs
+}
+
+// boundedStep runs fn and waits at most wait for it. A step that overruns is
+// abandoned: its goroutine finishes on its own, and the exit does not wait for
+// it. A panic is returned as an error, so one bad step does not stop the rest.
+func boundedStep(name string, wait time.Duration, fn func() error) error {
+	done := make(chan error, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				done <- fmt.Errorf("panic: %v", r)
+			}
+		}()
+		done <- fn()
+	}()
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		return nil
+	case <-timer.C:
+		return fmt.Errorf("%s: no answer after %s, abandoned", name, wait)
 	}
 }
 
-// waitIdle polls until no backend in list is running, or timeout passes.
-func waitIdle(list []Backend, timeout time.Duration) {
+// waitIdle polls until no backend in list is running, or timeout passes. It
+// reports whether every backend went idle in time.
+func waitIdle(list []Backend, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		busy := false
@@ -184,10 +292,11 @@ func waitIdle(list []Backend, timeout time.Duration) {
 			}
 		}
 		if !busy {
-			return
+			return true
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	return false
 }
 
 // killRunningJobs kills every background job of one session that is still

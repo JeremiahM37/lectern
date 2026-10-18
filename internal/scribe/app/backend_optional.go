@@ -13,6 +13,8 @@ var (
 	_ tui.ConfigMover         = (*scribeBackend)(nil)
 	_ tui.ContextWindower     = (*scribeBackend)(nil)
 	_ tui.ContextClearer      = (*scribeBackend)(nil)
+	_ tui.ProviderCloser      = (*scribeBackend)(nil)
+	_ tui.ProcessGroupKiller  = (*scribeBackend)(nil)
 	_ tui.Continuer           = (*scribeBackend)(nil)
 	_ tui.Diagnoser           = (*scribeBackend)(nil)
 	_ tui.EmergencySaver      = (*scribeBackend)(nil)
