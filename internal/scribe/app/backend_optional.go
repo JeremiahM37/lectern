@@ -49,5 +49,7 @@ var (
 	_ tui.RoutingDiagnoser    = (*scribeBackend)(nil)
 	_ tui.HealthChecker       = (*scribeBackend)(nil)
 	_ tui.MCPStopper          = (*scribeBackend)(nil)
+	_ tui.ProxyStopper        = (*scribeBackend)(nil)
 	_ tui.LSPStopper          = (*scribeBackend)(nil)
+	_ tui.ProxyManager        = (*scribeBackend)(nil)
 )

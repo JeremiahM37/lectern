@@ -148,6 +148,13 @@ func (m *Model) startShutdown() tea.Cmd {
 // only has to cover an abort taking effect.
 const shutdownStopWait = 5 * time.Second
 
+// ProxyStopper stops the local model proxy a session started.
+type ProxyStopper interface{ StopProxy() error }
+
+// proxyStopWait bounds the proxy stop: it waits up to 3 s for a clean exit
+// before forcing it.
+const proxyStopWait = 5 * time.Second
+
 // MCPStopper stops a session's MCP servers as one shutdown step.
 type MCPStopper interface{ StopMCP() error }
 
@@ -243,6 +250,12 @@ func EndSessions(list []Backend, timeout time.Duration) []error {
 	for _, be := range list {
 		if p, ok := be.(ProviderCloser); ok {
 			note(boundedStep("close providers", providerCloseWait, p.CloseProviders))
+		}
+	}
+	// A local proxy this Scribe started is stopped; one it adopted is left.
+	for _, be := range list {
+		if p, ok := be.(ProxyStopper); ok {
+			note(boundedStep("stop the local proxy", proxyStopWait, p.StopProxy))
 		}
 	}
 	// MCP servers and language servers stop as their own steps (spec 06

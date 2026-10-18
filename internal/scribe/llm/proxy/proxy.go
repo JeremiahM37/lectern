@@ -5,8 +5,8 @@
 //
 // This package covers routing, the system-prompt workaround, key validation,
 // health probing, the bounce after a connection error (bounce.go) and the
-// sidecar process itself: starting, adopting and stopping it (sidecar.go).
-// The proxy's login flows are not implemented here.
+// sidecar process itself: starting, adopting and stopping it (sidecar.go),
+// and the proxy's own login flows (login.go).
 package proxy
 
 import (

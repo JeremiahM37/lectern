@@ -258,6 +258,8 @@ func (b *scribeBackend) attach(a *App) {
 		b.events.push(e)
 	})
 	b.host.setEmit(a.emit)
+	// A session on a proxy model starts the local proxy in the background.
+	b.EnsureProxy()
 }
 
 func (b *scribeBackend) current() *App {
@@ -416,7 +418,13 @@ func (b *scribeBackend) Transcript() []agent.Event { return b.current().Transcri
 func (b *scribeBackend) Model() string { return b.current().Agent.CurrentModel().Ref }
 
 // SetModel implements tui.Backend.
-func (b *scribeBackend) SetModel(ref string) error { return b.current().SetModel(ref) }
+func (b *scribeBackend) SetModel(ref string) error {
+	err := b.current().SetModel(ref)
+	if err == nil {
+		b.EnsureProxy() // switching to a proxy model starts the proxy
+	}
+	return err
+}
 
 // Models implements tui.Backend.
 func (b *scribeBackend) Models(ctx context.Context, provider string) ([]llm.ModelInfo, error) {
