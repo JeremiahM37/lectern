@@ -149,7 +149,11 @@ func Set(dir, mime string, data []byte) error {
 	return nil
 }
 
-// Daemon runs until killed: Xvfb, the owner and the control socket.
+// dirCheckEvery is how often the daemon checks that its home still exists.
+const dirCheckEvery = 5 * time.Second
+
+// Daemon runs until killed, or until dir is removed: Xvfb, the owner and the
+// control socket.
 func Daemon(dir string, ttl time.Duration, logf func(string, ...any)) error {
 	if err := prepare(dir); err != nil {
 		return err
@@ -171,7 +175,27 @@ func Daemon(dir string, ttl time.Duration, logf func(string, ...any)) error {
 		mu    sync.Mutex
 		owner *Owner
 		timer *time.Timer
+		xvfb  *exec.Cmd // the display now running, stopped when dir goes
 	)
+	// The daemon belongs to its Lectern home. When that folder is removed (a
+	// test's temporary home, a deleted profile), stop the display and exit,
+	// or the Xvfb lives on with nothing to serve: 98 such servers had piled
+	// up from test runs and crowded out displays other tests needed.
+	go func() {
+		for range time.Tick(dirCheckEvery) {
+			if _, err := os.Stat(dir); err == nil {
+				continue
+			}
+			logf("home %s is gone; stopping", dir)
+			mu.Lock()
+			if xvfb != nil && xvfb.Process != nil {
+				xvfb.Process.Kill()
+			}
+			mu.Unlock()
+			ln.Close()
+			os.Exit(0)
+		}
+	}()
 	setItem := func(mime string, data []byte) error {
 		mu.Lock()
 		defer mu.Unlock()
@@ -215,6 +239,7 @@ func Daemon(dir string, ttl time.Duration, logf func(string, ...any)) error {
 		}
 		mu.Lock()
 		owner = o
+		xvfb = cmd
 		mu.Unlock()
 		envText := "DISPLAY=" + disp + "\nXAUTHORITY=" + xauth + "\n"
 		os.WriteFile(filepath.Join(dir, "env"), []byte(envText), 0o600)
