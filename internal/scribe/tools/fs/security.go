@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools/web"
 )
 
 // access says what a tool is about to do with a path, which decides which
@@ -78,34 +79,38 @@ func resolve(ctx context.Context, env *tools.Env, toolName, p string, acc access
 			sensitive = isSensitiveWriteName(t.rel)
 		}
 		if sensitive {
-			if acc == accessWrite {
-				if !approve(ctx, env, toolName, "sensitive", "Edit sensitive file", t.rel) {
-					return target{}, fmt.Errorf("Denied: edit to sensitive file %s", t.rel)
-				}
-			} else if !approve(ctx, env, toolName, "sensitive", "Read secret-looking file", t.rel) {
-				return target{}, fmt.Errorf("Refusing to read %s: it looks like a file of secrets. Ask the user before reading it.", t.rel)
+			title := "Edit sensitive file"
+			if acc != accessWrite {
+				title = "Read a file that looks like secrets"
+			}
+			if msg := approve(ctx, env, toolName, "sensitive", title, t.rel); msg != "" {
+				return target{}, errors.New(msg)
 			}
 		}
 	}
 	if acc == accessWrite && t.outside && env.Mode != "auto" {
-		if !approve(ctx, env, toolName, "write_outside", "Write outside project directory", abs) {
-			return target{}, fmt.Errorf("Denied: %s outside project directory → %s", toolName, t.rel)
+		if msg := approve(ctx, env, toolName, "write_outside", "Write outside project directory", abs); msg != "" {
+			return target{}, errors.New(msg)
 		}
 	}
 	return t, nil
 }
 
-// approve asks the host. With no host, the action is refused.
-func approve(ctx context.Context, env *tools.Env, toolName, kind, title, detail string) bool {
+// approve asks the host about one action. It returns "" when the user allowed
+// it. Otherwise it returns the message the model reads: the user's decision
+// with any reason they gave, or a plain refusal when no one can be asked.
+// The message names the action from title, so a caller need not repeat it.
+func approve(ctx context.Context, env *tools.Env, toolName, kind, title, detail string) string {
+	what := strings.ToLower(title) + ": " + detail
 	if env.Host == nil {
-		return false
+		return "Denied: " + what + ". No one is available to approve it."
 	}
 	rctx, reason := tools.WithReasonSlot(ctx)
 	if env.Host.Approve(rctx, tools.Approval{Tool: toolName, Kind: kind, Title: title, Detail: detail}) == tools.Deny {
-		return false
+		return web.UserDeclined(what, reason())
 	}
 	tools.NoteApproval(ctx, reason())
-	return true
+	return ""
 }
 
 // realPath resolves symlinks in p. For a path that does not exist yet, it

@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 
@@ -43,8 +44,8 @@ func CheckWrite(ctx context.Context, env *tools.Env, toolName, abs string) error
 		return fmt.Errorf("Denied: %s is a secret file (.env, key or credentials). Do not write secrets from the agent; ask the user to edit it by hand.", rel)
 	}
 	if isSensitiveWriteName(rel) {
-		if !approve(ctx, env, toolName, "sensitive", "Edit sensitive file", rel) {
-			return fmt.Errorf("Denied: edit to sensitive file %s", rel)
+		if msg := approve(ctx, env, toolName, "sensitive", "Edit sensitive file", rel); msg != "" {
+			return errors.New(msg)
 		}
 	}
 	return nil

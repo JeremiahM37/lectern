@@ -69,7 +69,7 @@ func (m *Model) themePickerKey(p *Picker, key string) (tea.Cmd, bool) {
 		return nil, false
 	}
 	if err != nil {
-		m.setFlash("err", "Could not save the theme style: "+err.Error())
+		m.failAlert("Could not save the theme style: " + err.Error())
 		return nil, true
 	}
 	m.applyThemeStyle()

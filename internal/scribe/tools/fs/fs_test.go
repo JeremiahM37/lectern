@@ -252,7 +252,7 @@ func TestReadMarksFileRead(t *testing.T) {
 func TestSecretReadNeedsApproval(t *testing.T) {
 	env, root, _, host := newEnv(t)
 	write(t, root, ".env", "TOKEN=abc\n")
-	mustErr(t, call(t, NewRead(), env, map[string]any{"path": ".env"}), "looks like a file of secrets")
+	mustErr(t, call(t, NewRead(), env, map[string]any{"path": ".env"}), "Denied: the user chose Deny when asked to read a file that looks like secrets")
 	if got := host.kinds(); len(got) != 1 || got[0] != "sensitive" {
 		t.Fatalf("approvals %v", got)
 	}
@@ -264,7 +264,7 @@ func TestSecretReadWithoutHostRefuses(t *testing.T) {
 	env, root, _, _ := newEnv(t)
 	env.Host = nil
 	write(t, root, "id_rsa", "key")
-	mustErr(t, call(t, NewRead(), env, map[string]any{"path": "id_rsa"}), "secrets")
+	mustErr(t, call(t, NewRead(), env, map[string]any{"path": "id_rsa"}), "looks like secrets")
 }
 
 func TestSymlinkToSecretIsJudgedByTarget(t *testing.T) {
@@ -273,7 +273,7 @@ func TestSymlinkToSecretIsJudgedByTarget(t *testing.T) {
 	if err := os.Symlink(filepath.Join(root, "keys", "server.pem"), filepath.Join(root, "innocent.txt")); err != nil {
 		t.Skip("symlinks unavailable:", err)
 	}
-	mustErr(t, call(t, NewRead(), env, map[string]any{"path": "innocent.txt"}), "secrets")
+	mustErr(t, call(t, NewRead(), env, map[string]any{"path": "innocent.txt"}), "looks like secrets")
 }
 
 func TestIsSecretName(t *testing.T) {
@@ -317,7 +317,7 @@ func TestWriteInsideGitRefused(t *testing.T) {
 
 func TestWriteSensitiveNeedsApproval(t *testing.T) {
 	env, _, _, host := newEnv(t)
-	mustErr(t, call(t, NewWriteFile(nil), env, map[string]any{"path": ".github/workflows/ci.yml", "content": "x"}), "Denied: edit to sensitive file")
+	mustErr(t, call(t, NewWriteFile(nil), env, map[string]any{"path": ".github/workflows/ci.yml", "content": "x"}), "Denied: the user chose Deny when asked to edit sensitive file")
 	if got := host.kinds(); len(got) != 1 || got[0] != "sensitive" {
 		t.Fatalf("approvals %v", got)
 	}

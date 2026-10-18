@@ -148,6 +148,15 @@ func (m *Model) startShutdown() tea.Cmd {
 // only has to cover an abort taking effect.
 const shutdownStopWait = 5 * time.Second
 
+// MCPStopper stops a session's MCP servers as one shutdown step.
+type MCPStopper interface{ StopMCP() error }
+
+// LSPStopper stops a session's language servers as one shutdown step.
+type LSPStopper interface{ StopLSP() error }
+
+// serverStopWait bounds each server stop step.
+const serverStopWait = 3 * time.Second
+
 // ProviderCloser is implemented by backends that can release the connections
 // their LLM providers hold open. It is the "deactivate provider" step of 06
 // §8.3, and runs after every turn has stopped, so no request is cut short.
@@ -234,6 +243,19 @@ func EndSessions(list []Backend, timeout time.Duration) []error {
 	for _, be := range list {
 		if p, ok := be.(ProviderCloser); ok {
 			note(boundedStep("close providers", providerCloseWait, p.CloseProviders))
+		}
+	}
+	// MCP servers and language servers stop as their own steps (spec 06
+	// §8.3), before each session closes; Close stopping them again is a
+	// no-op.
+	for _, be := range list {
+		if s, ok := be.(MCPStopper); ok {
+			note(boundedStep("stop MCP servers", serverStopWait, s.StopMCP))
+		}
+	}
+	for _, be := range list {
+		if s, ok := be.(LSPStopper); ok {
+			note(boundedStep("stop language servers", serverStopWait, s.StopLSP))
 		}
 	}
 	for _, be := range list {

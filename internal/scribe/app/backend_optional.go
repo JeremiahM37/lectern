@@ -48,4 +48,6 @@ var (
 	_ tui.UpdateChecker       = (*scribeBackend)(nil)
 	_ tui.RoutingDiagnoser    = (*scribeBackend)(nil)
 	_ tui.HealthChecker       = (*scribeBackend)(nil)
+	_ tui.MCPStopper          = (*scribeBackend)(nil)
+	_ tui.LSPStopper          = (*scribeBackend)(nil)
 )

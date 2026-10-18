@@ -50,3 +50,23 @@ func (b *scribeBackend) KillProcessGroups() error {
 	}
 	return nil
 }
+
+// StopMCP is the "dispose MCP servers" step of 06 §8.3. It stops the MCP
+// servers of the session's current App. A tab with no App has none to stop.
+func (b *scribeBackend) StopMCP() error {
+	a := b.current()
+	if a == nil {
+		return nil
+	}
+	return a.ext.stopMCP()
+}
+
+// StopLSP is the "kill LSP" step of 06 §8.3. It stops the language servers of
+// the session's current App.
+func (b *scribeBackend) StopLSP() error {
+	a := b.current()
+	if a == nil {
+		return nil
+	}
+	return a.ext.stopLSP()
+}

@@ -196,6 +196,9 @@ type subTask struct {
 	DependsOn    []string `json:"depends_on"`
 	// TaskID links the task to an item of the task list (spec 03 §3.1).
 	TaskID string `json:"taskId"`
+	// claimNotes are the cross-tab warnings for this task's target files,
+	// set at planning and handed to its subagent (claimConflicts).
+	claimNotes []string
 }
 
 // maxTasksPerDispatch is the most tasks one dispatch call runs (spec 03 §3.1).
@@ -273,6 +276,10 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 		notes = append(notes, checkTargets(in.Tasks, env.Workdir)...)
 	}
 	notes = append(notes, sharedFileNotes(in.Tasks)...)
+	// Files another tab is editing: warned about on the task, never blocked.
+	if env.Claims != nil {
+		notes = append(notes, claimConflicts(in.Tasks, env.Workdir, env.Claims.OtherClaims())...)
+	}
 
 	n := len(in.Tasks)
 	run := newDispatchRun(d, env)
@@ -595,6 +602,9 @@ func taskText(st subTask) string {
 	task := st.Task
 	if len(st.Files) > 0 {
 		task += "\n\nRelevant files: " + strings.Join(st.Files, ", ")
+	}
+	for _, note := range st.claimNotes {
+		task += "\n\n" + note
 	}
 	if fmtText := returnFormatText[st.ReturnFormat]; fmtText != "" {
 		task += "\n\n" + fmtText

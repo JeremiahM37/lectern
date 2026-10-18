@@ -87,6 +87,7 @@ func NewWriteFile(undo *UndoStack) tools.Tool {
 			} else {
 				res.Output = fmt.Sprintf("Created %s (%d lines).%s", t.rel, countLines(after), creationPreview(after))
 			}
+			res.Output += memoryFooter(env, t.rel)
 			return res
 		},
 	}
@@ -138,7 +139,7 @@ func NewEditFile(undo *UndoStack) tools.Tool {
 				}
 				res := commit(env, undo, t, nil, false, a.NewString)
 				if !res.IsError {
-					res.Output = fmt.Sprintf("Created %s (%d lines).%s", t.rel, countLines(a.NewString), creationPreview(a.NewString))
+					res.Output = fmt.Sprintf("Created %s (%d lines).%s", t.rel, countLines(a.NewString), creationPreview(a.NewString)) + memoryFooter(env, t.rel)
 				}
 				return res
 			}
@@ -264,6 +265,7 @@ func editExisting(env *tools.Env, undo *UndoStack, t target, edits []editSpec, m
 		} else {
 			res.Output = fmt.Sprintf("Applied %d edits to %s: %s.", len(edits), t.rel, strings.Join(msgs, "; "))
 		}
+		res.Output += memoryFooter(env, t.rel)
 		// The whole file before and after the batch, exactly as on disk, so the
 		// UI can show the joined change. Only a successful batch gets here: an
 		// atomic rollback returns above and carries no Meta.
@@ -275,6 +277,7 @@ func editExisting(env *tools.Env, undo *UndoStack, t target, edits []editSpec, m
 	} else {
 		res.Output = fmt.Sprintf("Edited %s: %s.", t.rel, msgs[0])
 	}
+	res.Output += memoryFooter(env, t.rel)
 	return res
 }
 

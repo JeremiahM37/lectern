@@ -173,7 +173,7 @@ func TestSearchDeniedMakesNoRequest(t *testing.T) {
 	w := newWebTools(Options{SearchURL: srv.URL, AllowPrivate: true})
 	host := &fakeHost{decision: tools.Deny}
 	res := runTool(t, &searchTool{w: w}, &tools.Env{Mode: "default", Host: host}, map[string]any{"query": "q"})
-	if !res.IsError || !strings.Contains(res.Output, "denied") {
+	if !res.IsError || !strings.Contains(res.Output, "Denied: the user chose Deny") {
 		t.Fatalf("want denial, got %+v", res)
 	}
 	if hits != 0 {

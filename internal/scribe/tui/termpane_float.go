@@ -77,7 +77,7 @@ func (m *Model) newFloat() tea.Cmd {
 	w, h := m.floatInner()
 	p, err := term.New(shellCommand(), paneDir(m.cur().be.Workdir()), w, h)
 	if err != nil {
-		m.setFlash("err", "Could not start a terminal: "+err.Error())
+		m.failAlert("Could not start a terminal: " + err.Error())
 		return nil
 	}
 	ps.floats = append(ps.floats, &floatTerm{pane: p})

@@ -174,7 +174,7 @@ func TestApprovalGatesNonReadOnlyTools(t *testing.T) {
 	env := &tools.Env{Workdir: t.TempDir(), Host: host, Mode: "default"}
 
 	res := runTool(t, reg, "mcp__ok__echo", env, `{"text":"x"}`)
-	if !res.IsError || !strings.Contains(res.Output, "denied") {
+	if !res.IsError || !strings.Contains(res.Output, "Denied: the user chose Deny") {
 		t.Fatalf("denied call ran: %+v", res)
 	}
 	if host.asked[0].Kind != "mcp" || host.asked[0].Title != "Use ok tool echo" {

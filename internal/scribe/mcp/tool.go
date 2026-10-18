@@ -9,6 +9,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools/web"
 )
 
 // maxOutput caps one tool result so a chatty server cannot flood the context.
@@ -57,7 +58,7 @@ func (t *remoteTool) Run(ctx context.Context, env *tools.Env, args json.RawMessa
 			t.m.allowSession(t.name)
 		case tools.AllowOnce:
 		default:
-			return tools.Errorf("The user denied %s. Do not retry it without asking.", t.name)
+			return tools.Errorf("%s", web.UserDeclined(fmt.Sprintf("use the %s tool %s", t.server, t.remote), reason()))
 		}
 	}
 	return t.m.call(ctx, t.server, t.remote, args)

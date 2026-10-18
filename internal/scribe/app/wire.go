@@ -270,9 +270,7 @@ func (e *extensions) close(a *App) {
 	if e.reindex != nil {
 		e.reindex.Stop()
 	}
-	if e.mcp != nil {
-		_ = e.mcp.Close()
-	}
+	_ = e.stopMCP()
 	if e.cmap != nil {
 		<-e.mapOK
 		// mapOK closes after the watcher starts, so stopWatch is set by now.
@@ -287,9 +285,28 @@ func (e *extensions) close(a *App) {
 	if e.stopWarm != nil {
 		e.stopWarm()
 	}
-	if e.lsp != nil {
-		e.lsp.Shutdown()
+	_ = e.stopLSP()
+}
+
+// stopMCP disposes the MCP servers (06 §8.3, "dispose MCP servers"). It is a
+// step of its own so the quit path can run it in spec order. close calls it
+// too: mcp.Manager.Close is idempotent, so the second call does nothing.
+func (e *extensions) stopMCP() error {
+	if e.mcp == nil {
+		return nil
 	}
+	return e.mcp.Close()
+}
+
+// stopLSP kills the language servers (06 §8.3, "kill LSP"). Like stopMCP it is
+// its own step, and close calls it too. Shutdown is safe to repeat: it marks
+// the manager closed, so no server starts again after it.
+func (e *extensions) stopLSP() error {
+	if e.lsp == nil {
+		return nil
+	}
+	e.lsp.Shutdown()
+	return nil
 }
 
 // reindexCodeMap is the debounced flush: it re-reads the files that changed

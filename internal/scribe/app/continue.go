@@ -7,6 +7,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui"
 )
 
 // ContinueTurn re-runs the session's interrupted turn (`/session continue`,
@@ -106,21 +107,13 @@ func (b *scribeBackend) runContinue(a *App) {
 	b.runTurns(a, next.prompt, next.images)
 }
 
-// Shutdown ends the session for good, as the process exits: it aborts a
-// running turn, waits up to timeout for the turn to write its checkpoints and
-// session metadata, then closes the App. It is safe after the TUI has already
-// closed the backend.
+// Shutdown ends this one session for good, as the process exits. It runs the
+// same ordered steps as tui.EndSessions (abort, wait for the turn to save,
+// providers, jobs, close, process groups), so a single tab is shut down exactly
+// like every tab is at quit. The signal path calls EndSessions directly so it
+// gets the failures back; this method has no way to return them.
 func (b *scribeBackend) Shutdown(timeout time.Duration) {
-	b.mu.Lock()
-	b.queued = nil
-	a := b.app
-	b.mu.Unlock()
-	a.Agent.Abort()
-	deadline := time.Now().Add(timeout)
-	for b.busy() && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	_ = b.Close()
+	_ = tui.EndSessions([]tui.Backend{b}, timeout)
 }
 
 // turnFailed reports whether a turn that returned err should show it as an

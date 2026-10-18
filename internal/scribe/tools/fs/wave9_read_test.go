@@ -167,7 +167,7 @@ func TestReadWebSourceRefusesPrivateAddressesAndDenial(t *testing.T) {
 	// A literal public IP keeps the test off DNS, so it runs without a network:
 	// the guard passes it and the approval is asked before anything is dialled.
 	host.decision = tools.Deny
-	mustErr(t, call(t, NewRead(), env, map[string]any{"path": "https://93.184.215.14/"}), "denied")
+	mustErr(t, call(t, NewRead(), env, map[string]any{"path": "https://93.184.215.14/"}), "Denied: the user chose Deny")
 	mustErr(t, call(t, NewRead(), env, map[string]any{"path": "https://93.184.215.14/a.png"}), "not fetch")
 }
 

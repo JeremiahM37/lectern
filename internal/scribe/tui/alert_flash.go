@@ -17,6 +17,19 @@ var gitFailurePrefixes = []string{
 	"Reset failed: ",
 }
 
+// flashErrAlertTitle is the title of the alert for a failed command.
+const flashErrAlertTitle = "Command failed"
+
+// failAlert reports a failure the user must act on: the flash line where the
+// user is looking, and a dismissable alert too (spec 01 §7.3 and §7.7). Use it
+// for a real failure (a save that did not happen, a stop that did not take,
+// a write that failed). Usage hints, invalid values and transient states stay
+// on setFlash alone.
+func (m *Model) failAlert(text string) {
+	m.setFlash("err", text)
+	m.raiseFlashAlert(flashErrAlertTitle, text)
+}
+
 // flashAlertTitle decides whether a flash line is a failure the user must act
 // on, and so also opens a dismissable alert (spec 01 §7.3 and §7.7). It returns
 // the alert title and true when it should.
@@ -36,7 +49,7 @@ func flashAlertTitle(msg flashMsg) (string, bool) {
 	// reported) is trusted; the text table covers the git failures that are
 	// not marked.
 	if msg.alert || hasAnyPrefix(msg.text, gitFailurePrefixes) {
-		return "Command failed", true
+		return flashErrAlertTitle, true
 	}
 	return "", false
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -135,9 +136,8 @@ func (w *webTools) approve(ctx context.Context, env *tools.Env, tool, title, det
 	if done {
 		return true, ""
 	}
-	const denied = "The user denied this web access. Do not retry it; continue without web results and say what you could not check."
 	if env == nil || env.Host == nil {
-		return false, "No way to ask the user for approval in this session, so web access is off. " + denied
+		return false, "Denied: " + strings.ToLower(title) + ". No one is available to approve it, so web access is off."
 	}
 	rctx, reason := tools.WithReasonSlot(ctx)
 	d := env.Host.Approve(rctx, tools.Approval{Tool: tool, Kind: "web", Title: title, Detail: detail})
@@ -153,7 +153,7 @@ func (w *webTools) approve(ctx context.Context, env *tools.Env, tool, title, det
 	case tools.AllowOnce:
 		return true, ""
 	default:
-		return false, denied
+		return false, UserDeclined(strings.ToLower(title)+": "+detail, reason())
 	}
 }
 

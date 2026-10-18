@@ -774,7 +774,9 @@ func renderSource(st *readState, s source, rq readReq) (readOut, error) {
 			}
 			summary = fmt.Sprintf("%d of %d lines", emitted, total)
 		}
-		return readOut{body: body, summary: summary}, nil
+		// A plain read carries no hash line, but the memory hint still goes
+		// on it: a full read is the usual way the model meets a file.
+		return readOut{body: body + memoryFooter(s.env, s.rel), summary: summary}, nil
 	}
 
 	if cutAt > 0 {
@@ -790,7 +792,7 @@ func renderSource(st *readState, s source, rq readReq) (readOut, error) {
 	if past := pastEndNote(wins, total); past != "" {
 		body += past
 	}
-	body = s.header + body + "\nhash:" + windowHash
+	body = s.header + body + "\nhash:" + windowHash + memoryFooter(s.env, s.rel)
 	switch {
 	case s.header != "":
 		summary = strings.TrimSuffix(s.header, ":\n")

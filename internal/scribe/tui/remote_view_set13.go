@@ -55,7 +55,7 @@ func (m *Model) openPairingsView() {
 		}
 		ok, err := telegram.Default.Forget(it.Value)
 		if err != nil {
-			m.setFlash("err", "Could not unpair "+it.Value+": "+err.Error())
+			m.failAlert("Could not unpair " + it.Value + ": " + err.Error())
 			return nil, true
 		}
 		if ok {

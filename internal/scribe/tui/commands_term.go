@@ -85,7 +85,7 @@ func init() {
 					nvim.SetSyncOnEdit(on)
 					m.setFlash("info", syncLabel(on)+" (saved)")
 					if err := saveEditorSetting(func(c *config.Config) { c.EditorSync = &on }); err != nil {
-						m.setFlash("err", "Could not save the editor setting: "+err.Error())
+						m.failAlert("Could not save the editor setting: " + err.Error())
 					}
 					return nil
 				}
@@ -97,7 +97,7 @@ func init() {
 					nvim.SetAccess(a)
 					m.setFlash("info", "Agent editor access: "+a.Label()+" (saved)")
 					if err := saveEditorSetting(func(c *config.Config) { c.EditorAccess = a.String() }); err != nil {
-						m.setFlash("err", "Could not save the editor setting: "+err.Error())
+						m.failAlert("Could not save the editor setting: " + err.Error())
 					}
 					return nil
 				}

@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -217,6 +218,52 @@ func taskLabel(t subTask, i int) string {
 		return id
 	}
 	return fmt.Sprintf("%d", i+1)
+}
+
+// claimConflicts warns about code targets that another tab has claimed (spec
+// 03 §3.1 rule 3). others maps each file another tab holds to that tab's
+// label, as the tool environment reports it. A warning is never a block: the
+// task keeps its place and runs. Each task that names a claimed file gets the
+// warning in claimNotes, which taskText hands to its subagent, and the
+// returned notes name the same tasks for the dispatch result. The check runs
+// after checkTargets, so dropped files are not warned about.
+func claimConflicts(tasks []subTask, workdir string, others map[string]string) []string {
+	if workdir == "" || len(others) == 0 {
+		return nil
+	}
+	var notes []string
+	for i := range tasks {
+		if tasks[i].Role != "code" {
+			continue
+		}
+		var hits []string
+		seen := map[string]bool{}
+		for _, f := range tasks[i].Files {
+			abs := stripRange(f)
+			if !filepath.IsAbs(abs) {
+				abs = filepath.Join(workdir, abs)
+			}
+			abs = filepath.Clean(abs)
+			label, claimed := others[abs]
+			if !claimed || seen[abs] {
+				continue
+			}
+			seen[abs] = true
+			rel := abs
+			if r, err := filepath.Rel(workdir, abs); err == nil {
+				rel = filepath.ToSlash(r)
+			}
+			hits = append(hits, fmt.Sprintf("%s (%s)", rel, label))
+		}
+		if len(hits) == 0 {
+			continue
+		}
+		note := "Files claimed by other tabs: " + strings.Join(hits, ", ") +
+			". Those tabs are editing these files now, so this task's edits may conflict with theirs. Avoid these files where you can, and re-read a file before you change it. This is a warning only; the task still runs."
+		tasks[i].claimNotes = append(tasks[i].claimNotes, note)
+		notes = append(notes, fmt.Sprintf("agent %d: %s", i+1, note))
+	}
+	return notes
 }
 
 // stripRange drops a trailing :start-end (or :line) from a target path.

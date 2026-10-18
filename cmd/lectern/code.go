@@ -136,36 +136,58 @@ func runScribeTUI(ctx context.Context, opts app.Options, args []string) int {
 		mu.Lock()
 		list := append([]tui.Backend(nil), backends...)
 		mu.Unlock()
+		var errs []error
 		if !demo {
-			endSessions(list)
-			printSavedBanners(list)
+			errs = endSessions(list)
 		}
 		restoreTerminal(fd, oldState)
+		if !demo {
+			printSavedBanners(list)
+			printShutdownErrors(os.Stderr, errs)
+		}
 		return 0
 	}
+	var errs []error
 	if !demo {
 		mu.Lock()
 		list := append([]tui.Backend(nil), backends...)
 		mu.Unlock()
-		endSessions(list)
+		errs = endSessions(list)
 		printSavedBanners(list)
 	}
 	if err != nil {
 		// A crash in the UI: bubbletea has usually restored the terminal
 		// already, but restoring again is harmless and covers the rest.
 		restoreTerminal(fd, oldState)
+		printShutdownErrors(os.Stderr, errs)
 		fmt.Fprintf(os.Stderr, "lectern code: %v\n", err)
 		return 1
 	}
+	printShutdownErrors(os.Stderr, errs)
 	return 0
 }
 
-// endSessions ends every tab's session: a running turn is aborted and saved.
-func endSessions(list []tui.Backend) {
-	for _, be := range list {
-		if s, ok := be.(tui.Stopper); ok {
-			s.Shutdown(sessionSaveTimeout)
+// endSessions ends every tab's session with tui.EndSessions, so all tabs get
+// the same ordered shutdown (06 §8.3): running turns are aborted and waited
+// for, then providers, background jobs, each session's close (which saves it),
+// MCP and LSP, and the process groups. It returns the steps that failed. The
+// caller prints them once the terminal is back to normal.
+func endSessions(list []tui.Backend) []error {
+	return tui.EndSessions(list, sessionSaveTimeout)
+}
+
+// printShutdownErrors prints the shutdown steps that did not finish cleanly.
+// The quit screen may already have recorded some of the same failures, so
+// each message is printed once.
+func printShutdownErrors(w io.Writer, errs []error) {
+	seen := map[string]bool{}
+	for _, err := range append(tui.ShutdownErrors(), errs...) {
+		msg := err.Error()
+		if seen[msg] {
+			continue
 		}
+		seen[msg] = true
+		fmt.Fprintf(w, "lectern code: shutdown: %v\n", err)
 	}
 }
 

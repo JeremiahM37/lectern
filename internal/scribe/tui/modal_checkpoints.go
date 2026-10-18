@@ -463,7 +463,7 @@ func (p *jobsPanel) kill(j Job) {
 	}
 	p.m.pushModal(NewConfirm(p.th, "Kill job "+j.ID+"?", "Stops the running command: "+j.Command, true, func() tea.Cmd {
 		if err := p.be.KillJob(j.ID); err != nil {
-			p.m.setFlash("err", "Could not stop the job: "+err.Error())
+			p.m.failAlert("Could not stop the job: " + err.Error())
 		} else {
 			p.m.setFlash("ok", "Stopped job "+j.ID)
 		}

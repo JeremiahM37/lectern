@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/format"
 	"go/parser"
@@ -21,6 +22,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools/fs"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools/web"
 )
 
 // Register adds ast_edit, move_symbol and rename_file to r.
@@ -445,22 +447,27 @@ func gate(ctx context.Context, env *tools.Env, p string) (string, string, error)
 	if err := fs.CheckWrite(ctx, env, "edit", abs); err != nil {
 		return "", "", err
 	}
-	if !within(realPath(wd), realPath(abs)) && env.Mode != "auto" && !approve(ctx, env, "write_outside", "Write outside project directory", abs) {
-		return "", "", fmt.Errorf("Denied: %s outside project directory → %s", toolName, rel)
+	if !within(realPath(wd), realPath(abs)) && env.Mode != "auto" {
+		if msg := approve(ctx, env, "write_outside", "Write outside project directory", abs); msg != "" {
+			return "", "", errors.New(msg)
+		}
 	}
 	return abs, rel, nil
 }
 
-func approve(ctx context.Context, env *tools.Env, kind, title, detail string) bool {
+// approve asks the host about one action. It returns "" when the user allowed
+// it, and otherwise the message the model reads, as fs does.
+func approve(ctx context.Context, env *tools.Env, kind, title, detail string) string {
+	what := strings.ToLower(title) + ": " + detail
 	if env.Host == nil {
-		return false
+		return "Denied: " + what + ". No one is available to approve it."
 	}
 	rctx, reason := tools.WithReasonSlot(ctx)
 	if env.Host.Approve(rctx, tools.Approval{Tool: toolName, Kind: kind, Title: title, Detail: detail}) == tools.Deny {
-		return false
+		return web.UserDeclined(what, reason())
 	}
 	tools.NoteApproval(ctx, reason())
-	return true
+	return ""
 }
 
 // realPath resolves symlinks in p. A path that does not exist yet is judged
