@@ -165,6 +165,17 @@ type Request struct {
 	// SendReasoning, when false, drops prior reasoning from the history
 	// before sending it. nil and true keep it, which is the default.
 	SendReasoning *bool
+	// ClearThinking asks Anthropic to keep every earlier thinking block
+	// (context management clear_thinking, keep all). It is sent only when
+	// thinking is on for the request. false leaves the request unchanged.
+	ClearThinking bool
+	// ClearToolUses asks Anthropic to clear old tool results once the input
+	// passes a share of the context window (context management
+	// clear_tool_uses). false leaves the request unchanged.
+	ClearToolUses bool
+	// ContextWindow is the model's context window in tokens. The clear-tool-uses
+	// thresholds scale with it. 0 uses the fixed floors alone.
+	ContextWindow int
 }
 
 // EventType discriminates Event.

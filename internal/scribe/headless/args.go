@@ -215,6 +215,8 @@ Flags:
   --timeout DURATION       abort after this long: milliseconds or 90s, 10m (exit 2)
   --cwd DIR                project folder (default: current folder)
   --preset NAME            apply a config preset over the config for this run
+  --plugin NAME            same, repeatable; SCRIBE_PRESETS=a,b applies presets too
+  --verbose-presets        print what each applied preset changes (stderr)
   --system TEXT            extra instructions for this run
   --include FILE           prepend a file to the prompt (repeatable)
   --no-repomap             skip the code map (also SCRIBE_NO_REPOMAP=1)

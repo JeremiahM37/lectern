@@ -146,7 +146,13 @@ func expandPresetEnv(b []byte) []byte {
 
 // FindPreset returns the preset called name, or an error that lists the ones
 // that exist.
+//
+// A comma list ("a,b") returns the names combined, later ones winning; see
+// composePresets. App startup passes the list that ResolveRunPresets built.
 func FindPreset(root, name string) (Preset, error) {
+	if names := SplitPresetNames(name); len(names) > 1 {
+		return composePresets(root, names)
+	}
 	all, _ := ListPresets(root)
 	var names []string
 	for _, p := range all {
@@ -187,9 +193,10 @@ func RemovePreset(root string, p Preset) error {
 	return os.Remove(p.Path)
 }
 
-// ApplyPreset merges p over base. Preset values win where set; everything
-// else is kept, with the same rules as the global-over-project merge.
-func ApplyPreset(base Config, p Preset) Config { return Merge(base, p.Config) }
+// ApplyPreset merges p over base for one run. Preset values win where set;
+// everything else is kept, with the same rules as the global-over-project
+// merge. Hooks and MCP servers are not applied (see runOnly).
+func ApplyPreset(base Config, p Preset) Config { return Merge(base, runOnly(p.Config)) }
 
 // LoadWithPreset is Load followed by ApplyPreset. An empty name is plain Load.
 func LoadWithPreset(root, name string) (Config, error) {

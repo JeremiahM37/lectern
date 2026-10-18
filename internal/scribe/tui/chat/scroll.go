@@ -394,6 +394,16 @@ func (v *View) ReleasedSelection() (string, bool) {
 	return v.copyText, true
 }
 
+// SelectedText is the drag selection's text, without consuming it (Ctrl+Y
+// copies it). ok is false when nothing is selected.
+func (v *View) SelectedText() (string, bool) {
+	if !v.sel {
+		return "", false
+	}
+	v.build()
+	return v.selectedText(), true
+}
+
 // selectedText is the plain text between the anchor and the cursor, inclusive.
 // Each line is cut to its columns and trailing spaces are dropped.
 func (v *View) selectedText() string {

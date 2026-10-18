@@ -23,6 +23,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/app"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
 	"github.com/JeremiahM37/lectern/v2/internal/version"
 )
 
@@ -36,6 +37,12 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 }
 
 func run(parent context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, sigs <-chan os.Signal) int {
+	pf, err := takePresetFlags(args)
+	if err != nil {
+		fmt.Fprintf(stderr, "scribe: %v\nRun `lectern code --help` for the flags.\n", err)
+		return 1
+	}
+	args = pf.rest
 	o, err := parseArgs(args)
 	if errors.Is(err, errHelp) {
 		fmt.Fprint(stderr, usage)
@@ -57,6 +64,18 @@ func run(parent context.Context, args []string, stdin io.Reader, stdout, stderr 
 	}
 	if o.listProviders || o.listModels || o.setKey {
 		return manage(parent, o, cwd, stdout, stderr)
+	}
+	projRoot := app.FindRoot(cwd)
+	rp, err := config.ResolveRunPresets(projRoot, pf.plugins, o.preset)
+	if err != nil {
+		out.fail(err.Error())
+		return 1
+	}
+	for _, w := range rp.Warnings {
+		fmt.Fprintf(stderr, "scribe: %s\n", w)
+	}
+	if pf.verbose {
+		printPresetChanges(projRoot, rp.Names, stderr)
 	}
 	// Git is the one required tool (spec 05 §11.3): checkpoints, diffs and the
 	// git tools need it, so a run without it stops here with the reason.
@@ -97,7 +116,7 @@ func run(parent context.Context, args []string, stdin io.Reader, stdout, stderr 
 		Resume:    o.session,
 		NoRepoMap: o.noRepoMap,
 		System:    o.system,
-		Preset:    o.preset,
+		Preset:    strings.Join(rp.Names, ","),
 		Version:   version.Version,
 		// Sessions are kept for --save-session, --chat and --session. A
 		// one-off run leaves nothing behind.
@@ -420,4 +439,53 @@ func absDir(dir string) (string, error) {
 		return "", fmt.Errorf("--cwd: %s is not a folder", dir)
 	}
 	return abs, nil
+}
+
+// presetFlags are the preset switches a headless run takes. They are read
+// before parseArgs, so the headless flag table stays the one place that
+// describes the rest.
+type presetFlags struct {
+	plugins []string // --plugin NAME, repeatable; a comma list is allowed
+	verbose bool     // --verbose-presets
+	rest    []string // every other argument, in order
+}
+
+// takePresetFlags removes --plugin and --verbose-presets from args.
+func takePresetFlags(args []string) (presetFlags, error) {
+	var pf presetFlags
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		name, val, hasVal := strings.Cut(a, "=")
+		switch name {
+		case "--plugin":
+			if !hasVal {
+				if i+1 >= len(args) || (strings.HasPrefix(args[i+1], "-") && len(args[i+1]) > 1) {
+					return pf, fmt.Errorf("--plugin needs a preset name")
+				}
+				i++
+				val = args[i]
+			}
+			pf.plugins = append(pf.plugins, val)
+		case "--verbose-presets":
+			if hasVal {
+				return pf, fmt.Errorf("--verbose-presets takes no value")
+			}
+			pf.verbose = true
+		default:
+			pf.rest = append(pf.rest, a)
+		}
+	}
+	return pf, nil
+}
+
+// printPresetChanges writes the --verbose-presets report to stderr.
+func printPresetChanges(root string, names []string, stderr io.Writer) {
+	lines, err := config.RunPresetReport(root, names)
+	if err != nil {
+		fmt.Fprintf(stderr, "scribe: presets: %v\n", err)
+		return
+	}
+	for _, l := range lines {
+		fmt.Fprintf(stderr, "scribe: %s\n", l)
+	}
 }

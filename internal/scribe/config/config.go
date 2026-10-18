@@ -221,6 +221,9 @@ type Config struct {
 	// Performance holds per-provider request options that change the wire
 	// format. Unset fields keep the adapter's default.
 	Performance Performance `json:"performance,omitempty"`
+	// ContextManagement holds the Anthropic server-side context edits (Claude
+	// tab). Each one is off unless set, so requests are unchanged by default.
+	ContextManagement ContextManagement `json:"context_management,omitempty"`
 	// Retry sets how many times a failed model call is retried. Zero keeps
 	// the agent's default.
 	Retry Retry `json:"retry,omitempty"`
@@ -230,6 +233,52 @@ type Config struct {
 	// EditorIntegrations are the per-feature editor toggles (/editor
 	// settings). A missing name takes its default; see EditorIntegrationOn.
 	EditorIntegrations map[string]bool `json:"editor_integrations,omitempty"`
+}
+
+// ContextManagement is the Anthropic server-side context management. Nil
+// fields are off, so a request is unchanged until a setting turns one on. A
+// project file's value overrides the global one, including an explicit false.
+type ContextManagement struct {
+	// ClearThinking keeps every earlier thinking block (clear_thinking, keep
+	// all). It applies only while thinking is on for the request.
+	ClearThinking *bool `json:"clear_thinking,omitempty"`
+	// ClearToolUses clears old tool results once the input passes a share of
+	// the context window. It changes the prompt prefix, so the cache misses.
+	ClearToolUses *bool `json:"clear_tool_uses,omitempty"`
+}
+
+func mergeContextManagement(base, o ContextManagement) ContextManagement {
+	if o.ClearThinking != nil {
+		base.ClearThinking = o.ClearThinking
+	}
+	if o.ClearToolUses != nil {
+		base.ClearToolUses = o.ClearToolUses
+	}
+	return base
+}
+
+// set writes one context management field from a settings row. Values are
+// booleans; a nil or empty value clears the field back to off.
+func (cm *ContextManagement) set(field string, v any) error {
+	var target **bool
+	switch field {
+	case "clear_thinking":
+		target = &cm.ClearThinking
+	case "clear_tool_uses":
+		target = &cm.ClearToolUses
+	default:
+		return fmt.Errorf("unknown context management setting %q", field)
+	}
+	if v == nil || toString(v) == "" {
+		*target = nil
+		return nil
+	}
+	on, err := toBool(v)
+	if err != nil {
+		return err
+	}
+	*target = &on
+	return nil
 }
 
 // Reasoning is one provider's reasoning controls. Which fields apply depends
@@ -427,6 +476,7 @@ func Merge(base, o Config) Config {
 	r.AgentFeatures = mergeAgentFeatures(base.AgentFeatures, o.AgentFeatures)
 	r.Editor = mergeEditor(base.Editor, o.Editor)
 	r.Performance = mergePerformance(base.Performance, o.Performance)
+	r.ContextManagement = mergeContextManagement(base.ContextManagement, o.ContextManagement)
 	r.Retry = mergeRetry(base.Retry, o.Retry)
 	r.WatchdogTimeouts = mergeWatchdog(base.WatchdogTimeouts, o.WatchdogTimeouts)
 	r.EditorIntegrations = mergeEditorIntegrations(base.EditorIntegrations, o.EditorIntegrations)

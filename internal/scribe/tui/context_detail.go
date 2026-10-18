@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
@@ -66,7 +68,62 @@ func contextLines(t *tab) []string {
 	}
 	lines = append(lines, "", "/context clear unloads skills and memory recall",
 		"/compact shrinks the conversation")
-	return lines
+	return fitContextLines(lines)
+}
+
+// contextPanelWidth is the inner width of the /context panel on an 80-column
+// terminal: the info panel is 74 wide and its frame takes four columns. Every
+// line is kept within it, so nothing wraps inside the panel.
+const contextPanelWidth = 70
+
+// fitContextLines wraps any line wider than the panel. A labelled row keeps
+// its label, and the wrapped value continues under the value column. A line
+// is split first at its own newlines, so a row can be built from two lines.
+func fitContextLines(lines []string) []string {
+	var out []string
+	for _, block := range lines {
+		for _, l := range strings.Split(block, "\n") {
+			out = append(out, fitContextLine(l)...)
+		}
+	}
+	return out
+}
+
+// fitContextLine returns l as one or more lines, each at most contextPanelWidth
+// cells wide.
+func fitContextLine(l string) []string {
+	if ansi.StringWidth(l) <= contextPanelWidth {
+		return []string{l}
+	}
+	col := contextValueCol(l)
+	first, rest := l[:col], strings.Repeat(" ", col)
+	text := l[col:]
+	// The subagent row ends with its totals note. Move that note to its own
+	// line, rather than let the wrap break the note in the middle.
+	if i := strings.Index(text, " (in totals above)"); i > 0 && ansi.StringWidth(l) > contextPanelWidth {
+		return append(wrapPrefixed(text[:i], first, rest, contextPanelWidth), rest+strings.TrimLeft(text[i:], " "))
+	}
+	return wrapPrefixed(text, first, rest, contextPanelWidth)
+}
+
+// contextValueCol is the byte offset where a labelled row's value starts: the
+// first run of two or more spaces after the label. A line without such a gap
+// has no value column, so it wraps from its own indent.
+func contextValueCol(l string) int {
+	trimmed := strings.TrimLeft(l, " ")
+	lead := len(l) - len(trimmed)
+	i := strings.Index(trimmed, "  ")
+	if i < 0 {
+		return lead
+	}
+	j := i
+	for j < len(trimmed) && trimmed[j] == ' ' {
+		j++
+	}
+	if j >= len(trimmed) {
+		return lead
+	}
+	return lead + j
 }
 
 // ChatBudget is this chat's share of today's token budget: what the chat has
@@ -100,7 +157,7 @@ func chatBudgetLine(cb ChatBudget) string {
 	if cb.Limit > 0 {
 		return fmt.Sprintf("  This chat      %s of %s tokens today (%d%%)", render.HumanTokens(cb.Today), render.HumanTokens(cb.Limit), pct(cb.Today, cb.Limit))
 	}
-	return fmt.Sprintf("  This chat      %s tokens today (no per-chat budget; set chat_daily_token_budget)", render.HumanTokens(cb.Today))
+	return fmt.Sprintf("  This chat      %s tokens today\n                  no per-chat budget; set chat_daily_token_budget", render.HumanTokens(cb.Today))
 }
 
 // maxModelRows caps the per-model table; the rest are summed into one row so
@@ -121,7 +178,7 @@ func subagentLine(h contextHistory, local bool) string {
 	if !local {
 		line += fmt.Sprintf(", $%.4f", h.SubagentCost)
 	}
-	return line + " (in the totals above)"
+	return line + " (in totals above)"
 }
 
 // compactionLine counts the compactions that ran and sizes the latest one.

@@ -6,6 +6,7 @@ import (
 	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/icons"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
@@ -82,12 +83,28 @@ func inputPlaceholder(t *tab, th theme.Theme) (string, lipgloss.Style) {
 // would be false then. The idle tip is the only one that depends on frame.
 func inputPlaceholderAt(t *tab, th theme.Theme, frame int) (string, lipgloss.Style) {
 	if cp := browsedCheckpoint(t); cp != nil && !t.busy {
-		return icons.Icon("rewind") + " send a message to rewind to checkpoint #" + itoa(cp.Turn), fg(th.Warning)
+		return fitPlaceholder(t, icons.Icon("rewind")+" send a message to rewind to checkpoint #"+itoa(cp.Turn)), fg(th.Warning)
 	}
 	if t.busy {
-		return "'/' for commands · or steer by sending a new message", fg(th.TextMuted)
+		return fitPlaceholder(t, "'/' for commands · or steer by sending a new message"), fg(th.TextMuted)
 	}
-	return idleTip(frame), fg(th.TextMuted)
+	return fitPlaceholder(t, idleTip(frame)), fg(th.TextMuted)
+}
+
+// fitPlaceholder cuts text to the width of this tab's input, so the tip is
+// never cut at some other width. The width is the textarea's own, which is
+// the 60% landing box or the full chat width. One cell is kept for the
+// cursor. A cut lands on a word boundary when one fits and ends with an
+// ellipsis; text that fits is returned as it is.
+func fitPlaceholder(t *tab, text string) string {
+	if t.in == nil {
+		return text
+	}
+	room := t.in.ta.Width() - 1
+	if room <= 1 || ansi.StringWidth(text) <= room {
+		return text
+	}
+	return truncWord(text, room)
 }
 
 // searchPopupLines draws the Ctrl+R list above the box: a header with the

@@ -56,6 +56,8 @@ func (c *Config) SetField(key string, v any) (bool, error) {
 		return true, err
 	}
 	switch {
+	case strings.HasPrefix(key, "context_management."):
+		return true, c.ContextManagement.set(strings.TrimPrefix(key, "context_management."), v)
 	case strings.HasPrefix(key, keyFallbackByModel):
 		ref := strings.TrimPrefix(key, keyFallbackByModel)
 		if !strings.Contains(ref, "/") {
@@ -310,6 +312,12 @@ func (c *Config) setPerformance(field string, v any) error {
 // it from the file. It reports handled=false for a key this file does not own.
 func (c *Config) ClearField(key string) bool {
 	switch {
+	case key == "context_management.clear_thinking":
+		c.ContextManagement.ClearThinking = nil
+		return true
+	case key == "context_management.clear_tool_uses":
+		c.ContextManagement.ClearToolUses = nil
+		return true
 	case strings.HasPrefix(key, keyFallbackByModel):
 		delete(c.Router.FallbackByModel, strings.TrimPrefix(key, keyFallbackByModel))
 		return true

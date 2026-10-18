@@ -296,7 +296,7 @@ func (v *statusView) overviewLines(w int) []string {
 		v.section("Model"),
 		v.row("Model", s.model, w),
 		v.row("Provider", provider, w),
-		v.row("Reasoning", s.reasoning, w),
+		v.row("Reasoning", orWord(s.reasoning, "default"), w),
 		v.row("Mode", s.mode, w),
 		"",
 		v.section("Work"),

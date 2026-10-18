@@ -48,7 +48,7 @@ func TestContextPanelShowsHistory(t *testing.T) {
 	for _, want := range []string{
 		"  Cache write    500",
 		"  Cache hit      62% of input read from cache",
-		"  Subagents      1 dispatch, 5.0k tokens, $0.0210 (in the totals above)",
+		"  Subagents      1 dispatch, 5.0k tokens, $0.0210 (in totals above)",
 		"  Compactions    1 (last: 84 to 12 messages)",
 		"By model (main agent)",
 		"  anthropic/sonnet",

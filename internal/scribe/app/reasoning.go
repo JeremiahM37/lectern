@@ -73,12 +73,27 @@ func (a *App) tune(m agent.Model, r *llm.Request) {
 	a.mu.Lock()
 	rs := a.Cfg.ReasoningByProvider[provider]
 	perf := a.Cfg.Performance
+	cm := a.Cfg.ContextManagement
 	sessionID := a.Meta.ID
 	a.mu.Unlock()
 	r.SessionID = sessionID
 	applyReasoning(r, rs, m.Info.ReasoningStyle)
 	applyPerformance(r, perf, rs, m.Info.ReasoningStyle)
 	applyProviderReasoning(r, provider, rs, m.Info.ReasoningStyle)
+	applyContextManagement(r, cm, provider, m.Info.ContextWindow)
+}
+
+// applyContextManagement sets the Anthropic context edits from the Claude tab.
+// Only Anthropic requests carry them. Subagents are built without this hook,
+// so they never get the edits, which is what the spec asks for. Both edits are
+// off unless their setting is on, so an unset config leaves the request alone.
+func applyContextManagement(r *llm.Request, cm config.ContextManagement, provider string, window int) {
+	if provider != "anthropic" {
+		return
+	}
+	r.ClearThinking = config.Bool(cm.ClearThinking, false)
+	r.ClearToolUses = config.Bool(cm.ClearToolUses, false)
+	r.ContextWindow = window
 }
 
 // applyProviderReasoning sets the controls that only one provider takes. The

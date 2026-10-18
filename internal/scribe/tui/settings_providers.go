@@ -102,3 +102,16 @@ func (s *settings) reasoningFlagRow(label, key string, on bool, note string) set
 	return setRow{label: label, value: onOffWord(on), note: note, key: key, raw: on, toggle: true, on: on,
 		act: func() tea.Cmd { return s.set(key, !on) }}
 }
+
+// claudeContextRows are the Claude tab's context management switches. They are
+// saved under context_management and read on each Anthropic request. Both are
+// off by default, so an unchanged config sends the same requests as before.
+// Preserve thinking has no effect while Thinking is off, and the note says so.
+func (s *settings) claudeContextRows(cm config.ContextManagement) []setRow {
+	return []setRow{
+		s.flagRow7("Preserve thinking", "context_management.clear_thinking", config.Bool(cm.ClearThinking, false),
+			"keeps earlier thinking blocks; applies only while Thinking is on"),
+		s.flagRow7("Clear old tool uses", "context_management.clear_tool_uses", config.Bool(cm.ClearToolUses, false),
+			"clears old tool results past about 65% of the window; the prompt cache misses"),
+	}
+}

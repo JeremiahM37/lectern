@@ -671,6 +671,7 @@ func (s *settings) performanceRows(c config.Config, provider, style string) []se
 	var rows []setRow
 	if provider == "anthropic" {
 		rows = append(rows, setRow{label: "Claude options", header: true, note: "sent with each Claude request"})
+		rows = append(rows, s.claudeContextRows(c.ContextManagement)...)
 		switch style {
 		case llm.ReasoningBudget:
 			rows = append(rows, s.pickRow7("Thinking", "performance.thinking", p.Thinking,

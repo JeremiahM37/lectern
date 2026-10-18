@@ -280,28 +280,34 @@ func seqToolsCommand(m *Model, arg string) tea.Cmd {
 }
 
 // perfCommand is /perf. It reads the performance block and changes nothing:
-// the spec names the command but gives no view for it, so this lists what is
-// in effect and the command that changes each value.
+// the spec names the command but gives no view for it, so this opens a panel
+// listing what is in effect and the command that changes each value. The
+// panel has one value per line, because a flash line is cut at the terminal
+// width and a 120-column line would still lose the last values.
 func perfCommand(m *Model, arg string) tea.Cmd {
 	if arg != "" {
 		return cmdErrText("Usage: /perf takes no argument. It shows the performance settings; change them with /thinking, /effort, /speed, /toolstream, /seqtools and /sendreasoning.")
 	}
 	p := fields7(m.cur().be).Performance
-	return flashCmd("info", perfSummary(p))
+	m.openInfo("Performance", "gauge", perfLines(p))
+	return flashCmd("info", "Performance settings are open. Esc closes.")
 }
 
-// perfSummary is the one-line /perf reply.
-func perfSummary(p config.Performance) string {
-	parts := []string{
-		"thinking " + orWord(p.Thinking, "default"),
-		"effort " + orOff(p.Effort),
-		"speed " + orOff(p.Speed),
-		"cache lifetime " + orWord(p.CacheTTL, "default"),
-		"tool streaming " + onOff(config.Bool(p.ToolStreaming, true)),
-		"send reasoning " + onOff(config.Bool(p.SendReasoning, false)),
-		"one tool at a time " + onOff(config.Bool(p.DisableParallelToolUse, false)),
+// perfLines is the /perf panel: each setting in effect on its own line, with
+// the command that changes it.
+func perfLines(p config.Performance) []string {
+	row := func(label, value, cmd string) string {
+		return padRight(label, 20) + padRight(value, 9) + cmd
 	}
-	return "Performance: " + strings.Join(parts, ", ") + ". Cache lifetime is in /settings."
+	return []string{
+		row("thinking", orWord(p.Thinking, "default"), "/thinking"),
+		row("effort", orOff(p.Effort), "/effort"),
+		row("speed", orOff(p.Speed), "/speed"),
+		row("cache lifetime", orWord(p.CacheTTL, "default"), "set in /settings"),
+		row("tool streaming", onOff(config.Bool(p.ToolStreaming, true)), "/toolstream"),
+		row("send reasoning", onOff(config.Bool(p.SendReasoning, false)), "/sendreasoning"),
+		row("one tool at a time", onOff(config.Bool(p.DisableParallelToolUse, false)), "/seqtools"),
+	}
 }
 
 // choiceCommand is the shared body of the choice-valued commands. With no

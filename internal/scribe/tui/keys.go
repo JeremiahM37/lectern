@@ -18,18 +18,7 @@ func (m *Model) handleGlobalKey(km tea.KeyMsg) (tea.Cmd, bool) {
 	}
 	switch km.String() {
 	case "ctrl+y":
-		// Copy the message the transcript is focused on (the bottom one in view).
-		if text, ok := t.chat.FocusedText(); ok && text != "" {
-			copyToTerminal(text)
-			n := strings.Count(strings.TrimRight(text, "\n"), "\n") + 1
-			unit := " lines)"
-			if n == 1 {
-				unit = " line)"
-			}
-			m.setFlash("ok", "Copied the message ("+itoa(n)+unit)
-		} else {
-			m.setFlash("info", "Nothing to copy")
-		}
+		m.copyForCtrlY(t)
 		return nil, true
 	case "ctrl+k":
 		m.openPalette()
@@ -296,4 +285,57 @@ func (m *Model) openNewTab() {
 // waitBoth starts the event, prompt and git pumps for a new tab.
 func waitBoth(t *tab) tea.Cmd {
 	return tea.Batch(waitEvent(t.id, t.be), waitPrompt(t.id, t.be), gitCmd(t.id, t.be))
+}
+
+// selectionReader is the part of the transcript that Ctrl+Y needs to read the
+// current drag selection. The selection stays in the transcript after the
+// pointer is released; this seam only reads it.
+type selectionReader interface {
+	SelectedText() (string, bool)
+}
+
+// selectedTextOf is the transcript's current selection, or ok=false when it
+// has none or cannot report one.
+func selectedTextOf(v transcript) (string, bool) {
+	r, ok := any(v).(selectionReader)
+	if !ok {
+		return "", false
+	}
+	return r.SelectedText()
+}
+
+// pickCtrlYText chooses what Ctrl+Y copies (spec 06 §8.2): the text selection
+// when there is one, else the focused message. fromSelection says which one
+// was picked; text is "" when there is nothing to copy.
+func pickCtrlYText(selection string, hasSelection bool, focused string, hasFocused bool) (text string, fromSelection bool) {
+	if hasSelection && strings.TrimSpace(selection) != "" {
+		return selection, true
+	}
+	if hasFocused && focused != "" {
+		return focused, false
+	}
+	return "", false
+}
+
+// copyForCtrlY copies the selection or the focused message to the terminal
+// clipboard and flashes what was copied, so the user can see which one it was.
+func (m *Model) copyForCtrlY(t *tab) {
+	selection, hasSelection := selectedTextOf(t.chat)
+	focused, hasFocused := t.chat.FocusedText()
+	text, fromSelection := pickCtrlYText(selection, hasSelection, focused, hasFocused)
+	if text == "" {
+		m.setFlash("info", "Nothing to copy")
+		return
+	}
+	copyToTerminal(text)
+	n := strings.Count(strings.TrimRight(text, "\n"), "\n") + 1
+	unit := " lines)"
+	if n == 1 {
+		unit = " line)"
+	}
+	what := "Copied the message ("
+	if fromSelection {
+		what = "Copied the selection ("
+	}
+	m.setFlash("ok", what+itoa(n)+unit)
 }

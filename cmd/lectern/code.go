@@ -194,7 +194,7 @@ func restoreTerminal(fd int, old *term.State) {
 var valueFlags = map[string]bool{
 	"--model": true, "-m": true, "--mode": true, "--cwd": true, "--preset": true,
 	"--system": true, "--include": true, "--session": true, "--resume": true, "-s": true,
-	"--max-steps": true, "--timeout": true,
+	"--max-steps": true, "--timeout": true, "--plugin": true,
 }
 
 // headlessFlags make `lectern code` run without the terminal UI.
@@ -213,6 +213,13 @@ func codeCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if a == "--version" || a == "-v" {
 			fmt.Fprintln(stdout, version.Version)
 			return 0
+		}
+	}
+	// --presets lists what this folder can apply. It is not a session, so it
+	// answers before the bridge and the headless check.
+	for _, a := range args {
+		if a == "--presets" {
+			return listPresetsCommand(args, stdout, stderr)
 		}
 	}
 	maybeLecternBridge()
@@ -264,6 +271,8 @@ func codeTUI(args []string, stderr io.Writer) int {
 		picker  bool
 		cont    bool
 		cwd     string
+		plugins []string // --plugin NAME, repeatable: presets for this run only
+		verbose bool     // --verbose-presets
 	)
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -308,6 +317,15 @@ func codeTUI(args []string, stderr io.Writer) int {
 			}
 		case "--continue", "-c":
 			cont = true
+		case "--plugin":
+			v, ok := next()
+			if !ok {
+				fmt.Fprintln(stderr, "lectern code: --plugin needs a preset name")
+				return 2
+			}
+			plugins = append(plugins, v)
+		case "--verbose-presets":
+			verbose = true
 		case "--demo":
 			tuiArgs = append(tuiArgs, "--demo")
 		case "--wizard":
@@ -356,12 +374,21 @@ func codeTUI(args []string, stderr io.Writer) int {
 		return 1
 	}
 	opts.Workdir = cwd
-	if opts.Preset != "" {
-		if _, err := config.FindPreset(app.FindRoot(cwd), opts.Preset); err != nil {
-			fmt.Fprintf(stderr, "lectern code: %v\n", err)
-			return 2
-		}
+	// SCRIBE_PRESETS, then --plugin, then --preset. A run applies them in memory
+	// only; app.Open merges the joined list over the config.
+	root := app.FindRoot(cwd)
+	rp, err := config.ResolveRunPresets(root, plugins, opts.Preset)
+	if err != nil {
+		fmt.Fprintf(stderr, "lectern code: %v\n", err)
+		return 2
 	}
+	for _, w := range rp.Warnings {
+		fmt.Fprintf(stderr, "lectern code: %s\n", w)
+	}
+	if verbose {
+		printRunPresetChanges(root, rp.Names, stderr)
+	}
+	opts.Preset = strings.Join(rp.Names, ",")
 	if cont {
 		root := app.FindRoot(cwd)
 		// Only sessions this Scribe home recorded: one from another
@@ -394,4 +421,62 @@ func knownMode(m string) bool {
 		}
 	}
 	return false
+}
+
+// listPresetsCommand prints the presets the folder named by --cwd (default the
+// current folder) can apply, and where each one lives. The TUI's /preset
+// command shows the same list. There is no interactive wizard yet.
+func listPresetsCommand(args []string, stdout, stderr io.Writer) int {
+	cwd := ""
+	for i := 0; i < len(args); i++ {
+		name, val, hasVal := strings.Cut(args[i], "=")
+		if name != "--cwd" {
+			continue
+		}
+		if !hasVal {
+			if i+1 >= len(args) {
+				fmt.Fprintln(stderr, "lectern code: --cwd needs a value")
+				return 2
+			}
+			i++
+			val = args[i]
+		}
+		cwd = val
+	}
+	if cwd == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(stderr, "lectern code: %v\n", err)
+			return 1
+		}
+		cwd = wd
+	}
+	root := app.FindRoot(cwd)
+	ps, errs := config.ListPresets(root)
+	for _, e := range errs {
+		fmt.Fprintf(stderr, "lectern code: skipped: %v\n", e)
+	}
+	if len(ps) == 0 {
+		fmt.Fprintf(stdout, "No presets. Add one as %s/NAME.json (global) or %s/NAME.json (this folder).\n",
+			config.PresetDir(), config.ProjectPresetDir(root))
+		return 0
+	}
+	fmt.Fprintln(stdout, "Presets (apply for one run with --plugin NAME, or set SCRIBE_PRESETS=a,b):")
+	for _, p := range ps {
+		fmt.Fprintf(stdout, "  %-20s %-8s %s\n", p.Name, p.Scope(), p.Path)
+	}
+	return 0
+}
+
+// printRunPresetChanges reports, before the session opens, what each preset
+// for this run changes. It reads the same config app.Open will merge over.
+func printRunPresetChanges(root string, names []string, stderr io.Writer) {
+	lines, err := config.RunPresetReport(root, names)
+	if err != nil {
+		fmt.Fprintf(stderr, "lectern code: presets: %v\n", err)
+		return
+	}
+	for _, l := range lines {
+		fmt.Fprintf(stderr, "lectern code: %s\n", l)
+	}
 }

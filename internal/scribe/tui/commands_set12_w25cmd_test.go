@@ -148,9 +148,11 @@ func TestPerfShowsTheEffectiveSettingsAndChangesNothing(t *testing.T) {
 	if f.kind != "info" {
 		t.Fatalf("/perf should be information, got %q (%s)", f.text, f.kind)
 	}
-	for _, want := range []string{"thinking adaptive", "effort high", "speed fast", "cache lifetime 1h", "tool streaming on", "send reasoning off", "one tool at a time off"} {
-		if !strings.Contains(f.text, want) {
-			t.Fatalf("/perf should contain %q, got %q", want, f.text)
+	// The values are in the panel, one per line, not in the flash line.
+	text := strings.Join(perfLines(fb.flat.Performance), "\n")
+	for _, want := range []string{"thinking", "adaptive", "effort", "high", "speed", "fast", "cache lifetime", "1h", "tool streaming", "on", "send reasoning", "off", "one tool at a time"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("/perf panel should contain %q, got:\n%s", want, text)
 		}
 	}
 	if fb.flat.Performance.Thinking != "adaptive" || fb.flat.Performance.Effort != "high" {

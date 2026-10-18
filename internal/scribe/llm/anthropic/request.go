@@ -54,12 +54,53 @@ type wireRequest struct {
 	ServiceTier  string            `json:"service_tier,omitempty"`
 	Speed        string            `json:"speed,omitempty"`
 	Metadata     map[string]string `json:"metadata,omitempty"`
-	Stream       bool              `json:"stream"`
+	// ContextManagement carries server-side context edits. It is nil unless a
+	// setting asked for one, so the body is unchanged by default.
+	ContextManagement *wireContextManagement `json:"context_management,omitempty"`
+	Stream            bool                   `json:"stream"`
+}
+
+// wireContextManagement is the request's context_management object.
+type wireContextManagement struct {
+	Edits []block `json:"edits"`
 }
 
 // fastModeBeta is the beta flag fast mode needs on every request that sets
 // speed. Fast mode is a research preview on a short list of models.
 const fastModeBeta = "fast-mode-2026-02-01"
+
+// contextManagementBeta is the beta flag the context_management edits need.
+const contextManagementBeta = "context-management-2025-06-27"
+
+// clearToolUsesKeep is how many of the latest tool uses survive a clear.
+const clearToolUsesKeep = 5
+
+// contextEdits returns the context management edits req asks for, in a fixed
+// order so the body stays the same from one request to the next. Thinking
+// preservation is sent only when thinking is on for this request, since the
+// edit has nothing to keep otherwise.
+func contextEdits(req llm.Request, thinking bool) []block {
+	var edits []block
+	if req.ClearThinking && thinking {
+		edits = append(edits, block{"type": "clear_thinking_20251015", "keep": "all"})
+	}
+	if req.ClearToolUses {
+		edits = append(edits, clearToolUsesEdit(req.ContextWindow))
+	}
+	return edits
+}
+
+// clearToolUsesEdit is the clear_tool_uses edit. It triggers at the larger of
+// 120 000 input tokens and 65% of the window, keeps the last five tool uses,
+// and clears at least the larger of 40 000 tokens and 20% of the window.
+func clearToolUsesEdit(window int) block {
+	return block{
+		"type":           "clear_tool_uses_20250919",
+		"trigger":        block{"type": "input_tokens", "value": max(120000, window*65/100)},
+		"keep":           block{"type": "tool_uses", "value": clearToolUsesKeep},
+		"clear_at_least": block{"type": "input_tokens", "value": max(40000, window/5)},
+	}
+}
 
 // fastModes are the models that accept speed "fast". Opus 4.7 dropped it and
 // returns an error, so it is left out.
@@ -85,6 +126,13 @@ func betaFeatures(req llm.Request) []string {
 	if fastSpeed(req) {
 		out = append(out, fastModeBeta)
 	}
+	// The flag is needed only when the body carries an edit. A setting that
+	// is on but has nothing to act on (thinking off) adds neither.
+	if req.ClearThinking || req.ClearToolUses {
+		if w, err := buildWire(req); err == nil && w.ContextManagement != nil {
+			out = append(out, contextManagementBeta)
+		}
+	}
 	return out
 }
 
@@ -109,6 +157,16 @@ func clampOutput(model string, n int) int {
 
 // buildBody translates an llm.Request into a Messages API request body.
 func buildBody(req llm.Request) ([]byte, error) {
+	body, err := buildWire(req)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(body)
+}
+
+// buildWire builds the request as a struct. Stream reads it to decide which
+// beta flags the request needs, which depends on what the body ended up with.
+func buildWire(req llm.Request) (wireRequest, error) {
 	maxTokens := req.MaxTokens
 	if maxTokens <= 0 {
 		maxTokens = defaultMaxTokens
@@ -145,7 +203,7 @@ func buildBody(req llm.Request) ([]byte, error) {
 			schema = json.RawMessage(`{"type":"object","properties":{}}`)
 		}
 		if !json.Valid(schema) {
-			return nil, fmt.Errorf("anthropic: tool %q has an invalid input schema", t.Name)
+			return wireRequest{}, fmt.Errorf("anthropic: tool %q has an invalid input schema", t.Name)
 		}
 		tb := block{"name": t.Name, "input_schema": schema}
 		if t.Description != "" {
@@ -220,8 +278,11 @@ func buildBody(req llm.Request) ([]byte, error) {
 	}
 	body.ServiceTier = req.ServiceTier
 	body.MaxTokens = maxTokens
+	if edits := contextEdits(req, body.Thinking != nil); len(edits) > 0 {
+		body.ContextManagement = &wireContextManagement{Edits: edits}
+	}
 
-	return json.Marshal(body)
+	return body, nil
 }
 
 // effortLevels lists the effort levels a model accepts, lowest first. nil

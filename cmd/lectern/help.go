@@ -96,6 +96,10 @@ Terminal UI:
   --mode MODE           default, architect, socratic, challenge, plan or auto
   --cwd DIR             project folder (default: the current folder)
   --preset NAME         apply a config preset for this session
+  --plugin NAME         apply a preset for this run only; nothing is written to
+                        config (repeatable; SCRIBE_PRESETS=a,b does the same)
+  --verbose-presets     print what each applied preset changes
+  --presets             list the presets for this folder and exit
   -s, --session, --resume [ID]
                         reopen a session by id prefix; with no ID, pick one
   -c, --continue        reopen the newest session in this folder
@@ -120,6 +124,8 @@ Headless (any of these switches it on):
   --timeout T           abort after T: milliseconds (600000) or a duration (10m)
                         (exit 2; in chat it aborts each turn instead)
   --system TEXT         extra instructions for this run only
+  --plugin NAME         apply a preset for this run only (repeatable)
+  --verbose-presets     print what each applied preset changes
   --include FILE        put FILE in the prompt first, as [FILE] (repeatable;
                         a missing file is skipped with a warning)
   --diff                list the files this run edited (text mode)

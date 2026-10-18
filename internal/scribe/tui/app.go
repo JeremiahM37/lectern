@@ -438,15 +438,13 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		if msg.chat && !strings.HasPrefix(msg.text, "Usage:") {
 			m.cur().chat.AddSystem("error", "Command error: "+msg.text)
 			m.enterChat()
-			// A failed command the user must notice gets a dismissable alert
-			// (spec 01 §7.3). Usage hints stay in the flash line only.
-			// Only failures the backend reported (cmdErr); a hint about how
-			// the command is typed stays in the flash line and the chat.
-			if msg.alert {
-				m.showAlert("Command failed", msg.text)
-			}
 		}
 		m.setFlash(msg.kind, msg.text)
+		// A failure the user must act on also opens a dismissable alert
+		// (spec 01 §7.3). Which lines qualify is decided in alert_flash.go.
+		if title, ok := flashAlertTitle(msg); ok {
+			m.raiseFlashAlert(title, msg.text)
+		}
 		return nil
 	case draftMsg:
 		m.restoreDraft(m.tabByID(msg.tab), msg.text)

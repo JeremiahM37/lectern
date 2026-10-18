@@ -15,6 +15,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
@@ -182,12 +183,13 @@ func (p *healthPopup) View(w, h int) string {
 		}
 		for _, pr := range b.Probes {
 			glyph, col := healthGlyph(th, pr.State)
-			line := "    " + fg(col).Render(glyph) + " " + fg(th.TextPrimary).Render(padRight(pr.Name, 14)) +
+			head := "    " + fg(col).Render(glyph) + " " + fg(th.TextPrimary).Render(padRight(pr.Name, 14)) +
 				" " + fg(col).Render(padRight(pr.State, 4)) + " " + fg(th.TextDim).Render(padRight(healthMs(pr.Ms), 7))
-			line += " " + fg(th.TextDim).Render(render.Truncate(oneLine(pr.Reason), max(8, w-40)))
-			rows = append(rows, render.Truncate(line, w))
+			rows = append(rows, healthProbeLines(th, head, pr.Reason, w)...)
 			if pr.Fix != "" && (pr.State == "warn" || pr.State == "fail") {
-				rows = append(rows, render.Truncate("      "+fg(th.TextFaint).Render("→ "+oneLine(pr.Fix)), w))
+				for _, l := range wrapPrefixed(oneLine(pr.Fix), "      → ", "        ", w) {
+					rows = append(rows, fg(th.TextFaint).Render(l))
+				}
 			}
 		}
 	}
@@ -197,6 +199,68 @@ func (p *healthPopup) View(w, h int) string {
 	p.off = min(p.off, max(0, len(rows)-h))
 	end := min(len(rows), p.off+h)
 	return strings.Join(fitLines(rows[p.off:end], w, h), "\n")
+}
+
+// healthReasonIndent is the indent of a reason that wraps onto its own lines,
+// under the probe name it belongs to.
+const healthReasonIndent = "      "
+
+// healthProbeLines draws one probe row. The reason stays on the row when it
+// fits to the right of the state and latency columns. Otherwise it starts on
+// an indented line of its own and wraps within the popup width, so a long
+// reason is read in full instead of being cut.
+func healthProbeLines(th theme.Theme, head, reason string, w int) []string {
+	reason = oneLine(reason)
+	if reason == "" {
+		return []string{render.Truncate(head, w)}
+	}
+	if ansi.StringWidth(head)+1+ansi.StringWidth(reason) <= w {
+		return []string{head + " " + fg(th.TextDim).Render(reason)}
+	}
+	out := []string{head}
+	for _, l := range wrapPrefixed(reason, healthReasonIndent, healthReasonIndent, w) {
+		out = append(out, fg(th.TextDim).Render(l))
+	}
+	return out
+}
+
+// wrapPrefixed breaks text at spaces into lines at most w cells wide. The first
+// line starts with first and every later line with rest, so an indent or a
+// marker stays on the lines it belongs to. A word wider than a line is broken
+// across lines rather than dropped.
+func wrapPrefixed(text, first, rest string, w int) []string {
+	var out []string
+	prefix, body := first, ""
+	flush := func() {
+		out = append(out, prefix+body)
+		prefix, body = rest, ""
+	}
+	for _, word := range strings.Fields(text) {
+		sep := " "
+		if body == "" {
+			sep = ""
+		}
+		if ansi.StringWidth(prefix+body+sep+word) <= w {
+			body += sep + word
+			continue
+		}
+		if body != "" {
+			flush()
+		}
+		for ansi.StringWidth(prefix+word) > w {
+			cut := max(1, w-ansi.StringWidth(prefix))
+			rs := []rune(word)
+			cut = min(cut, len(rs))
+			body = string(rs[:cut])
+			word = string(rs[cut:])
+			flush()
+		}
+		body = word
+	}
+	if body != "" || len(out) == 0 {
+		out = append(out, prefix+body)
+	}
+	return out
 }
 
 // healthSummary counts the probes by state, so the top line says how the

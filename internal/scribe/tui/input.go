@@ -842,6 +842,11 @@ func (m *Model) submit(raw string) tea.Cmd {
 		}
 		return m.runCommand(text)
 	}
+	// "!!command" hands the terminal to the command (spec 06 §8.2); "!command"
+	// keeps its captured form. The check for "!!" comes first.
+	if strings.HasPrefix(text, "!!") {
+		return m.runBangPassthrough(strings.TrimSpace(text[2:]))
+	}
 	if strings.HasPrefix(text, "!") {
 		return m.runShell(t, strings.TrimSpace(text[1:]))
 	}
@@ -914,6 +919,17 @@ func (m *Model) runShell(t *tab, command string) tea.Cmd {
 		}
 		return shellMsg{tab: id, text: text}
 	}
+}
+
+// runBangPassthrough runs a "!!command" by handing it the terminal. Nothing
+// goes into the transcript: the command writes straight to the screen, as with
+// /interactive. An empty "!!" is a usage slip, so it is flashed, not sent.
+func (m *Model) runBangPassthrough(command string) tea.Cmd {
+	if command == "" {
+		m.setFlash("err", "Usage: !!<command>, for a command that needs the terminal")
+		return nil
+	}
+	return m.runPassthrough(command)
 }
 
 // shellMsg carries the output of a "!command".
