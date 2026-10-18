@@ -5,10 +5,12 @@ import (
 	"strings"
 )
 
-// refreshCodeMap re-renders the code map the prompt carries when the map's
-// graph has moved since the last render (an edit, a shell command, the
-// watcher). A step with no change costs one atomic read. It waits for the
-// first build, so it never renders a half-built graph.
+// refreshCodeMap draws the code map the system prompt carries. The map is a
+// snapshot (spec 03 §4.9): it is drawn once, when the first build is done,
+// and again only after a compaction replaced the history. Drawing it on
+// every change would alter the system prompt mid-session, which breaks
+// provider prompt caching; the prompt tells the model the map may be stale
+// and to read a file before editing it, and code_map gives a live view.
 func (a *App) refreshCodeMap() {
 	cm := a.ext.cmap
 	if cm == nil {
@@ -21,11 +23,15 @@ func (a *App) refreshCodeMap() {
 	}
 	g := cm.Generation()
 	a.mapMu.Lock()
-	if g == a.mapGen {
+	a.mu.Lock()
+	drawn := a.codeMap != ""
+	a.mu.Unlock()
+	if g == a.mapGen || (drawn && !a.mapStale) {
 		a.mapMu.Unlock()
 		return
 	}
 	a.mapGen = g
+	a.mapStale = false
 	a.mapMu.Unlock()
 	text := cm.Render(budgetOr(mapBudget()), nil)
 	a.mu.Lock()

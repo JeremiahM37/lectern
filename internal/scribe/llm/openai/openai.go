@@ -30,6 +30,10 @@ type Options struct {
 	HTTPClient *http.Client      // nil uses a client with no overall timeout
 	Headers    map[string]string // extra headers on every request
 	Models     []string          // static model list, used when /models fails
+	// ContextWindows gives the context window, in tokens, for static model
+	// ids (a custom provider's {id, contextWindow} entries). Ids not listed
+	// here get no window from this package; the registry fills it in later.
+	ContextWindows map[string]int
 
 	// NoStreamUsage omits stream_options for servers that reject it.
 	NoStreamUsage bool
@@ -388,10 +392,11 @@ func (p *Provider) translate(req llm.Request) []wireMessage {
 	if req.SendReasoning != nil && !*req.SendReasoning {
 		turn = currentTurnStart(req.Messages)
 	}
+	echo := p.echoesReasoning(req.Model)
 	for i, m := range req.Messages {
 		switch m.Role {
 		case llm.RoleAssistant:
-			out = append(out, p.assistantMessage(m, i >= turn))
+			out = append(out, p.assistantMessage(m, echo && i >= turn))
 		default: // user and tool
 			out = append(out, userAndToolMessages(m)...)
 		}
@@ -424,9 +429,26 @@ func onlyToolResults(m llm.Message) bool {
 	return true
 }
 
+// echoesReasoning reports whether assistant turns for this model carry their
+// reasoning back to the server. Only DeepSeek asks for it, and not on the
+// reasoner models, which must never receive it (see deepSeekDropsReasoning).
+func (p *Provider) echoesReasoning(model string) bool {
+	return p.opts.ID == "deepseek" && !deepSeekDropsReasoning(model)
+}
+
+// deepSeekDropsReasoning reports the DeepSeek reasoner ids. Spec 7.2 says
+// callers strip reasoning_content from history for deepseek-reasoner (R1 and
+// similar). The V3.1-and-later thinking models are the other side of the rule:
+// with tools they need it passed back, so they are not listed here.
+func deepSeekDropsReasoning(model string) bool {
+	m := strings.ToLower(path.Base(model))
+	return m == "deepseek-reasoner" || strings.HasPrefix(m, "deepseek-r1")
+}
+
 // assistantMessage builds one assistant turn. Reasoning is echoed only where
 // the provider needs it (DeepSeek, on tool-call turns), and only when keep is
-// true. The caller sets keep from SendReasoning and the turn position.
+// true. The caller sets keep from the provider, SendReasoning and the turn
+// position.
 func (p *Provider) assistantMessage(m llm.Message, keep bool) wireMessage {
 	var text, reasoning strings.Builder
 	var calls []wireToolCall
@@ -459,7 +481,7 @@ func (p *Provider) assistantMessage(m llm.Message, keep bool) wireMessage {
 	default:
 		wm.Content = text.String()
 	}
-	if p.opts.ID == "deepseek" && len(calls) > 0 && keep {
+	if len(calls) > 0 && keep {
 		rc := reasoning.String()
 		wm.ReasoningContent = &rc
 	}
@@ -1189,12 +1211,12 @@ func (p *Provider) Models(ctx context.Context) ([]llm.ModelInfo, error) {
 		if len(p.opts.Models) == 0 {
 			return nil, fmt.Errorf("%s: model listing is off and no models are configured", p.opts.ID)
 		}
-		return staticModels(p.opts.Models), nil
+		return p.static(), nil
 	}
 	remote, err := p.fetchModels(ctx)
 	if err != nil || len(remote) == 0 {
 		if len(p.opts.Models) > 0 {
-			return staticModels(p.opts.Models), nil
+			return p.static(), nil
 		}
 		if err == nil {
 			err = fmt.Errorf("%s: server listed no models", p.opts.ID)
@@ -1307,10 +1329,12 @@ func perTokenToMTok(s string) (float64, bool) {
 	return v * 1e6, true
 }
 
-func staticModels(ids []string) []llm.ModelInfo {
-	out := make([]llm.ModelInfo, 0, len(ids))
-	for _, id := range ids {
-		out = append(out, llm.ModelInfo{ID: id, Name: id})
+// static builds the ModelInfo list from Options.Models, with the configured
+// context window where one was given.
+func (p *Provider) static() []llm.ModelInfo {
+	out := make([]llm.ModelInfo, 0, len(p.opts.Models))
+	for _, id := range p.opts.Models {
+		out = append(out, llm.ModelInfo{ID: id, Name: id, ContextWindow: p.opts.ContextWindows[id]})
 	}
 	return out
 }

@@ -5,8 +5,8 @@ package tui
 // the daily token budget is the daily_token_budget config key.
 //
 // Wave 17 adds /speed, /tier and /sendreasoning, which read and write the
-// same keys as the settings screen. /pruning has no config key to write (no
-// tool-result pruning setting exists), so it is not registered.
+// same keys as the settings screen. /pruning (wave 33) writes
+// context_management.pruning_target the same way.
 //
 // Wave 25 adds /thinking, /effort, /toolstream, /seqtools and /perf on the
 // performance.* keys. /codeexec, /computeruse, /cleartools and /clearthinking
@@ -47,6 +47,8 @@ func init() {
 			Run: func(m *Model, args string) tea.Cmd { return toolStreamCommand(m, strings.TrimSpace(args)) }},
 		&command{Name: "seqtools", Args: "[on|off]", Desc: "Run one tool at a time instead of several per turn: show it, or turn it on or off", Group: "Settings",
 			Run: func(m *Model, args string) tea.Cmd { return seqToolsCommand(m, strings.TrimSpace(args)) }},
+		&command{Name: "pruning", Args: "[none|main|subagents|both]", Desc: "Shorten old tool results in the live history, for the main agent, subagents or both: show it, or set it", Group: "Settings",
+			Run: func(m *Model, args string) tea.Cmd { return pruningCommand(m, strings.TrimSpace(args)) }},
 		&command{Name: "perf", Desc: "Show the performance settings in effect: thinking, effort, speed, tool and reasoning options", Group: "Settings",
 			Run: func(m *Model, args string) tea.Cmd { return perfCommand(m, strings.TrimSpace(args)) }},
 	)
@@ -182,6 +184,14 @@ func speedCommand(m *Model, arg string) tea.Cmd {
 		return cmdErr(err)
 	}
 	return flashCmd("ok", savedText("Speed set to "+choice, key))
+}
+
+// pruningCommand is /pruning [none|main|subagents|both]. "none" is the
+// default and is stored as an empty value.
+func pruningCommand(m *Model, arg string) tea.Cmd {
+	const key = "context_management.pruning_target"
+	cur := fields7(m.cur().be).ContextManagement.PruningTarget
+	return choiceCommand(m, "/pruning", "Tool result pruning", key, cur, config.PruningNone, config.PruningTargets, arg)
 }
 
 // tierCommand is /tier [off|<tier>]. Service tiers are per provider, so the

@@ -83,13 +83,48 @@ var unboundedTools = map[string]bool{"dispatch": true, "ask_user": true, "plan":
 
 func unbounded(tool string) bool { return unboundedTools[tool] }
 
-// journalCap bounds the model-event and compaction logs.
+// journalCap bounds the compaction log.
 const journalCap = 200
+
+// modelLogCap bounds the model log: the newest 500 records are kept, in
+// memory only (spec 03 §9.4).
+const modelLogCap = 500
+
+// modelErrorTextCap is how many bytes of an error are kept in the model log.
+// The full text still goes to the event stream.
+const modelErrorTextCap = 500
 
 // modelLogKinds are the events the model log keeps: each model call's
 // usage, and the retries, fallbacks and errors that surround it.
 var modelLogKinds = map[EventKind]bool{
 	EvStepFinish: true, EvRetry: true, EvFallback: true, EvError: true,
+}
+
+// Call sources, as recorded in a model-log entry's Meta["source"].
+const (
+	callSourceMain     = "main"
+	callSourceSubagent = "subagent"
+)
+
+// Call states, as recorded in a model-log entry's Meta["state"].
+const (
+	callStateOK    = "ok"
+	callStateError = "error"
+)
+
+// callMeta is the Meta of a model-call record: which agent made the call
+// and how it ended. Duration on the same event is the call's latency.
+func callMeta(source, state string) map[string]any {
+	return map[string]any{"source": source, "state": state}
+}
+
+// callSource names who makes this agent's model calls: a subagent when it
+// was given an ID, the turn's agent otherwise.
+func (a *Agent) callSource() string {
+	if a.opts.ID != "" {
+		return callSourceSubagent
+	}
+	return callSourceMain
 }
 
 // compactLogKinds are the events the compaction log keeps.

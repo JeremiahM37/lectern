@@ -97,6 +97,10 @@ type App struct {
 	codeMap   string
 	mapMu     sync.Mutex // guards mapGen
 	mapGen    uint64     // the repomap generation codeMap was rendered at
+	// mapStale is set when a compaction replaced the history: the code map
+	// snapshot may then be drawn again (spec 03: a compaction is a hard
+	// prefix boundary). Otherwise the snapshot stays frozen for the session.
+	mapStale  bool
 	date      string
 	branch    string
 	pending   strings.Builder // coalesced text deltas for the transcript
@@ -332,6 +336,9 @@ func Open(ctx context.Context, o Options) (*App, error) {
 		a.Dispatch.Hooks = a.ext.hookR // SubagentStart and SubagentStop
 	}
 	a.Dispatch.Register(a.Tools)
+	// The lead agent can stop a running subagent, or all of them. It is not a
+	// core tool: it is loaded with request_tools when a dispatch needs it.
+	a.Tools.Register(agent.DispatchCancelTool(a.Dispatch))
 	a.Dispatch.Features = a.dispatchFeatures()
 	if config.Bool(cfg.DeferredTools, true) {
 		a.deferred = agent.NewDeferred(coreToolNames)
@@ -529,6 +536,8 @@ func (a *App) agentOptions(model agent.Model, mode string) agent.Options {
 		// Zero keeps the agent's defaults (config.Retry).
 		MaxRetries:      a.Cfg.Retry.Transient,
 		MaxStallRetries: a.Cfg.Retry.Stall,
+		MaxAttempts:     a.Cfg.Retry.MaxAttempts,
+		RetryBase:       a.Cfg.Retry.BaseDelay(), // zero keeps the agent's default
 		Hooks:           a.claimHooks(a.ext.hooks),
 		Headers:         map[string]string{"X-Session-Id": a.Meta.ID},
 		Deferred:        a.deferred,
@@ -574,7 +583,14 @@ func (a *App) agentOptions(model agent.Model, mode string) agent.Options {
 				cm = m
 			}
 		}
-		o.Compactor = agent.SummaryCompactor{Model: cm, Strategy: a.Cfg.CompactStrategy}
+		o.Compactor = agent.SummaryCompactor{Model: cm, Strategy: a.Cfg.CompactStrategy,
+			// The working state's Plan section shows the plan in effect.
+			ActivePlan: func() *agent.Plan {
+				if a.Planner == nil {
+					return nil
+				}
+				return a.Planner.Plan()
+			}}
 		o.CompactAt = a.Cfg.CompactAt
 	} else {
 		o.CompactAt = -1
@@ -598,7 +614,7 @@ func (a *App) subagentTools(role string) *tools.Registry {
 	for _, n := range a.Tools.Names() {
 		t, _ := a.Tools.Get(n)
 		switch n {
-		case "dispatch", "plan", "update_plan_step", "ask_user", "task_list", "memory":
+		case "dispatch", "cancel_dispatch", "plan", "update_plan_step", "ask_user", "task_list", "memory":
 			continue
 		}
 		if role == "explore" && !t.ReadOnly() {
@@ -783,9 +799,14 @@ func (a *App) emit(e agent.Event) {
 	a.record(e)
 	// Compaction drops the turns that carried recalled memories, so they may
 	// be recalled again (a skipped compaction replaced nothing).
-	if e.Kind == agent.EvCompactDone && e.AgentID == "" && a.Memory != nil {
+	if e.Kind == agent.EvCompactDone && e.AgentID == "" {
 		if skipped, _ := e.Meta["skipped"].(bool); !skipped {
-			_ = a.Memory.ResetSurfaced()
+			if a.Memory != nil {
+				_ = a.Memory.ResetSurfaced()
+			}
+			a.mapMu.Lock()
+			a.mapStale = true
+			a.mapMu.Unlock()
 		}
 	}
 	if e.Kind == agent.EvPlan && e.Plan != nil && !a.opts.Ephemeral {

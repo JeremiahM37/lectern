@@ -88,6 +88,63 @@ func (t cancelDispatchTool) Run(_ context.Context, _ *tools.Env, raw json.RawMes
 	return tools.Result{Output: msg, Summary: "dispatch cancelled"}
 }
 
+// DispatchCancelTool is cancel_dispatch for the lead agent (spec 03 section
+// 1.1). It stops one running subagent by id, or the whole dispatch with id
+// "all", while that dispatch is still running. It goes through the same
+// Dispatcher calls as the TUI's /cancel, so both stop agents the same way.
+func DispatchCancelTool(d *Dispatcher) tools.Tool { return leadCancelTool{d: d} }
+
+type leadCancelTool struct{ d *Dispatcher }
+
+// ReadOnly is true for the same reason dispatch is: the agent loop runs
+// read-only calls together, so a cancel issued alongside a running dispatch
+// runs during it instead of after it returns.
+func (leadCancelTool) ReadOnly() bool { return true }
+
+func (leadCancelTool) Spec() llm.ToolSpec {
+	return llm.ToolSpec{
+		Name: "cancel_dispatch",
+		Description: "Stop one subagent of the dispatch that is running now, by its id (the ids are in the dispatch progress and in /agents), " +
+			`or stop the whole dispatch with id "all". A running subagent stops and reports cancelled; a pending one never starts. ` +
+			"Subagents that already finished keep their results, and the others keep running unless you cancel them. " +
+			"Use it when a subagent is stuck or its result is no longer needed.",
+		Schema: tools.Schema(map[string]any{
+			"id": tools.Str(`The subagent to stop, or "all" to stop every subagent of the running dispatch`),
+		}, "id"),
+	}
+}
+
+func (t leadCancelTool) Run(_ context.Context, _ *tools.Env, raw json.RawMessage) tools.Result {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := tools.Decode(raw, &in); err != nil {
+		return tools.Errorf("arguments must be a JSON object with id: a subagent id, or \"all\"")
+	}
+	if t.d == nil {
+		return tools.Errorf("cancel_dispatch is not available: this session has no subagents")
+	}
+	// Checked first so the message says what is wrong: a finished dispatch
+	// has ids too, and CancelAgent would only say the agent already finished.
+	if !t.d.DispatchActive() {
+		return tools.Errorf("no dispatch is running, so there is nothing to cancel: cancel_dispatch stops a dispatch that is in progress")
+	}
+	id := strings.TrimSpace(in.ID)
+	if id == "" {
+		return tools.Errorf(`name the subagent to stop by its id, or pass "all" to stop the whole dispatch`)
+	}
+	if id == "all" {
+		if err := t.d.CancelDispatch(); err != nil {
+			return tools.Errorf("%v", err)
+		}
+		return tools.Result{Output: "Cancelled the running dispatch: running subagents are stopping and pending ones will not start. Finished subagents keep their results.", Summary: "dispatch cancelled"}
+	}
+	if err := t.d.CancelAgent(id); err != nil {
+		return tools.Errorf("%v", err)
+	}
+	return tools.Result{Output: fmt.Sprintf("Cancelled subagent %s. The other subagents of the dispatch keep running.", id), Summary: "subagent " + id + " cancelled"}
+}
+
 type reportFindingTool struct {
 	id  string
 	bus *AgentBus

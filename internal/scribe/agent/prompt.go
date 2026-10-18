@@ -102,8 +102,18 @@ var basePrompt = identityPrompt + "\n\n" + howYouWork + "\n\n" + toolsPrompt + "
 const answerVoice = `# Answer voice
 Flat and direct. Lead with the answer. Put paths, identifiers, flags and error strings in verbatim form. Keep the length proportional to the work.`
 
+// codeMapPreamble introduces the code map. The map is a snapshot from session
+// start, so the model is told to read a file before it trusts the map for it.
+const codeMapPreamble = "\n# Code map\nThe most central files and their key symbols, ranked by how much of the codebase depends on them. This is a snapshot taken at session start: files may have changed since, so read a file before you edit it.\n\n"
+
 // familyBlocks adds one tone block per model family after the base prompt.
+// The default block covers models with no family of their own (Qwen, Llama,
+// Mistral and local models): it frames the work as steps and asks for one
+// answer at the end, which those models follow more reliably than the
+// claude and openai framing.
 var familyBlocks = map[string]string{
+	"default": `# Working style
+Work in steps: use tools until the task is done, then give one final answer at the end. Do not narrate between tool calls.`,
 	"claude": `# Style
 Be terse and imperative. Put independent tool calls in one block so they run together. Reversible actions (reading, editing project files, running tests) need no confirmation; destructive ones do.`,
 	"openai": `# Style
@@ -352,7 +362,7 @@ func buildSystem(in PromptInput, mode string) string {
 		b.WriteString("\n")
 	}
 	if !reasoner && in.CodeMap != "" {
-		b.WriteString("\n# Code map\nThe most central files and their key symbols, ranked by how much of the codebase depends on them:\n\n")
+		b.WriteString(codeMapPreamble)
 		b.WriteString(in.CodeMap)
 		b.WriteString("\n")
 	}

@@ -170,8 +170,9 @@ func TestPerfRejectsAnArgument(t *testing.T) {
 
 // The spec names these, but nothing in config or llm.Request backs them, so
 // they must stay unregistered rather than store a value nothing reads.
+// (/pruning is backed by context_management.pruning_target since wave 33.)
 func TestUnbackedPerfCommandsAreNotRegistered(t *testing.T) {
-	for _, name := range []string{"codeexec", "computeruse", "cleartools", "clearthinking", "pruning"} {
+	for _, name := range []string{"codeexec", "computeruse", "cleartools", "clearthinking"} {
 		if c, _ := findCommand("/" + name); c != nil {
 			t.Errorf("/%s should not be registered: it has no setting behind it", name)
 		}

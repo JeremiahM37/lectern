@@ -484,7 +484,7 @@ func TestRequestTranslation(t *testing.T) {
 	})
 	p := New(Options{ID: "deepseek", BaseURL: srv.URL})
 	stream(t, p, llm.Request{
-		Model: "deepseek-reasoner", System: "sys", Messages: msgs, MaxTokens: 100,
+		Model: "deepseek-v4-pro", System: "sys", Messages: msgs, MaxTokens: 100,
 		Reasoning: "high", ToolChoice: "required",
 		Tools: []llm.ToolSpec{{Name: "read_file", Description: "read", Schema: json.RawMessage(`{"type":"object"}`)}},
 	})

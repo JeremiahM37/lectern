@@ -223,6 +223,7 @@ func (a *App) runTurnBudgeted(ctx context.Context, prompt string, images []llm.P
 	live := a.liveConfig()
 	a.Agent.SetCompaction(live.CompactStrategy, live.CompactKeepRecent)
 	a.Agent.SetMaxToolResults(live.ToolResultsKept())
+	a.Agent.SetPruning(live.ContextManagement.Pruning())
 	before, _ := a.Agent.Usage()
 	stats, err := agent.RunClearing(ctx, a.Agent, a.Planner, prompt, images)
 	a.recordDailyTokens(turnOnly(stats, before))

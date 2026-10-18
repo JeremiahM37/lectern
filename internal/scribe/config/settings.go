@@ -303,6 +303,20 @@ type Retry struct {
 	Transient int `json:"transient,omitempty"`
 	// Stall is retries when a stream stops making progress.
 	Stall int `json:"stall,omitempty"`
+	// BaseDelayMs is the base of the transient backoff in milliseconds: the
+	// wait before retry n is base×2^n plus jitter. Zero keeps the agent's
+	// default (1 s for chat, 2 s for subagents). The agent clamps it to
+	// 250 ms–60 s.
+	BaseDelayMs int `json:"base_delay_ms,omitempty"`
+	// MaxAttempts is the legacy count for both kinds of retry. It applies
+	// only where Transient or Stall is unset.
+	MaxAttempts int `json:"max_attempts,omitempty"`
+}
+
+// BaseDelay is the transient backoff base as a duration. It is zero when
+// unset, so the agent applies its own default.
+func (r Retry) BaseDelay() time.Duration {
+	return time.Duration(r.BaseDelayMs) * time.Millisecond
 }
 
 func mergeRetry(base, o Retry) Retry {
@@ -311,6 +325,12 @@ func mergeRetry(base, o Retry) Retry {
 	}
 	if o.Stall != 0 {
 		base.Stall = o.Stall
+	}
+	if o.BaseDelayMs != 0 {
+		base.BaseDelayMs = o.BaseDelayMs
+	}
+	if o.MaxAttempts != 0 {
+		base.MaxAttempts = o.MaxAttempts
 	}
 	return base
 }
@@ -414,8 +434,11 @@ func (c Config) Validate() error {
 	if c.DailyTokenBudget != nil && *c.DailyTokenBudget < 0 {
 		bad = append(bad, "daily_token_budget cannot be negative; use 0 for no limit")
 	}
-	if c.Retry.Transient < 0 || c.Retry.Stall < 0 {
+	if c.Retry.Transient < 0 || c.Retry.Stall < 0 || c.Retry.MaxAttempts < 0 {
 		bad = append(bad, "retry counts cannot be negative")
+	}
+	if c.Retry.BaseDelayMs < 0 {
+		bad = append(bad, "retry.base_delay_ms cannot be negative; use 0 for the default")
 	}
 	for k, v := range c.ContextWindowOverrides {
 		if v < 0 {

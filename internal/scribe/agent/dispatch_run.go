@@ -198,6 +198,9 @@ type dispatchRun struct {
 	// cancel aborts every subagent of the dispatch when the breaker opens.
 	cancel context.CancelFunc
 
+	// cache counts the dispatch cache's outcomes for the Cache section.
+	cache cacheTally
+
 	mu       sync.Mutex
 	failures int         // retryable provider failures, for the report
 	recent   []time.Time // when the failures in the window happened

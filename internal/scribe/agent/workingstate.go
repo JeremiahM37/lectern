@@ -15,13 +15,17 @@ import (
 type WorkingState struct {
 	Task             string
 	UserRequirements []string
-	Environment      []string
-	Files            []fileState
-	Decisions        []string
-	AssistantNotes   []string
-	ToolResults      []toolSummary
-	Failures         []string
-	Discoveries      []string
+	// Plan is the active plan at compaction time: its title and each step's
+	// status (spec 03 section 8.5). Nil when there is no plan. It comes from
+	// the Planner, not the messages, so it is set by the caller.
+	Plan           *Plan
+	Environment    []string
+	Files          []fileState
+	Decisions      []string
+	AssistantNotes []string
+	ToolResults    []toolSummary
+	Failures       []string
+	Discoveries    []string
 }
 
 // fileState lists what happened to one path, in the order it happened.
@@ -238,6 +242,7 @@ func (ws WorkingState) Serialize() string {
 		section("Task", []string{ws.Task})
 	}
 	section("User Requirements", bullets(ws.UserRequirements))
+	section("Plan", planLines(ws.Plan))
 	section("Environment", bullets(ws.Environment))
 	var files []string
 	for _, f := range ws.Files {
@@ -254,6 +259,36 @@ func (ws WorkingState) Serialize() string {
 	section("Errors & Failures", bullets(ws.Failures))
 	section("Discoveries", bullets(ws.Discoveries))
 	return strings.TrimSpace(b.String())
+}
+
+// planStatusIcons are the marks the Plan section uses for each step status.
+// An unknown status shows as pending, the safest reading for a model.
+var planStatusIcons = map[string]string{
+	"done":    "[x]",
+	"active":  "[>]",
+	"skipped": "[-]",
+	"pending": "[ ]",
+}
+
+// planLines renders the active plan: its title, then one line per step with
+// the step id, so a model that resumes after compaction can still name the
+// step to update. A nil plan renders nothing.
+func planLines(p *Plan) []string {
+	if p == nil {
+		return nil
+	}
+	var out []string
+	if title := clip(flatten(p.Title), maxTaskChars); title != "" {
+		out = append(out, "Title: "+title)
+	}
+	for _, st := range p.Steps {
+		icon, ok := planStatusIcons[st.Status]
+		if !ok {
+			icon = planStatusIcons["pending"]
+		}
+		out = append(out, "- "+icon+" "+st.ID+": "+clip(flatten(st.Text), maxCommandChars))
+	}
+	return out
 }
 
 func bullets(xs []string) []string {

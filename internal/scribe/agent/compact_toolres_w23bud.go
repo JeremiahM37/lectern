@@ -16,3 +16,11 @@ func (a *Agent) SetMaxToolResults(n int) {
 	sc.MaxToolResults = n
 	a.opts.Compactor = sc
 }
+
+// SetPruning sets which agents have old tool results shortened in the
+// requests they send (config.Pruning*: none, main, subagents, both).
+func (a *Agent) SetPruning(target string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.pruning = target
+}

@@ -35,6 +35,10 @@ type SummaryCompactor struct {
 	// 30. The working state holds at most 30, so a larger value cannot add
 	// entries; see keepToolResults.
 	MaxToolResults int
+	// ActivePlan returns the plan in effect at compaction time, for the Plan
+	// section of the working state (spec 03 section 8.5). It is read each
+	// time a summary is made. Nil, or a nil result, means there is no plan.
+	ActivePlan func() *Plan
 }
 
 // defaultMaxToolResults is the working state's own cap, used when no
@@ -230,13 +234,15 @@ func (c SummaryCompactor) Compact(ctx context.Context, msgs []llm.Message) ([]ll
 
 // summarise produces the summary body for the older messages.
 func (c SummaryCompactor) summarise(ctx context.Context, old []llm.Message) (string, error) {
+	plan := c.activePlan()
 	if c.Strategy == "v1" {
-		return c.batchSummary(ctx, old)
+		return c.batchSummaryWith(ctx, old, planText(plan))
 	}
 	ws := BuildWorkingState(old)
 	ws.ToolResults = keepToolResults(ws.ToolResults, c.MaxToolResults)
+	ws.Plan = plan
 	if ws.Slots() == 0 {
-		return c.batchSummary(ctx, old)
+		return c.batchSummaryWith(ctx, old, planText(plan))
 	}
 	state := ws.Serialize()
 	if ws.Slots() >= richStateSlots || c.Model.Provider == nil {
@@ -247,6 +253,20 @@ func (c SummaryCompactor) summarise(ctx context.Context, old []llm.Message) (str
 		return state, nil // a failed gap fill falls back to the state alone
 	}
 	return state + "\n\n## Additional Details\n" + strings.TrimSpace(extra), nil
+}
+
+// activePlan reads the plan in effect, or nil when none is set.
+func (c SummaryCompactor) activePlan() *Plan {
+	if c.ActivePlan == nil {
+		return nil
+	}
+	return c.ActivePlan()
+}
+
+// planText is the plan as the V1 prompt receives it: the same lines the
+// working state's Plan section holds, so both paths show one plan.
+func planText(p *Plan) string {
+	return strings.Join(planLines(p), "\n")
 }
 
 // keepToolResults keeps the newest n tool-result summaries. Zero or negative
@@ -273,12 +293,23 @@ const summaryDegradeLevels = 3
 // provider rejects the request as too large, it is retried with less of the
 // transcript (degradation levels), and then not sent at all.
 func (c SummaryCompactor) batchSummary(ctx context.Context, old []llm.Message) (string, error) {
+	return c.batchSummaryWith(ctx, old, "")
+}
+
+// batchSummaryWith is batchSummary with the active plan (planText form, may be
+// empty). The plan goes ahead of the transcript so the model can carry it
+// into Current State verbatim.
+func (c SummaryCompactor) batchSummaryWith(ctx context.Context, old []llm.Message, plan string) (string, error) {
 	var err error
 	for level := 0; level <= summaryDegradeLevels; level++ {
+		text := "Session transcript to summarise:\n\n" + transcriptWith(old, v1MessageChars>>level, v1ResultChars>>level)
+		if plan != "" {
+			text = "Active plan (carry it into Current State verbatim):\n" + plan + "\n\n" + text
+		}
 		req := llm.Request{
 			Model:     c.Model.ID,
 			System:    summaryPrompt,
-			Messages:  []llm.Message{llm.UserText("Session transcript to summarise:\n\n" + transcriptWith(old, v1MessageChars>>level, v1ResultChars>>level))},
+			Messages:  []llm.Message{llm.UserText(text)},
 			MaxTokens: v1MaxOutput,
 		}
 		var out string

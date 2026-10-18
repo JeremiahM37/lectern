@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -140,7 +141,7 @@ func TestClearTasksEmptiesThePlannerList(t *testing.T) {
 // The code map used in the prompt follows an edit without a restart: the
 // generation moves, the next prompt build re-renders, and the new symbol is
 // in the text. This runs through the real backend's App.
-func TestCodeMapFollowsAnEditForThePrompt(t *testing.T) {
+func TestCodeMapSnapshotIsFrozenUntilCompaction(t *testing.T) {
 	be, repo := testBackend(t)
 	a := be.(*scribeBackend).current()
 	if a.ext.cmap == nil {
@@ -169,6 +170,31 @@ func TestCodeMapFollowsAnEditForThePrompt(t *testing.T) {
 	a.refreshCodeMap()
 	if a.mapGen != gen {
 		t.Fatal("an unchanged map moved its generation")
+	}
+
+	// Once drawn, the snapshot stays frozen, so the system prompt keeps the
+	// same bytes and provider prompt caching holds.
+	if err := os.WriteFile(filepath.Join(repo, "second.go"), []byte("package main\n\nfunc SecondFreshThing() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.ext.cmap.Update([]string{"second.go"}); err != nil {
+		t.Fatal(err)
+	}
+	a.refreshCodeMap()
+	a.mu.Lock()
+	text = a.codeMap
+	a.mu.Unlock()
+	if strings.Contains(text, "SecondFreshThing") {
+		t.Fatal("the frozen snapshot changed after an edit")
+	}
+	// A compaction is a prefix boundary: the next prompt draws a fresh map.
+	a.emit(agent.Event{Kind: agent.EvCompactDone, Meta: map[string]any{"messages_before": 9, "messages_after": 3}})
+	a.refreshCodeMap()
+	a.mu.Lock()
+	text = a.codeMap
+	a.mu.Unlock()
+	if !strings.Contains(text, "SecondFreshThing") {
+		t.Fatalf("after compaction the map was not redrawn:\n%s", text)
 	}
 }
 

@@ -283,7 +283,11 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 
 	n := len(in.Tasks)
 	run := newDispatchRun(d, env)
-	run.bus.SetCacheObserver(cacheObserver(run.board))
+	observe := cacheObserver(run.board)
+	run.bus.SetCacheObserver(func(n CacheNote) {
+		observe(n)
+		run.cache.note(n)
+	})
 	d.lastBoard.Store(run.board)
 	d.lastBus.Store(run.bus)
 	for _, st := range in.Tasks {
@@ -297,11 +301,12 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 	run.cancel = cancel
 	run.bus.SetAbort(cancel)
 	sem := make(chan struct{}, limit)
-	// Code tasks that touch the same file run one after another.
+	// Code tasks that touch the same file run one after another. A range
+	// does not split the lock: the file is what two edits can clash on.
 	locks := map[string]*sync.Mutex{}
 	for _, st := range in.Tasks {
 		if st.Role == "code" {
-			for _, f := range st.Files {
+			for _, f := range codeLockKeys(st.Files) {
 				if locks[f] == nil {
 					locks[f] = &sync.Mutex{}
 				}
@@ -358,7 +363,7 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 			}
 			defer func() { <-sem }()
 			if st.Role == "code" {
-				for _, f := range sortedUnique(st.Files) {
+				for _, f := range codeLockKeys(st.Files) {
 					locks[f].Lock()
 					defer locks[f].Unlock()
 				}
@@ -382,20 +387,17 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 		}
 	}
 	changed = sortedUnique(changed)
-	// Deterministic lint fix on the changed files, once, before the cleanup and
-	// the check read them.
-	lint := ""
-	if len(changed) > 0 {
-		lint = lintFix(callerCtx, env, reg, changed)
-	}
-	// Optional passes (agentFeatures): a cleanup over the edited files
-	// before the project check, and a read-only review after it.
+	// Optional passes (agentFeatures). Desloppify is the deterministic lint fix
+	// on the changed files, then a cleanup agent over them, both before the
+	// project check reads the files (spec 03 §3.8, spec 06 §9.5). The review
+	// runs read-only after the check.
 	feats := d.features()
-	var cleanup string
+	var lint, cleanup string
+	var cleanupEdited []string
 	if len(changed) > 0 && feats.Desloppify && d.New != nil {
-		var edited []string
-		cleanup, edited = run.desloppify(callerCtx, changed)
-		changed = sortedUnique(append(changed, edited...))
+		lint = lintFix(callerCtx, env, reg, changed)
+		cleanup, cleanupEdited = run.desloppify(callerCtx, changed)
+		changed = sortedUnique(append(changed, cleanupEdited...))
 	}
 	var check verifyOutcome
 	if len(changed) > 0 {
@@ -436,23 +438,23 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 		}
 		b.WriteString("\n")
 	}
+	if cache := run.cache.render(run.board.labels()); cache != "" {
+		fmt.Fprintf(&b, "## Cache\n%s\n", cache)
+	}
 	if run.bus.Aborted() {
 		b.WriteString("## Cancelled\nAn agent of this dispatch called cancel_dispatch. Agents that had not finished were stopped.\n\n")
 	}
 	if run.tripped() {
 		fmt.Fprintf(&b, "## Circuit breaker\nOpened after %d provider failures; tasks that had not started were not run.\n\n", run.failureCount())
 	}
-	if lint != "" {
-		fmt.Fprintf(&b, "## Lint fix\n%s\n\n", lint)
-	}
-	if cleanup != "" {
-		fmt.Fprintf(&b, "## Cleanup\n%s\n\n", cleanup)
+	if text := renderCleanup(lint, cleanup, cleanupEdited); text != "" {
+		fmt.Fprintf(&b, "## Cleanup\n%s\n", text)
 	}
 	if len(changed) > 0 {
 		fmt.Fprintf(&b, "## Verification\n%s\n\n", check.text)
 	}
-	if review != "" {
-		fmt.Fprintf(&b, "## Review\n%s\n\n", review)
+	if verdict != "" {
+		fmt.Fprintf(&b, "## Review\n%s\n\n", renderReview(review, verdict))
 	}
 	summary := fmt.Sprintf("%d/%d agents finished", ok, n)
 	if run.bus.Aborted() {
@@ -601,7 +603,7 @@ func failureLine(r taskResult) string {
 func taskText(st subTask) string {
 	task := st.Task
 	if len(st.Files) > 0 {
-		task += "\n\nRelevant files: " + strings.Join(st.Files, ", ")
+		task += "\n\nRelevant files: " + strings.Join(describeFiles(st.Files), ", ")
 	}
 	for _, note := range st.claimNotes {
 		task += "\n\n" + note

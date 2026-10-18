@@ -245,6 +245,31 @@ type ContextManagement struct {
 	// ClearToolUses clears old tool results once the input passes a share of
 	// the context window. It changes the prompt prefix, so the cache misses.
 	ClearToolUses *bool `json:"clear_tool_uses,omitempty"`
+	// PruningTarget picks which agents shorten their old tool results in the
+	// live history: none (the default, also the empty value), main,
+	// subagents or both. Pruning rewrites history that the prompt cache has
+	// already read, so it is off unless chosen. See PruningTargets.
+	PruningTarget string `json:"pruning_target,omitempty"`
+}
+
+// The values of ContextManagement.PruningTarget. The empty value means none.
+const (
+	PruningNone      = "none"
+	PruningMain      = "main"
+	PruningSubagents = "subagents"
+	PruningBoth      = "both"
+)
+
+// PruningTargets lists the accepted pruning targets, in the order the
+// settings screen and /pruning show them.
+var PruningTargets = []string{PruningNone, PruningMain, PruningSubagents, PruningBoth}
+
+// Pruning is the effective pruning target: none when unset.
+func (cm ContextManagement) Pruning() string {
+	if cm.PruningTarget == "" {
+		return PruningNone
+	}
+	return cm.PruningTarget
 }
 
 func mergeContextManagement(base, o ContextManagement) ContextManagement {
@@ -254,12 +279,18 @@ func mergeContextManagement(base, o ContextManagement) ContextManagement {
 	if o.ClearToolUses != nil {
 		base.ClearToolUses = o.ClearToolUses
 	}
+	if o.PruningTarget != "" {
+		base.PruningTarget = o.PruningTarget
+	}
 	return base
 }
 
 // set writes one context management field from a settings row. Values are
 // booleans; a nil or empty value clears the field back to off.
 func (cm *ContextManagement) set(field string, v any) error {
+	if field == "pruning_target" {
+		return cm.setPruning(v)
+	}
 	var target **bool
 	switch field {
 	case "clear_thinking":
@@ -278,6 +309,21 @@ func (cm *ContextManagement) set(field string, v any) error {
 		return err
 	}
 	*target = &on
+	return nil
+}
+
+// setPruning writes the pruning target. A nil or empty value means none, and
+// anything else must be one of PruningTargets.
+func (cm *ContextManagement) setPruning(v any) error {
+	s := toString(v)
+	if s == "" || s == PruningNone {
+		cm.PruningTarget = ""
+		return nil
+	}
+	if !oneOf(s, PruningTargets) {
+		return fmt.Errorf("pruning_target must be none, main, subagents or both")
+	}
+	cm.PruningTarget = s
 	return nil
 }
 

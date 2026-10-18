@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -276,6 +277,72 @@ func stripRange(p string) string {
 		}
 	}
 	return p
+}
+
+// splitRange reads a target path with a line range, "path:start-end" or
+// "path:line". ok is false when the path has no range this reader understands;
+// the caller then keeps the text as written.
+func splitRange(p string) (path string, start, end int, ok bool) {
+	p = strings.TrimSpace(p)
+	i := strings.LastIndex(p, ":")
+	if i <= 0 {
+		return p, 0, 0, false
+	}
+	start, end, ok = parseSpan(p[i+1:])
+	if !ok {
+		return p, 0, 0, false
+	}
+	return p[:i], start, end, true
+}
+
+// parseSpan reads "start-end" or a single "line". Lines start at 1, and a
+// reversed span is put in order rather than refused, since the reader only
+// needs the lines the task means.
+func parseSpan(tail string) (int, int, bool) {
+	lo, hi, ranged := strings.Cut(tail, "-")
+	start, err := strconv.Atoi(lo)
+	if err != nil {
+		return 0, 0, false
+	}
+	end := start
+	if ranged {
+		if end, err = strconv.Atoi(hi); err != nil {
+			return 0, 0, false
+		}
+	}
+	start, end = max(start, 1), max(end, 1)
+	if end < start {
+		start, end = end, start
+	}
+	return start, end, true
+}
+
+// describeFiles writes each target for a subagent. A target with a line range
+// says which lines to read and edit, so the range is a hard hint rather than
+// something the subagent has to infer from the path. Other targets are kept
+// as the task wrote them.
+func describeFiles(files []string) []string {
+	out := make([]string, len(files))
+	for i, f := range files {
+		if path, start, end, ok := splitRange(f); ok {
+			out[i] = fmt.Sprintf("%s (lines %d-%d: read and edit this range)", path, start, end)
+			continue
+		}
+		out[i] = f
+	}
+	return out
+}
+
+// codeLockKeys are the file locks a code task takes: its targets with ranges
+// dropped, once each, in a stable order. Two tasks on different ranges of one
+// file share the file lock, and a task that names one file twice must not
+// lock it twice.
+func codeLockKeys(files []string) []string {
+	keys := make([]string, 0, len(files))
+	for _, f := range files {
+		keys = append(keys, stripRange(f))
+	}
+	return sortedUnique(keys)
 }
 
 // fileExists reports whether path names an existing file or directory.

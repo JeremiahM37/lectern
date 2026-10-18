@@ -107,6 +107,10 @@ type Options struct {
 	FirstTokenTimeout time.Duration
 	InterTokenTimeout time.Duration
 	StepTimeout       time.Duration
+	// ForceResolveTimeout is how long a cancelled stream is drained before
+	// the step gives up on it (spec 03 §5.3, forceResolveMs). Zero takes 5 s;
+	// set values are clamped to 1–30 s.
+	ForceResolveTimeout time.Duration
 	// MaxStallRetries is how many times a stalled model call is resumed from
 	// the text it had produced. Default 3; negative means never resume. Stall
 	// retries are immediate and do not use MaxRetries.
@@ -116,6 +120,9 @@ type Options struct {
 	// RetryBase×2^n plus up to half of it. Zero takes 1 s (chat); subagents
 	// use 2 s. Clamped to 250 ms–60 s.
 	RetryBase time.Duration
+	// MaxAttempts is the legacy retry count for both kinds: it stands in for
+	// MaxRetries and MaxStallRetries wherever those are zero (spec 03 §10).
+	MaxAttempts int
 
 	// Budget bounds a subagent's run: step nudges, a tool-less final step and
 	// a token limit (spec 03 §3.5). Nil for the main agent.
@@ -263,6 +270,8 @@ type Agent struct {
 	// unfinished items left unchanged for taskStaleSteps steps is shown again
 	// with a prompt to update it.
 	taskIdle int
+	// pruning is the config pruning target (see SetPruning).
+	pruning string
 
 	// pathHints is the failed-path channel: paths whose calls failed because
 	// the path is missing, waiting for the next step's reminder (failed_hints.go).
@@ -286,9 +295,10 @@ const (
 	defaultInterTokenTimeout = 120 * time.Second
 	defaultStepTimeout       = 900 * time.Second
 	defaultMaxStallRetries   = 3
-	// forceResolveTimeout bounds how long a stalled stream is drained after
-	// it was cancelled, in case the provider does not close its channel.
-	forceResolveTimeout = 5 * time.Second
+	// Bounds for ForceResolveTimeout.
+	defaultForceResolveTimeout = 5 * time.Second
+	minForceResolveTimeout     = time.Second
+	maxForceResolveTimeout     = 30 * time.Second
 	// defaultRetryBase is the transient retry base for the chat (spec 03 §10).
 	defaultRetryBase = time.Second
 	// maxFallbackCycles is how many times the fallback chain may restart
@@ -301,12 +311,24 @@ const (
 
 // New creates an agent.
 func New(o Options) *Agent {
+	// MaxAttempts is the legacy count for both kinds of retry; the specific
+	// counts win when they are set.
+	if o.MaxRetries == 0 && o.MaxAttempts > 0 {
+		o.MaxRetries = o.MaxAttempts
+	}
+	if o.MaxStallRetries == 0 && o.MaxAttempts > 0 {
+		o.MaxStallRetries = o.MaxAttempts
+	}
 	if o.MaxRetries == 0 {
 		o.MaxRetries = 3
 	}
 	if o.MaxStallRetries == 0 {
 		o.MaxStallRetries = defaultMaxStallRetries
 	}
+	if o.ForceResolveTimeout == 0 {
+		o.ForceResolveTimeout = defaultForceResolveTimeout
+	}
+	o.ForceResolveTimeout = min(max(o.ForceResolveTimeout, minForceResolveTimeout), maxForceResolveTimeout)
 	if o.StallTimeout > 0 {
 		if o.FirstTokenTimeout == 0 {
 			o.FirstTokenTimeout = o.StallTimeout
@@ -481,16 +503,20 @@ func (a *Agent) record(e Event) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if modelKind {
-		a.modelLog = appendEventCapped(a.modelLog, e)
+		if e.Kind == EvError || e.Kind == EvRetry {
+			e.Text = fragment(e.Text, modelErrorTextCap)
+		}
+		a.modelLog = appendEventCapped(a.modelLog, e, modelLogCap)
 	}
 	if compactKind {
-		a.compactLog = appendEventCapped(a.compactLog, e)
+		a.compactLog = appendEventCapped(a.compactLog, e, journalCap)
 	}
 }
 
-func appendEventCapped(s []Event, e Event) []Event {
+// appendEventCapped appends e and keeps only the newest limit events.
+func appendEventCapped(s []Event, e Event, limit int) []Event {
 	s = append(s, e)
-	if over := len(s) - journalCap; over > 0 {
+	if over := len(s) - limit; over > 0 {
 		s = append([]Event(nil), s[over:]...)
 	}
 	return s
@@ -1125,6 +1151,10 @@ func (a *Agent) request(extra ...llm.Message) llm.Request {
 	a.mu.Lock()
 	a.sysChars = len(sys)
 	msgs := append(append([]llm.Message(nil), a.msgs...), extra...)
+	if PruningApplies(a.pruning, a.opts.Budget != nil) {
+		// Only the request is shortened; the history keeps every result.
+		msgs = PruneOldToolResults(msgs)
+	}
 	req := llm.Request{
 		Model:       a.model.ID,
 		System:      sys,
@@ -1177,6 +1207,10 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 	// contextRetried is set once a refusal as too long has been answered by
 	// learning the window and compacting. The step is retried at most once.
 	contextRetried := false
+	// lastLatency is how long the latest attempt ran. Each failed attempt is
+	// one model-log record, so the final error can carry it.
+	var lastLatency time.Duration
+	source := a.callSource()
 	for i := 0; ; i++ {
 		if i >= len(chain) {
 			// The chain is spent. Go back to the primary, or give up.
@@ -1205,7 +1239,9 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 		var resume string
 		stalls, attempt := 0, 0
 		for {
+			attemptStart := time.Now()
 			msg, finish, err := a.step(ctx, step, resume)
+			lastLatency = time.Since(attemptStart)
 			if err == nil {
 				return msg, finish, nil
 			}
@@ -1224,7 +1260,8 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 				}
 				a.countRetry()
 				a.emit(Event{Kind: EvRetry, Attempt: stalls, MaxAttempts: limit, Category: llm.CatStream,
-					Text: fmt.Sprintf("%s. Auto-retrying (%d/%d)…", st.notice(), stalls, limit)})
+					Text:     fmt.Sprintf("%s. Auto-retrying (%d/%d)…", st.notice(), stalls, limit),
+					Duration: lastLatency, Meta: callMeta(source, callStateError)})
 				continue
 			}
 			// cause is the provider's error, without the partial text.
@@ -1250,10 +1287,12 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 			cat, retry := llm.Classify(cause)
 			status := statusOf(cause)
 			if !retry {
-				a.emit(Event{Kind: EvError, Category: cat, Text: cause.Error(), Status: status})
+				a.emit(Event{Kind: EvError, Category: cat, Text: cause.Error(), Status: status,
+					Duration: lastLatency, Meta: callMeta(source, callStateError)})
 				return llm.Message{}, "", cause
 			}
-			if attempt == a.opts.MaxRetries {
+			// >= rather than ==: a negative count must not retry without end.
+			if attempt >= a.opts.MaxRetries {
 				break
 			}
 			// A failure that left answer text is resumed from that text, so
@@ -1264,7 +1303,8 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 			d := backoffFrom(a.opts.RetryBase, attempt, cause)
 			attempt++
 			a.countRetry()
-			a.emit(Event{Kind: EvRetry, Attempt: attempt, MaxAttempts: a.opts.MaxRetries, Category: cat, Text: cause.Error(), Delay: d, Status: status})
+			a.emit(Event{Kind: EvRetry, Attempt: attempt, MaxAttempts: a.opts.MaxRetries, Category: cat, Text: cause.Error(), Delay: d, Status: status,
+				Duration: lastLatency, Meta: callMeta(source, callStateError)})
 			select {
 			case <-time.After(d):
 			case <-ctx.Done():
@@ -1277,7 +1317,8 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 		}
 	}
 	cat, _ := llm.Classify(lastErr)
-	a.emit(Event{Kind: EvError, Category: cat, Text: errText(lastErr), Status: statusOf(lastErr)})
+	a.emit(Event{Kind: EvError, Category: cat, Text: errText(lastErr), Status: statusOf(lastErr),
+		Duration: lastLatency, Meta: callMeta(source, callStateError)})
 	return llm.Message{}, "", lastErr
 }
 
@@ -1503,13 +1544,13 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 			stalled = true
 			stall = &stallError{after: idle()}
 			cancel()
-			drainAfterStall(ch)
+			a.drainAfterStall(ch)
 			done = true
 		case <-capTimer.C:
 			stalled = true
 			stall = &stallError{after: a.opts.StepTimeout, total: true}
 			cancel()
-			drainAfterStall(ch)
+			a.drainAfterStall(ch)
 			done = true
 		case ev, ok := <-ch:
 			if !ok {
@@ -1631,7 +1672,8 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 	a.badArgs = bad
 	a.mu.Unlock()
 	a.emit(Event{Kind: EvStepFinish, Step: step, Usage: usage, Total: total, CostUSD: cost,
-		StepCostUSD: stepCost, Model: m.Ref, Duration: time.Since(started)})
+		StepCostUSD: stepCost, Model: m.Ref, Duration: time.Since(started),
+		Meta: callMeta(a.callSource(), callStateOK)})
 	a.emit(Event{Kind: EvContext, ContextUsed: used, ContextWindow: window})
 	if finish == llm.FinishFilter {
 		return llm.Message{}, "", errContentFilter
@@ -1665,8 +1707,8 @@ func argsProblem(raw string) string {
 }
 
 // drainAfterStall empties a cancelled stream so the provider can finish,
-// but gives up after forceResolveTimeout in case it never closes.
-func drainAfterStall(ch <-chan llm.Event) {
+// but gives up after ForceResolveTimeout in case it never closes.
+func (a *Agent) drainAfterStall(ch <-chan llm.Event) {
 	done := make(chan struct{})
 	go func() {
 		for range ch {
@@ -1675,7 +1717,7 @@ func drainAfterStall(ch <-chan llm.Event) {
 	}()
 	select {
 	case <-done:
-	case <-time.After(forceResolveTimeout):
+	case <-time.After(a.opts.ForceResolveTimeout):
 	}
 }
 
