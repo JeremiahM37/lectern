@@ -22,3 +22,13 @@ func TestClearedPlanHandoverIsNotShownAsTheUsersMessage(t *testing.T) {
 		t.Fatalf("handover shown as a user message:\n%s", out)
 	}
 }
+
+func TestCommandErrorIsTitledCommandFailed(t *testing.T) {
+	v, _ := newView(t, Options{})
+	v.AddSystem("error", "Command error: /model: anthropic: no API key")
+	v.AddSystem("info", "next") // the newest record types in; this one is settled
+	out := plain(v)
+	if !strings.Contains(out, "Command failed") || strings.Contains(out, "Something went wrong") || !strings.Contains(out, "no API key") {
+		t.Fatalf("command error rendering:\n%s", out)
+	}
+}

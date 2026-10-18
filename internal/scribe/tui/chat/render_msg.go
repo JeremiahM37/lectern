@@ -176,6 +176,12 @@ func (v *View) renderSystem(i int, rec *Record, w int, now time.Time) builder {
 		railCol = th.Error
 		head = bold(th.Error, "✗ "+rec.Category) + statusTag(th.Error, rec.Status) + fg(th.TextMuted, " — "+flavour(rec.Category))
 		body = cleanBody(rec.Text)
+		if rest, ok := strings.CutPrefix(body, "Command error: "); ok {
+			// A slash command that failed says so; "Something went wrong"
+			// is for faults Scribe cannot name.
+			head = bold(th.Error, "✗ Command failed") + statusTag(th.Error, rec.Status)
+			body = rest
+		}
 	case "retry":
 		railCol = th.Warning
 		h := "↻ Retry"
