@@ -324,7 +324,10 @@ func (r *Registry) Provider(id string) (llm.Provider, error) {
 	case d.ID == "copilot":
 		return copilot.New(copilot.Options{OAuthToken: key, HTTPClient: r.client}), nil
 	case d.ID == "proxy":
-		return proxy.New(proxy.Options{BaseURL: base, APIKey: key, HTTPClient: r.client, Headers: d.Headers}), nil
+		// The sidecar restarts a local proxy after a connection error. A
+		// remote proxy is never restarted from here; it gets the plain error.
+		side := proxy.NewSidecar(proxy.SidecarOptions{BaseURL: base, HTTPClient: r.client})
+		return proxy.New(proxy.Options{BaseURL: base, APIKey: key, HTTPClient: r.client, Headers: d.Headers, Bounce: side.Bounce}), nil
 	case d.ID == "ollama":
 		// Native /api/chat: the OpenAI-compatible endpoint ignores num_ctx.
 		return ollama.New(ollama.Options{

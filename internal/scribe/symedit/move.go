@@ -40,7 +40,9 @@ func (t *moveSymbolTool) Spec() llm.ToolSpec {
 		Description: "Move a top-level function, type, class or constant from one file to another in the same language, " +
 			"and rewrite the imports that name it. Go moves within one package. TypeScript and JavaScript move between any " +
 			"two files, and relative imports in the moved code are rebased. Python moves a top-level def, class or assignment " +
-			"and rewrites the from-imports that name it. Nothing is type-checked: run project typecheck " +
+			"and rewrites the from-imports that name it. Rust moves a top-level item between modules of one crate and rewrites the " +
+			"use paths that named it. C and C++ move a function or struct definition between files and rewrites the #include lines " +
+			"of files that used it. Nothing is type-checked: run project typecheck " +
 			"or project build afterwards.",
 		Schema: tools.Schema(map[string]any{
 			"symbol": tools.Str("Name of the top-level definition to move, e.g. parseConfig or class Store."),
@@ -110,8 +112,12 @@ func (t *moveSymbolTool) Run(ctx context.Context, env *tools.Env, raw json.RawMe
 		writes, rep, err = planMoveGo(env.Workdir, a.Symbol, fromRel, toRel)
 	case fromLang.name == "python" && toLang.name == "python":
 		writes, rep, err = planMovePy(env.Workdir, a.Symbol, fromRel, toRel)
+	case fromLang.name == "rust" && toLang.name == "rust":
+		writes, rep, err = planMoveRust(env.Workdir, a.Symbol, fromRel, toRel)
+	case cFamilyLang(fromLang) && cFamilyLang(toLang):
+		writes, rep, err = planMoveC(env.Workdir, a.Symbol, fromRel, toRel)
 	default:
-		return tools.Errorf("%s supports Go, TypeScript/JavaScript and Python. %s and %s are not all of those.", moveName, fromRel, toRel)
+		return tools.Errorf("%s supports Go, TypeScript/JavaScript, Python, Rust and C/C++. %s and %s are not all of those, in the same language.", moveName, fromRel, toRel)
 	}
 	if err != nil {
 		return tools.Errorf("%s", err.Error())

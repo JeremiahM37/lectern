@@ -4,10 +4,9 @@
 // model goes through OpenAI-compatible chat completions.
 //
 // This package covers routing, the system-prompt workaround, key validation,
-// health probing and the bounce after a connection error (bounce.go). The
-// caller supplies the sidecar restart through Options.Bounce. Starting,
-// adopting and killing the sidecar process, its login flows, and recovery of
-// tool calls the proxy returns as text are not implemented here.
+// health probing, the bounce after a connection error (bounce.go) and the
+// sidecar process itself: starting, adopting and stopping it (sidecar.go).
+// The proxy's login flows are not implemented here.
 package proxy
 
 import (

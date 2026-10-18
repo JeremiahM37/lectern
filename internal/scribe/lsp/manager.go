@@ -295,13 +295,20 @@ func (m *Manager) Warm(ctx context.Context, languages []string) {
 			continue
 		}
 		_, _ = m.sessionForSpec(ctx, spec, m.workdir)
+		// A secondary server only starts when its binary is installed, so a
+		// missing linter costs nothing here.
+		if lint, ok := lintSpecs[lang]; ok && ctx.Err() == nil {
+			if _, _, found := findServer(lint, m.workdir); found {
+				_, _ = m.sessionForSpec(ctx, lint, m.workdir)
+			}
+		}
 	}
 }
 
 // sessionForSpec returns the running server for spec at root, starting it when
 // needed.
 func (m *Manager) sessionForSpec(ctx context.Context, spec *serverSpec, root string) (*session, error) {
-	key := spec.Language + "\x00" + root
+	key := spec.key(root)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()

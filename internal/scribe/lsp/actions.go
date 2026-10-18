@@ -110,7 +110,7 @@ func (m *Manager) actionsWith(ctx context.Context, abs string, startLine, endLin
 		}
 		return nil
 	})
-	return out, err
+	return m.withSecondaryActions(ctx, abs, startLine, endLine, only, out, err)
 }
 
 // kindWanted reports whether an action of kind matches one of only. Servers

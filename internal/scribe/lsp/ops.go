@@ -486,7 +486,8 @@ func (m *Manager) Diagnostics(ctx context.Context, abs string) ([]FileDiagnostic
 		}
 		return nil
 	})
-	return out, err
+	// A lint server beside the main one adds its findings, labelled by source.
+	return m.withSecondaryDiagnostics(ctx, abs, out, err)
 }
 
 // Format returns the server's formatting edits for abs. Nothing is applied.

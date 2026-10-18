@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -199,6 +200,120 @@ func mergeOverLimit(tasks []subTask, limit int) ([]subTask, []string, error) {
 		notes = append(notes, fmt.Sprintf("merged an explore task into the explore task %s (the dispatch allows %d tasks)", label, limit))
 	}
 	return out, notes, nil
+}
+
+// numberedItem matches a line that starts a numbered item ("3. edit the
+// parser"). Spec 03 §3.1 counts these at the start of a line only.
+var numberedItem = regexp.MustCompile(`^\d+\.`)
+
+// splitMinItems is how many numbered items a code task may list before it is
+// split (spec 03 §3.1 rule 5: more than 8).
+const splitMinItems = 8
+
+// splitOversizedCode splits each code task that has more than eight numbered
+// items and exactly one target file (spec 03 §3.1 rule 5). The items are cut
+// into two serial halves. The second half depends on the first, and it is
+// told to read the file again before it edits, since part 1 has already
+// changed it. Tasks that depended on the original id now wait for the second
+// half, which finishes last. Both halves keep the task-list taskId, so the
+// item follows the outcome of the final part to finish.
+//
+// A split adds a task, so a task is split only while the dispatch stays within
+// limit. One that would go past the limit is left whole and a note says so.
+func splitOversizedCode(tasks []subTask, limit int) ([]subTask, []string) {
+	out := slices.Clone(tasks)
+	var notes []string
+	for i := 0; i < len(out); i++ {
+		t := out[i]
+		if t.Role != "code" || distinctTargets(t.Files) != 1 {
+			continue
+		}
+		lines := strings.Split(t.Task, "\n")
+		var items []int // line index of each numbered item
+		for n, line := range lines {
+			if numberedItem.MatchString(line) {
+				items = append(items, n)
+			}
+		}
+		if len(items) <= splitMinItems {
+			continue
+		}
+		label := taskLabel(t, i)
+		if len(out)+1 > limit {
+			notes = append(notes, fmt.Sprintf("agent %s lists %d numbered items, but the dispatch is at its %d-task limit, so it was not split", label, len(items), limit))
+			continue
+		}
+		taken := map[string]bool{}
+		for _, o := range out {
+			if id := strings.TrimSpace(o.ID); id != "" {
+				taken[id] = true
+			}
+		}
+		origID := strings.TrimSpace(t.ID)
+		base := origID
+		if base == "" {
+			base = freeID(fmt.Sprintf("task%d", i+1), taken)
+		}
+		taken[base] = true
+		secondID := freeID(base+"-2", taken)
+
+		cut := items[len(items)/2]
+		first := subTask{
+			ID:           base,
+			Task:         strings.TrimRight(strings.Join(lines[:cut], "\n"), "\n "),
+			Role:         t.Role,
+			ReturnFormat: t.ReturnFormat,
+			Files:        slices.Clone(t.Files),
+			DependsOn:    slices.Clone(t.DependsOn),
+			TaskID:       t.TaskID,
+		}
+		// The second half keeps the header above the first item, so it still
+		// knows the overall goal, then carries on with the items from cut on.
+		rest := slices.Concat(lines[:items[0]], lines[cut:])
+		second := subTask{
+			ID:           secondID,
+			Task:         splitPreamble + "\n\n" + strings.Join(rest, "\n"),
+			Role:         t.Role,
+			ReturnFormat: t.ReturnFormat,
+			Files:        slices.Clone(t.Files),
+			DependsOn:    []string{base},
+			TaskID:       t.TaskID,
+		}
+		if origID != "" {
+			for j := range out {
+				if j != i && slices.ContainsFunc(out[j].DependsOn, func(d string) bool { return strings.TrimSpace(d) == origID }) {
+					out[j].DependsOn = append(slices.Clone(out[j].DependsOn), secondID)
+				}
+			}
+		}
+		out = slices.Replace(out, i, i+1, first, second)
+		notes = append(notes, fmt.Sprintf("split agent %s into two serial parts (%d numbered items): part 2 waits for part 1 and reads the file first", label, len(items)))
+		i++ // the second half is not split again
+	}
+	return out, notes
+}
+
+// splitPreamble opens the second half of a split task. The second half runs
+// on the file part 1 has already edited, so it is told to read it first.
+const splitPreamble = "This is part 2 of 2 of the task below. Part 1 has already edited the same file.\nContinue from part 1; read the file first, then do the numbered items in this part."
+
+// distinctTargets counts the files a task names, ignoring line ranges.
+func distinctTargets(files []string) int {
+	seen := map[string]bool{}
+	for _, f := range files {
+		seen[stripRange(f)] = true
+	}
+	return len(seen)
+}
+
+// freeID returns base, or base with the smallest -N suffix that taken does
+// not hold.
+func freeID(base string, taken map[string]bool) string {
+	id := base
+	for k := 2; taken[id]; k++ {
+		id = fmt.Sprintf("%s-%d", base, k)
+	}
+	return id
 }
 
 // joinTaskIDs combines the task-list ids of two merged dispatch tasks into

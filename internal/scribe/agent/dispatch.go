@@ -258,6 +258,11 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 	}
 	notes = append(notes, merged...)
 	in.Tasks = tasks
+	// A code task with a long numbered list on one file is run as two
+	// serial halves (spec 03 §3.1 rule 5).
+	var split []string
+	in.Tasks, split = splitOversizedCode(in.Tasks, maxTasksPerDispatch)
+	notes = append(notes, split...)
 	plan, err := planDispatch(in.Tasks)
 	if err != nil {
 		return tools.Errorf("dispatch: %v", err)

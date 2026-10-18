@@ -20,6 +20,46 @@ type serverSpec struct {
 	Language   string
 	Candidates []candidate
 	Install    string // how to install the first candidate
+	// Role is empty for the primary server, which answers navigation, rename
+	// and formatting. roleLint marks a secondary server: it adds diagnostics
+	// and code actions beside the primary and never answers navigation.
+	Role string
+}
+
+// roleLint marks a secondary (lint) server. Each language has at most one.
+const roleLint = "lint"
+
+// key names the running server for this spec at root, in the form
+// Manager.sessions and the health records use. A primary keeps the plain
+// language and root key so existing callers are unchanged.
+func (s *serverSpec) key(root string) string {
+	k := s.Language + "\x00" + root
+	if s.Role != "" {
+		k += "\x00" + s.Role
+	}
+	return k
+}
+
+// lintSpecs is the secondary-server catalogue. Only the first candidate that is
+// installed starts, so one language never runs two linters over the same
+// files and doubles every diagnostic. The biome and ESLint entries are the
+// ones the spec names for TypeScript; ruff is the Python linter.
+var lintSpecs = map[string]*serverSpec{
+	"typescript": {
+		Language: "typescript",
+		Role:     roleLint,
+		Candidates: []candidate{
+			{"biome", []string{"lsp-proxy"}},
+			{"vscode-eslint-language-server", []string{"--stdio"}},
+		},
+		Install: "npm install -g @biomejs/biome   (or: npm install -g vscode-langservers-extracted for ESLint)",
+	},
+	"python": {
+		Language:   "python",
+		Role:       roleLint,
+		Candidates: []candidate{{"ruff", []string{"server"}}},
+		Install:    "pip install ruff",
+	},
 }
 
 // serverSpecs is the catalog, keyed by language.
