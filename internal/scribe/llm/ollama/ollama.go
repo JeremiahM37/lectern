@@ -376,6 +376,20 @@ type streamer struct {
 func (p *Provider) read(ctx context.Context, body io.ReadCloser, ch chan<- llm.Event) {
 	defer close(ch)
 	defer body.Close()
+	// A read blocked on the body does not see the context: while the server
+	// is slow and sends nothing, bufio waits on the socket. Closing the body
+	// is what unblocks it, so a cancel (Esc, Ctrl+X) ends the turn at once
+	// rather than when the next byte arrives. stop ends the watcher when the
+	// stream finishes on its own.
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		select {
+		case <-ctx.Done():
+			body.Close()
+		case <-stop:
+		}
+	}()
 	s := &streamer{ctx: ctx, ch: ch, id: p.opts.ID, callPrefix: newCallPrefix()}
 
 	br := bufio.NewReaderSize(body, 64<<10)

@@ -1489,6 +1489,16 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 	defer capTimer.Stop()
 	for done := false; !done; {
 		select {
+		case <-ctx.Done():
+			// Esc: stop waiting now. A provider that is slow to notice the
+			// cancel would otherwise keep the turn open with nothing arriving;
+			// its channel is drained in the background.
+			cancel()
+			go func() {
+				for range ch {
+				}
+			}()
+			done = true
 		case <-timer.C:
 			stalled = true
 			stall = &stallError{after: idle()}
