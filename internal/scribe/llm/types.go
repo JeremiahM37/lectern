@@ -176,6 +176,12 @@ type Request struct {
 	// ContextWindow is the model's context window in tokens. The clear-tool-uses
 	// thresholds scale with it. 0 uses the fixed floors alone.
 	ContextWindow int
+	// ExtraParams are provider-specific body fields. The OpenAI-compatible
+	// adapter merges them into the request body verbatim, and they win over
+	// the fields it sets itself, except the core fields model, messages,
+	// tools and stream, which it never takes from here. Other adapters ignore
+	// the field.
+	ExtraParams map[string]json.RawMessage
 }
 
 // EventType discriminates Event.

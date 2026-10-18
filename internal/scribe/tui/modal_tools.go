@@ -25,7 +25,7 @@ var toolGroupOf = map[string]string{
 	"grep": "Search", "glob": "Search",
 	"find_symbol": "Code intelligence", "symbol_refs": "Code intelligence", "file_outline": "Code intelligence",
 	"navigate": "Code intelligence", "diagnostics": "Code intelligence", "rename_symbol": "Code intelligence",
-	"code_map": "Code intelligence", "code_impact": "Code intelligence",
+	"code_map": "Code intelligence", "code_impact": "Code intelligence", "soul_query": "Code intelligence",
 	"shell": "Run", "shell_output": "Run", "shell_kill": "Run", "project": "Run", "git": "Run", "test": "Run",
 	"web_search": "Web", "fetch_page": "Web",
 	"dispatch": "Agent", "ask_user": "Agent", "task_list": "Agent", "update_plan_step": "Agent", "plan": "Agent", "memory": "Agent",

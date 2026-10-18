@@ -93,6 +93,11 @@ func kindMatches(want, got string) bool {
 // findSymbol resolves a reference to exactly one definition. Ambiguous
 // references list their candidates; unknown ones suggest the closest names.
 func findSymbol(syms []symbol, sp spec, rel, raw string) (symbol, error) {
+	// A moniker from a symbol listing names exactly one definition, so it
+	// skips the name matching below, which would otherwise guess among same-named ones.
+	if _, ok := parseMoniker(raw); ok {
+		return resolveMoniker(syms, rel, raw)
+	}
 	var hits []symbol
 	for _, s := range syms {
 		if s.name != sp.name || (sp.parent != "" && s.parent != sp.parent) {

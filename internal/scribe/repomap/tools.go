@@ -11,8 +11,9 @@ import (
 )
 
 // Register adds the read-only code map tools to r: code_map (with actions),
-// find_symbol, symbol_refs, code_impact and file_outline.
+// find_symbol, symbol_refs, code_impact, file_outline and soul_query.
 func Register(r *tools.Registry, m *Map) {
+	registerQueryTool(r, m)
 	r.Register(&mapTool{m: m, spec: llm.ToolSpec{
 		Name: "code_map",
 		Description: "Look at the repository's code map. With no action it shows the ranked map: the most important files and their key symbols. " +

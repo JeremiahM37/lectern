@@ -56,6 +56,7 @@ const description = "Edit one definition by name instead of matching text. symbo
 	"set_extends (class or interface; new_code is the base, Python parents or the extends clause; empty new_code removes it). " +
 	"add_getter, add_setter and add_constructor (class; new_code is the full declaration, like add_method). " +
 	"set_static (member; new_code \"false\" makes it an instance member again). " +
+	"symbol may also be a moniker from a symbol listing, such as internal/app.go#function:ParseList, which names one definition exactly. " +
 	"add_decorator and remove_decorator (Python, TypeScript, JavaScript, Java; new_code is the decorator, such as @dataclass or Injectable). " +
 	"create_file makes a new file whose full content is new_code, with no symbol; it cannot be combined with other operations. " +
 	"Several changes to one file can go in edits, applied atomically. Set apply to false to preview the diff without " +

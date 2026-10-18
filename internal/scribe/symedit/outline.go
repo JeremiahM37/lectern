@@ -17,6 +17,9 @@ type Definition struct {
 	Column    int // 1-based column of the name, in characters
 	StartLine int // first line, including a doc comment when there is one
 	EndLine   int // last line of the definition
+	// Moniker names this definition in edits, as path#kind:Parent.Name, with
+	// an ~ordinal only when the name is declared more than once. See moniker.go.
+	Moniker string
 
 	found bool
 }
@@ -37,9 +40,10 @@ func Outline(rel, text string) ([]Definition, error) {
 	}
 	idx := newLineIndex(text)
 	out := make([]Definition, 0, len(syms))
-	for _, s := range syms {
+	mons := monikerTable(syms, rel)
+	for i, s := range syms {
 		d := Definition{Name: s.name, Parent: s.parent, Kind: s.kind, Line: s.startLine, Column: 1,
-			StartLine: s.startLine, EndLine: s.endLine}
+			StartLine: s.startLine, EndLine: s.endLine, Moniker: mons[i]}
 		// The name is on the first code line that holds it, not on a doc
 		// comment above the definition that happens to mention it.
 		// Code lines first; a line that starts with a comment but holds the

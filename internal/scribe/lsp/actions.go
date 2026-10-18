@@ -49,6 +49,12 @@ func (m *Manager) Actions(ctx context.Context, abs string, startLine, endLine in
 			}
 		}
 	}
+	return m.actionsWith(ctx, abs, startLine, endLine, only, diags)
+}
+
+// actionsWith is Actions for diagnostics the caller already has. Each one is
+// sent as the context of the request.
+func (m *Manager) actionsWith(ctx context.Context, abs string, startLine, endLine int, only []string, diags []FileDiagnostic) ([]CodeAction, error) {
 	var out []CodeAction
 	err := m.run(ctx, abs, func(s *session, sr syncResult) error {
 		if _, _, ok := lineBounds(sr.text, startLine-1); !ok {
@@ -384,6 +390,33 @@ func (t *refactorTool) runFormat(ctx context.Context, env *tools.Env, action, pa
 	})
 }
 
+// runFixImports is the refactor tool's fix_missing_imports. It applies the
+// server's import fix through applyGuarded, so the file must be read first
+// like any other edit.
+func (t *refactorTool) runFixImports(ctx context.Context, env *tools.Env, path string, apply *bool) tools.Result {
+	if path == "" {
+		return tools.Errorf("fix_missing_imports needs path")
+	}
+	abs := resolvePath(workdirOf(t.m, env), path)
+	rel := t.m.RelPath(abs)
+	do := apply == nil || *apply
+	title, changes, err := t.m.FixMissingImports(ctx, env, abs, do)
+	if err != nil {
+		if noLanguageServer(err) {
+			lang := "this file type"
+			if info, ok := languageForPath(abs); ok {
+				lang = info.id
+			}
+			return tools.Errorf("fix_missing_imports is not supported for %s: no language server is set up for it, so no edit was made. Add the import by hand with edit_file.", lang)
+		}
+		return tools.Errorf("fix_missing_imports did not change %s: %v", rel, err)
+	}
+	if title == "" {
+		return tools.Result{Output: fmt.Sprintf("The language server reports no missing names in %s, so no import was added and nothing was changed.", rel)}
+	}
+	return editResult(t.m, title+" ("+rel+")", changes, do)
+}
+
 // extractKinds are the server code-action kinds each refactor action uses.
 // Kinds match by prefix (kindWanted), so refactor.inline also covers
 // refactor.inline.call and friends.
@@ -398,7 +431,7 @@ var extractKinds = map[string][]string{
 // refactorActionNames are the action names the refactor tool accepts, in the
 // order its schema lists them. format and organize_imports are not code
 // actions: they run the same steps as format_file (see formatFile).
-var refactorActionNames = []string{"extract_function", "extract_variable", "extract_constant", "inline", "rewrite", "format", "organize_imports"}
+var refactorActionNames = []string{"extract_function", "extract_variable", "extract_constant", "inline", "rewrite", "format", "organize_imports", "fix_missing_imports"}
 
 type refactorTool struct{ m *Manager }
 
@@ -414,7 +447,10 @@ func (t *refactorTool) Spec() llm.ToolSpec {
 			"does not offer the refactoring get an error and no edit. format formats the whole file with the " +
 			"language server's formatter; give start_line and end_line to format only those lines. organize_imports " +
 			"sorts and removes unused imports. format and organize_imports write the file directly, so they take no apply " +
-			"preview.",
+			"preview. fix_missing_imports adds the imports the server reports as missing for undefined names, using the " +
+			"server's own import fix (gopls organizes imports, which also drops unused ones; TypeScript adds only the " +
+			"missing ones). It never guesses a module path: when several modules could supply the name it changes nothing " +
+			"and lists the candidates. Only path is needed; apply false previews it.",
 		Schema: tools.Schema(map[string]any{
 			"action":     tools.Enum("The refactoring to run.", refactorActionNames...),
 			"path":       tools.Str("File, relative to the project root."),
@@ -441,6 +477,9 @@ func (t *refactorTool) Run(ctx context.Context, env *tools.Env, args json.RawMes
 	action := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(a.Action)), "-", "_")
 	if action == "format" || action == "organize_imports" {
 		return t.runFormat(ctx, env, action, a.Path, a.StartLine, a.EndLine, a.Apply)
+	}
+	if action == "fix_missing_imports" {
+		return t.runFixImports(ctx, env, a.Path, a.Apply)
 	}
 	kinds, ok := extractKinds[action]
 	if !ok {

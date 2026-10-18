@@ -11,6 +11,10 @@ const (
 	StateStarting = "starting"
 	StateRunning  = "running"
 	StateFailed   = "failed"
+	// StateDegraded is a running server whose last degradeAfter operations
+	// failed in a row. Tools stop asking it for failCooldown after the last
+	// failure, and LastError holds that failure.
+	StateDegraded = "degraded"
 )
 
 // SessionInfo describes one language server the Manager knows about: one
@@ -33,12 +37,16 @@ type sessionStatus struct {
 	mu   sync.Mutex
 	info map[string]SessionInfo // keyed like Manager.sessions
 	live map[string]*session
-	dir  string // where running servers are recorded; empty records nothing
+	// health is per-operation: the failures in a row for each server key. An
+	// entry is removed by the next successful operation.
+	health map[string]*opHealth
+	dir    string // where running servers are recorded; empty records nothing
 }
 
 func (st *sessionStatus) init() {
 	st.info = map[string]SessionInfo{}
 	st.live = map[string]*session{}
+	st.health = map[string]*opHealth{}
 }
 
 func (m *Manager) noteStarting(key string, spec *serverSpec, root string) {
@@ -87,6 +95,10 @@ func (m *Manager) Sessions() []SessionInfo {
 			}
 			info.OpenDocs = s.openDocs()
 		}
+		if h := m.status.health[k]; h != nil && h.failures >= degradeAfter && info.State == StateRunning {
+			info.State = StateDegraded
+			info.LastError = h.lastErr
+		}
 		out = append(out, info)
 	}
 	m.status.mu.Unlock()
@@ -105,4 +117,5 @@ func (m *Manager) clearStatus() {
 	defer m.status.mu.Unlock()
 	m.status.info = map[string]SessionInfo{}
 	m.status.live = map[string]*session{}
+	m.status.health = map[string]*opHealth{}
 }

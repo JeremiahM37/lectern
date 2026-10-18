@@ -3,10 +3,11 @@
 // models go through the Anthropic Messages API the proxy serves. Every other
 // model goes through OpenAI-compatible chat completions.
 //
-// This package covers routing, the system-prompt workaround, key validation
-// and health probing. Starting, adopting and bouncing the sidecar process,
-// its login flows, and recovery of tool calls the proxy returns as text are
-// not implemented here.
+// This package covers routing, the system-prompt workaround, key validation,
+// health probing and the bounce after a connection error (bounce.go). The
+// caller supplies the sidecar restart through Options.Bounce. Starting,
+// adopting and killing the sidecar process, its login flows, and recovery of
+// tool calls the proxy returns as text are not implemented here.
 package proxy
 
 import (
@@ -16,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
@@ -34,36 +36,78 @@ type Options struct {
 	APIKey     string // optional; sent as a bearer (and x-api-key on Claude)
 	HTTPClient *http.Client
 	Headers    map[string]string
+
+	// Bounce restarts the sidecar after a connection error and reports the
+	// endpoint to use from then on (spec 03 section 10: proxy bounce). It is
+	// only called when the health probe finds nothing listening. The sidecar
+	// lifecycle belongs to the caller. Nil means no restart is possible, and
+	// the provider reports the error instead.
+	Bounce func(ctx context.Context) (Endpoint, error)
+}
+
+// Endpoint is where the proxy listens and the key to send to it.
+type Endpoint struct {
+	// BaseURL is the OpenAI-compatible root, as in Options.BaseURL.
+	BaseURL string
+	APIKey  string
+}
+
+// route is the pair of adapters for one endpoint. It is replaced when a
+// bounce finds the proxy somewhere else or with another key.
+type route struct {
+	base   string
+	key    string
+	claude llm.Provider
+	chat   llm.Provider
 }
 
 // Provider routes each request to the adapter for its model.
 type Provider struct {
-	claude llm.Provider
-	chat   llm.Provider
+	opts Options
+
+	mu sync.RWMutex
+	rt route
+	// bounced is true from a bounce until a stream from the proxy delivers
+	// its first event. It keeps one failing run from restarting the proxy on
+	// every retry.
+	bounced bool
 }
 
 var _ llm.Provider = (*Provider)(nil)
 
 // New returns the routing provider.
 func New(opts Options) *Provider {
-	root := strings.TrimRight(opts.BaseURL, "/")
+	return &Provider{opts: opts, rt: newRoute(opts, opts.BaseURL, opts.APIKey)}
+}
+
+func newRoute(opts Options, base, key string) route {
+	root := strings.TrimRight(base, "/")
 	root = strings.TrimSuffix(root, "/v1")
-	return &Provider{
+	return route{
+		base: base,
+		key:  key,
 		claude: anthropic.New(anthropic.Options{
 			ID:           "proxy",
 			BaseURL:      root,
-			APIKey:       opts.APIKey,
+			APIKey:       key,
 			HTTPClient:   opts.HTTPClient,
 			ExtraHeaders: opts.Headers,
 		}),
 		chat: openai.New(openai.Options{
 			ID:         "proxy",
-			BaseURL:    strings.TrimRight(opts.BaseURL, "/"),
-			APIKey:     opts.APIKey,
+			BaseURL:    strings.TrimRight(base, "/"),
+			APIKey:     key,
 			HTTPClient: opts.HTTPClient,
 			Headers:    opts.Headers,
 		}),
 	}
+}
+
+// current returns the route in use now.
+func (p *Provider) current() route {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.rt
 }
 
 // ID returns the registry id.
@@ -71,17 +115,33 @@ func (p *Provider) ID() string { return "proxy" }
 
 // Stream sends a Claude model through the Anthropic route, with the system
 // prompt moved into the first user message, and every other model through
-// chat completions.
+// chat completions. A connection error before any output is handled by
+// bounceAndRetry (bounce.go).
 func (p *Provider) Stream(ctx context.Context, req llm.Request) (<-chan llm.Event, error) {
-	if IsClaude(req.Model) {
-		return p.claude.Stream(ctx, Cloak(req))
+	ch, err := p.open(ctx, req)
+	if err != nil {
+		if !bounceable(ctx, err) {
+			return nil, err
+		}
+		return p.bounceAndRetry(ctx, req, err)
 	}
-	return p.chat.Stream(ctx, req)
+	out := make(chan llm.Event, 16)
+	go p.relay(ctx, req, ch, out, true)
+	return out, nil
+}
+
+// open starts one call on the route in use now, without any retry.
+func (p *Provider) open(ctx context.Context, req llm.Request) (<-chan llm.Event, error) {
+	rt := p.current()
+	if IsClaude(req.Model) {
+		return rt.claude.Stream(ctx, Cloak(req))
+	}
+	return rt.chat.Stream(ctx, req)
 }
 
 // Models lists the proxy's models through /models.
 func (p *Provider) Models(ctx context.Context) ([]llm.ModelInfo, error) {
-	return p.chat.Models(ctx)
+	return p.current().chat.Models(ctx)
 }
 
 // IsClaude reports whether a model id goes to the Anthropic route. Only ids

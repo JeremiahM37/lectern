@@ -108,7 +108,7 @@ func lspState(state string) string {
 	switch state {
 	case "running":
 		return "ready"
-	case "starting", "failed":
+	case "starting", "failed", "degraded":
 		return state
 	}
 	return "stopped"
@@ -438,12 +438,13 @@ func (v *serversView) restart() tea.Cmd {
 
 func (v *serversView) say(kind, text string) { v.noteKind, v.note = kind, text }
 
-// glyph is the state marker: ● ready, ◐ starting, ✗ failed, ○ anything else.
+// glyph is the state marker: ● ready, ◐ starting or degraded, ✗ failed, ○
+// anything else.
 func serverGlyph(th theme.Theme, state string) string {
 	switch state {
 	case "ready":
 		return fg(th.Success).Render("●")
-	case "starting":
+	case "starting", "degraded":
 		return fg(th.Warning).Render("◐")
 	case "failed":
 		return fg(th.Error).Render("✗")

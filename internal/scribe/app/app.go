@@ -188,6 +188,10 @@ func startConfig(root, preset string) (config.Config, string, error) {
 		cfg = g
 		warn = joinWarnings(warn, fmt.Sprintf("project config ignored: %v", err))
 	}
+	// extra_params keys the request depends on are refused; say so once.
+	if w := config.ExtraParamWarnings(cfg.ReasoningByProvider); len(w) > 0 {
+		warn = joinWarnings(warn, strings.Join(w, "; "))
+	}
 	if preset == "" {
 		return cfg, warn, nil
 	}

@@ -119,12 +119,43 @@ func (s *session) call(ctx context.Context, method string, params, result any) e
 	defer cancel()
 	err := s.client.Call(ctx, method, params, result)
 	if err != nil && errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Errorf("%s did not answer %s within %s", s.spec.Language, method, limit)
+		return &serverError{language: s.spec.Language, cause: fmt.Errorf("%s did not answer %s within %s", s.spec.Language, method, limit)}
 	}
 	if err != nil && errors.Is(err, ErrServerExited) && s.stderr.String() != "" {
-		return fmt.Errorf("%w: %s", err, s.stderr.String())
+		err = fmt.Errorf("%w: %s", err, s.stderr.String())
+	}
+	if err != nil && countsAgainstServer(err) {
+		return &serverError{language: s.spec.Language, cause: err}
 	}
 	return err
+}
+
+// serverError is a failure of the server itself: it timed out, it exited, or
+// it answered with a protocol error. These count against its health. Errors
+// caused by the request, such as an invalid position, do not.
+type serverError struct {
+	language string
+	cause    error
+}
+
+func (e *serverError) Error() string { return e.cause.Error() }
+func (e *serverError) Unwrap() error { return e.cause }
+
+// invalidParams is the JSON-RPC code for a request the server rejects because
+// of its arguments. The file or position was wrong; the server is fine.
+const invalidParams = -32602
+
+// countsAgainstServer reports whether err is a server failure rather than a
+// bad request.
+func countsAgainstServer(err error) bool {
+	if errors.Is(err, ErrServerExited) {
+		return true
+	}
+	var rpc *rpcError
+	if errors.As(err, &rpc) {
+		return rpc.Code != invalidParams
+	}
+	return false
 }
 
 // syncDoc makes the server's view of abs match the disk: didOpen the first

@@ -80,7 +80,20 @@ func (a *App) tune(m agent.Model, r *llm.Request) {
 	applyReasoning(r, rs, m.Info.ReasoningStyle)
 	applyPerformance(r, perf, rs, m.Info.ReasoningStyle)
 	applyProviderReasoning(r, provider, rs, m.Info.ReasoningStyle)
+	applyExtraParams(r, rs)
 	applyContextManagement(r, cm, provider, m.Info.ContextWindow)
+}
+
+// applyExtraParams hands the provider's extra_params to the request. They are
+// copied as written; the OpenAI-compatible adapter merges them into the body
+// and refuses the core fields. Adapters that do not read the field ignore it,
+// so an entry set for a provider that is not OpenAI-compatible does nothing.
+// A nil or empty block leaves the request alone.
+func applyExtraParams(r *llm.Request, rs config.Reasoning) {
+	if rs.ExtraParams == nil || len(*rs.ExtraParams) == 0 {
+		return
+	}
+	r.ExtraParams = *rs.ExtraParams
 }
 
 // applyContextManagement sets the Anthropic context edits from the Claude tab.

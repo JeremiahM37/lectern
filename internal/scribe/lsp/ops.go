@@ -76,8 +76,35 @@ var ErrNoServer = errors.New("no language server is running yet; pass a path so 
 // run syncs abs with the disk on its server and calls fn with the synced
 // state. If the server died during the call it is restarted once and fn runs
 // again.
+//
+// Each operation also feeds the server's health record (health.go). A server
+// that has failed several operations in a row is not asked at all until it
+// has had a cooling-off period, so the caller falls back to grep or read at
+// once instead of waiting out another timeout.
 func (m *Manager) run(ctx context.Context, abs string, fn func(s *session, sr syncResult) error) error {
 	abs = m.abs(abs)
+	key, language := m.healthKey(abs)
+	if err := m.degradedSkip(key); err != nil {
+		return err
+	}
+	err := m.runOnce(ctx, abs, fn)
+	if err == nil {
+		m.noteOpSuccess(key)
+		return nil
+	}
+	// Only a failure of the server counts. A cancelled caller or a bad request
+	// says nothing about the server's health.
+	var se *serverError
+	if ctx.Err() != nil || !errors.As(err, &se) {
+		return err
+	}
+	m.noteOpFailure(key, language, err)
+	return fmt.Errorf("%w; use grep or read instead of retrying", err)
+}
+
+// runOnce is run without the health bookkeeping. It restarts a server that
+// died during the call and runs fn once more.
+func (m *Manager) runOnce(ctx context.Context, abs string, fn func(s *session, sr syncResult) error) error {
 	var err error
 	for attempt := 0; attempt < 2; attempt++ {
 		var s *session

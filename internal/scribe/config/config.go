@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -338,10 +339,71 @@ type Reasoning struct {
 	Verbosity   string `json:"verbosity,omitempty"`    // OpenAI GPT-5: low, medium, high
 	Exclude     bool   `json:"exclude,omitempty"`      // OpenRouter: hide reasoning text
 	Thinking    string `json:"thinking,omitempty"`     // DeepSeek V4: on | off; "" = provider default (on)
+	// ExtraParams are fields merged verbatim into the request body of an
+	// OpenAI-compatible provider, for provider-specific switches Scribe has
+	// no control for. The core request fields in ProtectedExtraParams are
+	// refused, with a warning from ExtraParamWarnings. It is a pointer so
+	// Reasoning stays comparable; nil means no extra params.
+	ExtraParams *ExtraParamMap `json:"extra_params,omitempty"`
+}
+
+// ExtraParamMap is the body fields of one extra_params block, kept as raw JSON
+// so each value is sent exactly as the user wrote it.
+type ExtraParamMap map[string]json.RawMessage
+
+// ProtectedExtraParams are the request fields Scribe owns. An extra_params
+// entry with one of these names is never sent, because it would change which
+// model is called, what it is told, or whether it streams.
+var ProtectedExtraParams = []string{"model", "messages", "tools", "stream"}
+
+// IsProtectedExtraParam reports whether key may not be set through extra_params.
+func IsProtectedExtraParam(key string) bool {
+	for _, p := range ProtectedExtraParams {
+		if key == p {
+			return true
+		}
+	}
+	return false
+}
+
+// ExtraParamWarnings names each extra_params entry that is refused, one
+// message per entry, in provider and key order. It returns nil when every
+// entry is allowed.
+func ExtraParamWarnings(all map[string]Reasoning) []string {
+	var providers []string
+	for p := range all {
+		providers = append(providers, p)
+	}
+	sort.Strings(providers)
+	var out []string
+	for _, p := range providers {
+		var keys []string
+		for k := range derefExtra(all[p].ExtraParams) {
+			if IsProtectedExtraParam(k) {
+				keys = append(keys, k)
+			}
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			out = append(out, fmt.Sprintf("reasoning_by_provider.%s.extra_params: %q is set by Scribe and cannot be overridden; it was ignored", p, k))
+		}
+	}
+	return out
 }
 
 // IsZero reports whether no reasoning control is set.
-func (r Reasoning) IsZero() bool { return r == Reasoning{} }
+func (r Reasoning) IsZero() bool {
+	return r.Effort == "" && r.Budget == 0 && r.ServiceTier == "" && r.Verbosity == "" &&
+		!r.Exclude && r.Thinking == "" && r.ExtraParams == nil
+}
+
+// derefExtra returns the map behind p, or nil when p is nil.
+func derefExtra(p *ExtraParamMap) ExtraParamMap {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
 
 // Bool returns *p or def when unset.
 func Bool(p *bool, def bool) bool {
@@ -562,9 +624,25 @@ func mergeReasoning(base, o map[string]Reasoning) map[string]Reasoning {
 		if v.Exclude {
 			m.Exclude = true
 		}
+		if v.ExtraParams != nil {
+			m.ExtraParams = mergeExtraParams(m.ExtraParams, v.ExtraParams)
+		}
 		out[k] = m
 	}
 	return out
+}
+
+// mergeExtraParams overlays o onto base key by key. It builds a new map, so
+// the base provider's map, which the caller may still hold, is not changed.
+func mergeExtraParams(base, o *ExtraParamMap) *ExtraParamMap {
+	out := make(ExtraParamMap, len(derefExtra(base))+len(derefExtra(o)))
+	for k, v := range derefExtra(base) {
+		out[k] = v
+	}
+	for k, v := range derefExtra(o) {
+		out[k] = v
+	}
+	return &out
 }
 
 func mergeBy[T any](a, b []T, key func(T) string) []T {

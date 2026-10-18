@@ -359,7 +359,35 @@ func (p *Provider) buildBody(req llm.Request) ([]byte, error) {
 	if !p.opts.NoStreamUsage {
 		w.StreamOptions = &wireStreamOpts{IncludeUsage: true}
 	}
-	return json.Marshal(w)
+	raw, err := json.Marshal(w)
+	if err != nil || len(req.ExtraParams) == 0 {
+		return raw, err
+	}
+	return mergeExtraParams(raw, req.ExtraParams)
+}
+
+// protectedBodyKeys are the request fields that extra params may never set.
+// Overriding them would change the model, the conversation, the tool list or
+// whether the reply streams, which the agent relies on. The config layer
+// warns about these keys; this list is what keeps them off the wire.
+var protectedBodyKeys = map[string]bool{"model": true, "messages": true, "tools": true, "stream": true}
+
+// mergeExtraParams sets the extra fields on a built request body. An extra
+// field replaces a field of the same name that the adapter set, so a
+// provider-specific switch always reaches the wire. Protected keys are
+// skipped.
+func mergeExtraParams(body []byte, extra map[string]json.RawMessage) ([]byte, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return nil, err
+	}
+	for k, v := range extra {
+		if protectedBodyKeys[k] {
+			continue
+		}
+		fields[k] = v
+	}
+	return json.Marshal(fields)
 }
 
 // openRouterReasoning builds the reasoning object from the request, or nil
