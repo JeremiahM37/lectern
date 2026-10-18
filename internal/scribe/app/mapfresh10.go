@@ -79,3 +79,25 @@ func mapBudget() int {
 	defer mapUI.mu.Unlock()
 	return mapUI.budget
 }
+
+// frozenParts are the system prompt lines that read live project state.
+type frozenParts struct{ commands, memory, git string }
+
+// frozenPromptParts returns the parts for prompt kind sub, reading them with
+// read the first time and after each compaction.
+func (a *App) frozenPromptParts(sub string, read func() frozenParts) frozenParts {
+	a.mapMu.Lock()
+	p, ok := a.frozen[sub]
+	a.mapMu.Unlock()
+	if ok {
+		return p
+	}
+	p = read()
+	a.mapMu.Lock()
+	if a.frozen == nil {
+		a.frozen = map[string]frozenParts{}
+	}
+	a.frozen[sub] = p
+	a.mapMu.Unlock()
+	return p
+}

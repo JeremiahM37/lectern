@@ -191,6 +191,9 @@ func speedCommand(m *Model, arg string) tea.Cmd {
 func pruningCommand(m *Model, arg string) tea.Cmd {
 	const key = "context_management.pruning_target"
 	cur := fields7(m.cur().be).ContextManagement.PruningTarget
+	if strings.EqualFold(strings.TrimSpace(arg), "off") {
+		arg = config.PruningNone // the word people type for "none"
+	}
 	return choiceCommand(m, "/pruning", "Tool result pruning", key, cur, config.PruningNone, config.PruningTargets, arg)
 }
 

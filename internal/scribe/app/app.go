@@ -100,7 +100,10 @@ type App struct {
 	// mapStale is set when a compaction replaced the history: the code map
 	// snapshot may then be drawn again (spec 03: a compaction is a hard
 	// prefix boundary). Otherwise the snapshot stays frozen for the session.
-	mapStale  bool
+	mapStale bool
+	// frozen holds the system prompt's changeable parts per prompt kind
+	// ("" for the lead, the subagent kind otherwise); see frozenPromptParts.
+	frozen    map[string]frozenParts
 	date      string
 	branch    string
 	pending   strings.Builder // coalesced text deltas for the transcript
@@ -465,12 +468,21 @@ func (a *App) systemPrompt(sub string) func(string) string {
 			Instructions: a.instr, CodeMap: a.codeMap, Extra: a.opts.System, Subagent: sub,
 		}
 		a.mu.Unlock()
-		// Both lookups are cached briefly inside the exec package.
-		in.Commands = toolexec.ProjectCommandsLine(in.Workdir)
-		if a.Memory != nil {
-			in.MemoryIndex = a.Memory.Index() // counts only; recall does the searching
-		}
-		in.GitContext = toolexec.GitContextBlock(in.Workdir)
+		// The project commands, memory counts and git state are read once and
+		// kept until a compaction: they change during a session (an untracked
+		// file, a saved memory), and any change to the system prompt breaks
+		// provider prompt caching. The model reads the live state with tools.
+		fp := a.frozenPromptParts(sub, func() frozenParts {
+			p := frozenParts{
+				commands: toolexec.ProjectCommandsLine(in.Workdir),
+				git:      toolexec.GitContextBlock(in.Workdir),
+			}
+			if a.Memory != nil {
+				p.memory = a.Memory.Index() // counts only; recall does the searching
+			}
+			return p
+		})
+		in.Commands, in.MemoryIndex, in.GitContext = fp.commands, fp.memory, fp.git
 		if a.Agent != nil {
 			in.ModelRef = a.Agent.CurrentModel().Ref
 		}
@@ -806,6 +818,7 @@ func (a *App) emit(e agent.Event) {
 			}
 			a.mapMu.Lock()
 			a.mapStale = true
+			a.frozen = nil // the next prompt reads the project state afresh
 			a.mapMu.Unlock()
 		}
 	}

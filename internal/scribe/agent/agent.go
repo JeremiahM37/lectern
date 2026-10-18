@@ -1115,6 +1115,56 @@ func (a *Agent) overWindow(m Model) (bool, int, int) {
 	return float64(est) > overWindowSlack*float64(window), est, window
 }
 
+// estimateRequestTokens is the chars/4 estimate of a whole request.
+func estimateRequestTokens(req llm.Request) int {
+	n := len(req.System)
+	for _, t := range req.Tools {
+		n += len(t.Name) + len(t.Description) + len(t.Schema)
+	}
+	for _, m := range req.Messages {
+		for _, p := range m.Parts {
+			n += len(p.Text) + len(p.Result) + len(p.Args)
+		}
+	}
+	return n / 4
+}
+
+// shrinkToolResults cuts the largest tool results in req until the request
+// fits about 90% of window, keeping each result's start and end. The
+// messages are copied first, so the agent's history is untouched. It reports
+// whether it cut anything.
+func shrinkToolResults(req *llm.Request, window int) bool {
+	target := window * 9 / 10
+	msgs := make([]llm.Message, len(req.Messages))
+	for i, m := range req.Messages {
+		m.Parts = append([]llm.Part(nil), m.Parts...)
+		msgs[i] = m
+	}
+	req.Messages = msgs
+	cut := false
+	for estimateRequestTokens(*req) > target {
+		bi, bj, best := -1, -1, 0
+		for i, m := range msgs {
+			for j, p := range m.Parts {
+				if p.Type == llm.PartToolResult && len(p.Result) > best {
+					bi, bj, best = i, j, len(p.Result)
+				}
+			}
+		}
+		const floor = 2000
+		if bi < 0 || best <= floor {
+			break
+		}
+		over := (estimateRequestTokens(*req) - target) * 4
+		keep := max(floor, best-over-200)
+		r := msgs[bi].Parts[bj].Result
+		head, tail := keep*2/3, keep/3
+		msgs[bi].Parts[bj].Result = r[:head] + fmt.Sprintf("\n[... %d characters cut to fit the context window; read a narrower range for this part ...]\n", len(r)-head-tail) + r[len(r)-tail:]
+		cut = true
+	}
+	return cut
+}
+
 // humanK writes a token count as 24k or 8.2k.
 func humanK(n int) string {
 	if n < 1000 {
@@ -1465,6 +1515,14 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 			req = a.request(extra...)
 			a.reduceRequest(m.Ref, &req)
 			over, est, window = a.overWindow(m)
+		}
+		if over {
+			// One huge recent tool result (a whole large file) can be what
+			// does not fit; cut the largest results in this request, never
+			// in the history, before giving up.
+			if shrinkToolResults(&req, window) {
+				over = estimateRequestTokens(req) > window
+			}
 		}
 		if over {
 			return llm.Message{}, "", fmt.Errorf("the request (about %s tokens) is larger than this model's context window (%s tokens), even after compacting. Raise the window (a context override in /settings, or SCRIBE_OLLAMA_NUM_CTX for Ollama) or switch to a model with a larger window",
