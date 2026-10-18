@@ -48,7 +48,9 @@ func TestComputerUseSeesAndDrivesARealDisplay(t *testing.T) {
 	// A window appears in the list with its rectangle.
 	if _, err := exec.LookPath("xmessage"); err == nil {
 		_, _ = sh(ctx, "DISPLAY=:"+strconv.Itoa(d.Display)+" setsid nohup xmessage -geometry +40+50 'hello from lectern' >/dev/null 2>&1 </dev/null & echo $! >"+d.Dir+"/xmessage.pid")
-		deadline := time.Now().Add(10 * time.Second)
+		// The window can take a while to map when the whole suite runs in
+		// parallel; alone it appears in well under a second.
+		deadline := time.Now().Add(30 * time.Second)
 		var wins []Window
 		for time.Now().Before(deadline) {
 			if wins, err = Windows(ctx, sh, d); err == nil && len(wins) > 0 {
