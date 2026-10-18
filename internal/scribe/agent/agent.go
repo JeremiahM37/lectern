@@ -1071,6 +1071,35 @@ scan:
 	return ""
 }
 
+// overWindowSlack allows for the chars/4 estimate being rough: the check only
+// fires when the estimate is clearly over the window.
+const overWindowSlack = 1.15
+
+// overWindow reports whether the request just built is clearly larger than
+// the model's context window, with the estimate and the window. It is false
+// when the window is unknown.
+func (a *Agent) overWindow(m Model) (bool, int, int) {
+	window := m.Info.ContextWindow
+	if window <= 0 {
+		return false, 0, 0
+	}
+	a.mu.Lock()
+	est := (a.sysChars+a.toolChars)/4 + estimateHistoryTokens(a.msgs)
+	a.mu.Unlock()
+	return float64(est) > overWindowSlack*float64(window), est, window
+}
+
+// humanK writes a token count as 24k or 8.2k.
+func humanK(n int) string {
+	if n < 1000 {
+		return fmt.Sprint(n)
+	}
+	if n < 10000 {
+		return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(n)/1000), ".0") + "k"
+	}
+	return fmt.Sprintf("%dk", n/1000)
+}
+
 // changesState reports whether a tool can change files or other state, so
 // that a repeated read after it is not a loop. Unknown tools count as
 // changing, which only makes the loop guard less eager.
@@ -1386,6 +1415,21 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 	req := a.request(extra...)
 	m := a.CurrentModel()
 	a.reduceRequest(m.Ref, &req)
+	if over, est, window := a.overWindow(m); over {
+		// Some servers (Ollama) cut an over-long prompt silently instead of
+		// refusing it, so the model works without its instructions and tools
+		// and the turn stalls. Make room once; if the fixed part alone does
+		// not fit, stop and say why.
+		if err := a.compact(ctx, "the request is larger than the context window", true); err == nil {
+			req = a.request(extra...)
+			a.reduceRequest(m.Ref, &req)
+			over, est, window = a.overWindow(m)
+		}
+		if over {
+			return llm.Message{}, "", fmt.Errorf("the request (about %s tokens) is larger than this model's context window (%s tokens), even after compacting. Raise the window (a context override in /settings, or SCRIBE_OLLAMA_NUM_CTX for Ollama) or switch to a model with a larger window",
+				humanK(est), humanK(window))
+		}
+	}
 	if a.opts.RequestDump != nil {
 		a.opts.RequestDump(step, m.Ref, req)
 	}
