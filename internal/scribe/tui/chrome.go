@@ -709,6 +709,10 @@ func (m *Model) viewFooter() string {
 		// While a checkpoint is browsed, the footer names it and the keys that
 		// leave it, in place of a tip the user cannot act on from here.
 		tip = checkpointLegend(th, cp.Turn, room)
+	} else if n := len(m.cur().cps); n > 0 && room > 12 {
+		// The checkpoint strip is always there once a turn changed files, so
+		// the user can see they are at the latest state and how to go back.
+		tip = checkpointStrip(th, n, room)
 	} else if room > 12 {
 		order, pos := m.tipSlot()
 		text := fitTipAt(order, pos, room-2)
@@ -723,6 +727,14 @@ func (m *Model) viewFooter() string {
 
 // checkpointLegend is the footer while a checkpoint is browsed: the turn and
 // how to leave the browsing. It is cut to room cells, never wrapped.
+// checkpointStrip is the footer line for a session with checkpoints, when no
+// checkpoint is browsed: where the user is, and how to step back.
+func checkpointStrip(th theme.Theme, n, room int) string {
+	text := fgb(th.Success).Render("◆ latest") +
+		fg(th.TextFaint).Render(" · "+itoa(n)+" "+plural(n, "checkpoint", "checkpoints")+" · Ctrl+B back · Alt+C rail")
+	return ansi.Truncate(text, room, "…")
+}
+
 func checkpointLegend(th theme.Theme, turn, room int) string {
 	text := fgb(th.Warning).Render("◀ turn "+itoa(turn)) +
 		fg(th.TextFaint).Render(" · Ctrl+F forward · /checkpoint live returns")
