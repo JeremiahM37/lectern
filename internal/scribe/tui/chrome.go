@@ -577,7 +577,7 @@ func (m *Model) footerLeft() string {
 var tips = []string{
 	"? on an empty input opens the help screen",
 	"/ lists every command; type to filter the palette with Ctrl+K",
-	"Enter while Scribe works queues a steering message for the next step",
+	"Enter while Lectern works queues a steering message for the next step",
 	"Shift+Enter or Ctrl+J adds a newline without sending",
 	"Ctrl+R searches your prompt history",
 	"!command runs a shell command in the project and shows its output",

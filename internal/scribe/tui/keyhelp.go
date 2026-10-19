@@ -9,7 +9,7 @@ import "github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
 func keyHelpLines() []string {
 	lines := []string{
 		"Keys",
-		"  Enter               send; queues while Scribe works",
+		"  Enter               send; queues while Lectern works",
 		"  Shift+Enter, Ctrl+J newline",
 		"  Up / Down           history (on the first or last line)",
 		"  Ctrl+R              search history",
