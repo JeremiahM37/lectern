@@ -602,7 +602,7 @@ func (m *Model) onTick(now time.Time) tea.Cmd {
 
 // syncTitle returns a command that sets the window title when it changed.
 func (m *Model) syncTitle() tea.Cmd {
-	want := "✒ Scribe"
+	want := "✒ Lectern"
 	if title := m.cur().be.SessionTitle(); title != "" {
 		want += " — " + title
 	}
@@ -613,7 +613,7 @@ func (m *Model) syncTitle() tea.Cmd {
 		}
 	}
 	if needs {
-		want = "✒ Scribe — needs you"
+		want = "✒ Lectern — needs you"
 	} else if m.anyBusy() {
 		want = render.Frame(render.Braille, m.frame/3) + " " + want
 	}

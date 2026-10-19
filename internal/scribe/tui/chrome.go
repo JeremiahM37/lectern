@@ -80,7 +80,7 @@ func (m *Model) viewHeader() string {
 	th := m.th
 	t := m.cur()
 	w := m.width
-	left := fgb(th.Brand).Render("✒ Scribe") + " " + fg(th.TextMuted).Render("v"+m.version)
+	left := fgb(th.Brand).Render("✒ Lectern") + " " + fg(th.TextMuted).Render("v"+m.version)
 	sep := fg(th.TextFaint).Render(" │ ")
 
 	var cost, brand string
