@@ -672,11 +672,26 @@ func retryableFailure(ctx context.Context, err error) bool {
 // lastAssistantText returns the final non-empty assistant text.
 func lastAssistantText(msgs []llm.Message) string {
 	for k := len(msgs) - 1; k >= 0; k-- {
-		if msgs[k].Role == llm.RoleAssistant && strings.TrimSpace(msgs[k].Text()) != "" {
+		if msgs[k].Role != llm.RoleAssistant || isLatchAck(msgs[k].Text()) {
+			continue
+		}
+		if strings.TrimSpace(msgs[k].Text()) != "" {
 			return msgs[k].Text()
 		}
 	}
 	return ""
+}
+
+// isLatchAck says whether text is one of the acknowledgements the agent writes
+// itself when it latches the code map or loaded skills into the history. Those
+// are not answers, so a subagent that wrote no answer of its own must not
+// report one.
+func isLatchAck(text string) bool {
+	switch text {
+	case codeMapAck, codeMapOffAck, skillsAck, skillsUnloadedAck:
+		return true
+	}
+	return false
 }
 
 // awaitDeps blocks task idx until its dependencies deps have finished. It
