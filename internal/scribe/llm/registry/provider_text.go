@@ -32,6 +32,7 @@ var providerText = map[string]struct{ KeyURL, Description string }{
 	"vercel_gateway": {Description: "Models from many vendors through the Vercel AI Gateway."},
 	"github-models":  {Description: "Models through GitHub Models, billed by per-token multipliers."},
 	"copilot":        {Description: "Your GitHub Copilot subscription, through its OpenAI-compatible endpoint. Unofficial."},
+	"codex":          {Description: "Your ChatGPT subscription, through the codex CLI. Sign in with /codex login."},
 	"opencode-zen":   {Description: "Curated coding models through OpenCode Zen."},
 	"ollama":         {Description: "Models running on this machine through Ollama. No cost."},
 	"lmstudio":       {Description: "Models running on this machine through LM Studio. No cost."},

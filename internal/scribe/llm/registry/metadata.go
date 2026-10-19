@@ -3,10 +3,12 @@ package registry
 import (
 	"context"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/codex"
 )
 
 // groupedProviders are gateways whose model list spans many vendors. Their
@@ -129,6 +131,9 @@ func (r *Registry) Available(ctx context.Context, id string) bool {
 	d := r.defs[i]
 	if d.Custom && len(d.EnvVars) == 0 {
 		return r.probe(ctx, r.baseURL(d))
+	}
+	if d.ID == codex.ProviderID {
+		return codex.Available(ctx, os.Getenv(codexBinEnv))
 	}
 	if d.KeyOptional {
 		return true

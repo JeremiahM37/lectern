@@ -52,4 +52,5 @@ var (
 	_ tui.ProxyStopper        = (*scribeBackend)(nil)
 	_ tui.LSPStopper          = (*scribeBackend)(nil)
 	_ tui.ProxyManager        = (*scribeBackend)(nil)
+	_ tui.CodexAccount        = (*scribeBackend)(nil)
 )

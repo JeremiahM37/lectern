@@ -3,6 +3,8 @@ package registry
 import (
 	"os"
 	"strings"
+
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/codex"
 )
 
 // Providers added after the first table. They live in their own file so the
@@ -11,8 +13,8 @@ import (
 // one of them speaks the OpenAI-compatible Chat Completions wire format, so
 // they reuse the openai adapter unchanged.
 //
-// Copilot (token exchange) and Codex (CLI subprocess) are not here: they
-// need an auth flow the static-key Provider path cannot express.
+// Copilot exchanges its key for a bearer in its own package; Codex runs the
+// codex CLI, which holds its own sign-in.
 
 const (
 	githubModelsBase  = "https://models.github.ai/inference"
@@ -66,6 +68,15 @@ func init() {
 			BaseURL:   copilotBaseURL,
 			EnvVars:   []string{"COPILOT_API_KEY"},
 			ASCIIIcon: "cp",
+		},
+		// Codex: models from a ChatGPT subscription through the official codex
+		// CLI, which holds the sign-in itself (/codex login). No key.
+		Definition{
+			ID:           codex.ProviderID,
+			Name:         "Codex (ChatGPT login)",
+			KeyOptional:  true,
+			DefaultModel: "gpt-5.6-sol",
+			ASCIIIcon:    "cx",
 		},
 		// The CLIProxyAPI sidecar. Its key is optional, and the base comes
 		// from SCRIBE_PROXY_URL (a bare host:port gets /v1 appended, as for

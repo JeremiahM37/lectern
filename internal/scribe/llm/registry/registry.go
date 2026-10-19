@@ -16,6 +16,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/anthropic"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/codex"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/copilot"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/ollama"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/openai"
@@ -37,6 +38,9 @@ const ollamaDefaultCtx = 65536
 
 // ollamaNumCtxEnv names the environment variable that replaces the Ollama cap.
 const ollamaNumCtxEnv = "SCRIBE_OLLAMA_NUM_CTX"
+
+// codexBinEnv names the codex CLI to run instead of "codex" on PATH.
+const codexBinEnv = "SCRIBE_CODEX_BIN"
 
 // metadataTimeout bounds the metadata fetch ModelInfoAsync makes before it
 // answers.
@@ -323,6 +327,12 @@ func (r *Registry) Provider(id string) (llm.Provider, error) {
 	switch {
 	case d.ID == "copilot":
 		return copilot.New(copilot.Options{OAuthToken: key, HTTPClient: r.client}), nil
+	case d.ID == codex.ProviderID:
+		bin := os.Getenv(codexBinEnv)
+		return codex.New(codex.Options{
+			Binary:     bin,
+			ListModels: func(ctx context.Context) ([]llm.ModelInfo, error) { return codex.ListModels(ctx, bin) },
+		}), nil
 	case d.ID == "proxy":
 		// The sidecar restarts a local proxy after a connection error. A
 		// remote proxy is never restarted from here; it gets the plain error.

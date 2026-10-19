@@ -6,6 +6,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/anthropic"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/codex"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/openai"
 )
 
@@ -184,6 +185,15 @@ func isDecimal(s string) bool {
 // A model none of those know is priced at the Sonnet-class default. Anything
 // that is not in the table is marked Estimated.
 func lookupModel(provider, model string) llm.ModelInfo {
+	if provider == codex.ProviderID {
+		// The ChatGPT subscription pays for these, so a call costs nothing
+		// per token; the window and reasoning style are the OpenAI model's.
+		info := lookupModel("openai", model)
+		info.InputPerMTok, info.OutputPerMTok = 0, 0
+		info.CacheReadPerMTok, info.CacheWritePerMTok = 0, 0
+		info.Estimated = false
+		return info
+	}
 	info := llm.ModelInfo{ID: model, Name: model, ContextWindow: defaultContext}
 	if provider == "ollama" || provider == "lmstudio" || isFree(model) {
 		return info
