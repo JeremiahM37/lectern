@@ -21,7 +21,7 @@ func TestSpecPrefixFormsResolveWithoutAMatcher(t *testing.T) {
 		{"/context clear", "context", "clear"},
 		{"/session compact logs", "session", "compact logs"},
 		{"/model events", "model events", ""},
-		{"/lsp install gopls", "lsp", "install gopls"},
+		{"/lsp install gopls", "lsp install", "gopls"},
 		{"/hearth bind work", "hearth", "bind work"},
 		{"/terminals rename x", "terminals", "rename x"},
 		{"/editor split", "editor", "split"},

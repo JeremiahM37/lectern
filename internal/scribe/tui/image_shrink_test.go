@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"image/png"
 	"math/rand/v2"
 	"os"
@@ -223,5 +224,136 @@ func TestScaleToFitKeepsAspectRatio(t *testing.T) {
 			t.Errorf("scaleToFit(%d, %d, %d) = %dx%d, want %s", c.w, c.h, c.side, gw, gh,
 				fmt.Sprintf("%dx%d", c.wantW, c.wantH))
 		}
+	}
+}
+
+// noiseJPEG is an opaque JPEG of random pixels at quality 100. Noise does not
+// compress, so the file is well over the attachment limit.
+func noiseJPEG(t *testing.T, w, h int) []byte {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	rng := rand.New(rand.NewPCG(5, 6))
+	for i := 0; i < len(img.Pix); i += 4 {
+		v := rng.Uint64()
+		img.Pix[i] = byte(v)
+		img.Pix[i+1] = byte(v >> 8)
+		img.Pix[i+2] = byte(v >> 16)
+		img.Pix[i+3] = 0xFF
+	}
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 100}); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestFitImageShrinksLargeNoiseJPEG(t *testing.T) {
+	data := noiseJPEG(t, 2000, 1500)
+	if len(data) <= clipImageMax {
+		t.Fatalf("setup: noise JPEG is %d bytes, want it over the limit", len(data))
+	}
+
+	f, err := fitImage(data, "image/jpeg")
+	if err != nil {
+		t.Fatalf("fitImage: %v", err)
+	}
+
+	if len(f.data) > clipImageMax {
+		t.Fatalf("shrunk image is %d bytes, want at most %d", len(f.data), clipImageMax)
+	}
+	if f.mediaType != "image/jpeg" || !f.resized {
+		t.Fatalf("media %q resized %v, want a resized jpeg", f.mediaType, f.resized)
+	}
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(f.data))
+	if err != nil || format != "jpeg" {
+		t.Fatalf("output is not a decodable JPEG: format %q, err %v", format, err)
+	}
+	if cfg.Width != 1600 || cfg.Height != 1200 {
+		t.Fatalf("output is %dx%d, want 1600x1200 (first ladder side)", cfg.Width, cfg.Height)
+	}
+}
+
+// webpFixture reads a WebP committed under testdata. The files were made with
+// Pillow (libwebp), since no cwebp is installed here.
+func webpFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sniffImage(data) != "image/webp" {
+		t.Fatalf("fixture %s is not sniffed as WebP", name)
+	}
+	return data
+}
+
+func TestFitImageShrinksLosslessWebPToJPEG(t *testing.T) {
+	data := webpFixture(t, "shrink_lossless.webp")
+	// Force the shrink path with a limit below the fixture's size. The 320x240
+	// source is smaller than every ladder side, so it is re-encoded at its own
+	// size and only the JPEG quality moves.
+	limit := len(data) / 3
+	f, err := fitImageTo(data, "image/webp", limit)
+	if err != nil {
+		t.Fatalf("fitImageTo: %v", err)
+	}
+	if f.mediaType != "image/jpeg" || !f.resized {
+		t.Fatalf("media %q resized %v, want a resized jpeg (WebP is decode-only)", f.mediaType, f.resized)
+	}
+	if len(f.data) > limit {
+		t.Fatalf("output is %d bytes, want at most %d", len(f.data), limit)
+	}
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(f.data))
+	if err != nil || format != "jpeg" {
+		t.Fatalf("output is not a decodable JPEG: format %q, err %v", format, err)
+	}
+	if cfg.Width != 320 || cfg.Height != 240 || f.width != 320 || f.height != 240 {
+		t.Fatalf("output is %dx%d (fitted %dx%d), want 320x240", cfg.Width, cfg.Height, f.width, f.height)
+	}
+}
+
+// The lossy fixture is too small to shrink below its own size (a JPEG of it is
+// bigger than the WebP), so it is checked by decoding and re-encoding directly.
+func TestLossyWebPDecodesAndReencodesAsJPEG(t *testing.T) {
+	data := webpFixture(t, "shrink_lossy.webp")
+
+	src, err := decodeForShrink(data)
+	if err != nil {
+		t.Fatalf("decodeForShrink: %v", err)
+	}
+	if b := src.Bounds(); b.Dx() != 320 || b.Dy() != 240 {
+		t.Fatalf("decoded %dx%d, want 320x240", b.Dx(), b.Dy())
+	}
+	f, err := fitDecoded(src, clipImageMax)
+	if err != nil {
+		t.Fatalf("fitDecoded: %v", err)
+	}
+	if f.mediaType != "image/jpeg" {
+		t.Fatalf("media %q, want image/jpeg", f.mediaType)
+	}
+	if _, format, err := image.DecodeConfig(bytes.NewReader(f.data)); err != nil || format != "jpeg" {
+		t.Fatalf("output is not a decodable JPEG: format %q, err %v", format, err)
+	}
+}
+
+func TestFitImageWebPUnderLimitIsUnchanged(t *testing.T) {
+	data := webpFixture(t, "shrink_lossy.webp")
+
+	f, err := fitImage(data, "image/webp")
+	if err != nil {
+		t.Fatalf("fitImage: %v", err)
+	}
+	if !bytes.Equal(f.data, data) || f.mediaType != "image/webp" || f.resized {
+		t.Fatalf("a WebP under the limit was re-encoded (media %q, resized %v)", f.mediaType, f.resized)
+	}
+}
+
+func TestFitImageUndecodableWebPGetsSizeError(t *testing.T) {
+	// RIFF/WEBP header so it sniffs as WebP, then garbage the decoder rejects.
+	data := append([]byte("RIFF\x00\x00\x00\x00WEBPVP8 "), bytes.Repeat([]byte{0xAB}, clipImageMax)...)
+
+	_, err := fitImage(data, "image/webp")
+	if err == nil || !strings.Contains(err.Error(), "limit") {
+		t.Fatalf("err = %v, want the size-limit error", err)
 	}
 }

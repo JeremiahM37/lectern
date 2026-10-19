@@ -11,11 +11,15 @@ import (
 
 	// The GIF decoder is registered so a GIF attaches; its first frame is kept.
 	_ "image/gif"
+
+	// The WebP decoder is registered so a WebP can be shrunk. x/image only
+	// decodes WebP, so the output is always PNG or JPEG.
+	_ "golang.org/x/image/webp"
 )
 
-// An image over the attachment limit is shrunk instead of refused. Only the
-// standard library decodes it, so PNG, JPEG and GIF can be shrunk and WebP
-// cannot: a WebP over the limit still gets the size error.
+// An image over the attachment limit is shrunk instead of refused. PNG, JPEG,
+// GIF and WebP are decoded and re-encoded as PNG or JPEG. A file that cannot be
+// decoded still gets the size error.
 
 const (
 	// shrinkMaxInput bounds the bytes read from a file to shrink it. Anything
@@ -49,14 +53,20 @@ type fittedImage struct {
 // image is decoded, downscaled and re-encoded. When that cannot get it under
 // the limit, the caller gets the size error.
 func fitImage(data []byte, mt string) (fittedImage, error) {
-	if len(data) <= clipImageMax {
+	return fitImageTo(data, mt, clipImageMax)
+}
+
+// fitImageTo is fitImage with the byte limit as a parameter, so the shrink path
+// can be exercised on a small file.
+func fitImageTo(data []byte, mt string, limit int) (fittedImage, error) {
+	if len(data) <= limit {
 		return fittedImage{data: data, mediaType: mt}, nil
 	}
 	src, err := decodeForShrink(data)
 	if err != nil {
 		return fittedImage{}, imageTooBig(len(data))
 	}
-	f, err := fitDecoded(src, clipImageMax)
+	f, err := fitDecoded(src, limit)
 	if err != nil {
 		return fittedImage{}, imageTooBig(len(data))
 	}

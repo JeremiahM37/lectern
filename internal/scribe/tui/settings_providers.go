@@ -115,3 +115,24 @@ func (s *settings) claudeContextRows(cm config.ContextManagement) []setRow {
 			"clears old tool results past about 65% of the window; the prompt cache misses"),
 	}
 }
+
+// claudeRuntimeRows are the Claude tab's request switches that have a config
+// key already: Speed (performance.speed), Tool streaming and Send reasoning.
+// The Anthropic adapter reads all three. Speed is a global value here; the
+// fast-mode allowlist lives in the adapter, so the note says models that take
+// it. Tool streaming shows off, the default, because only an explicit true is
+// sent.
+func (s *settings) claudeRuntimeRows(p config.Performance) []setRow {
+	return []setRow{
+		s.pickRow7("Speed", "performance.speed", p.Speed, speedRowOptions,
+			"fast mode, only on models that accept it; others ignore it"),
+		s.flagRow7("Tool streaming", "performance.tool_streaming", config.Bool(p.ToolStreaming, false),
+			"streams tool arguments as they are generated"),
+		s.flagRow7("Send reasoning", "performance.send_reasoning", config.Bool(p.SendReasoning, false),
+			"sends earlier reasoning back to Claude"),
+	}
+}
+
+// speedRowOptions are the Speed row's values; the first is the default (off),
+// which is stored as "" like the /speed command does.
+var speedRowOptions = []string{"off", "standard", "fast"}

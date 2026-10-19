@@ -99,3 +99,45 @@ func TestLLMGatewayEffortOffersXHigh(t *testing.T) {
 		t.Fatal("other providers keep the three-level list")
 	}
 }
+
+func TestClaudeRuntimeRowsUseTheExistingKeys(t *testing.T) {
+	s := &settings{}
+	rows := s.claudeRuntimeRows(config.Performance{})
+	want := map[string]string{
+		"Speed":          "performance.speed",
+		"Tool streaming": "performance.tool_streaming",
+		"Send reasoning": "performance.send_reasoning",
+	}
+	if len(rows) != len(want) {
+		t.Fatalf("want %d rows, got %d", len(want), len(rows))
+	}
+	for _, r := range rows {
+		if want[r.label] != r.key {
+			t.Fatalf("row %q has key %q, want %q", r.label, r.key, want[r.label])
+		}
+	}
+	if rows[0].value != "off" || rows[1].value != "off" || rows[2].value != "off" {
+		t.Fatalf("defaults should show off, got %q %q %q", rows[0].value, rows[1].value, rows[2].value)
+	}
+	on := true
+	fast := s.claudeRuntimeRows(config.Performance{Speed: "fast", ToolStreaming: &on, SendReasoning: &on})
+	if fast[0].value != "fast" || fast[1].value != "on" || fast[2].value != "on" {
+		t.Fatalf("set values should show, got %q %q %q", fast[0].value, fast[1].value, fast[2].value)
+	}
+}
+
+func TestSpeedRowCyclesAndClearsToDefault(t *testing.T) {
+	be := NewFakeBackend()
+	if err := be.SetField7("performance.speed", "fast", false); err != nil {
+		t.Fatal(err)
+	}
+	s := &settings{be: be}
+	rows := s.claudeRuntimeRows(fields7(be).Performance)
+	if rows[0].value != "fast" {
+		t.Fatalf("seeded speed should show fast, got %q", rows[0].value)
+	}
+	rows[0].act() // fast wraps to off, which is stored as the default
+	if got := fields7(be).Performance.Speed; got != "" {
+		t.Fatalf("speed after cycling from fast = %q, want default", got)
+	}
+}

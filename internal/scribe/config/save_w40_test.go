@@ -41,8 +41,9 @@ func TestSaveKeepsUnknownKeysUnderKnownObjects(t *testing.T) {
 	}
 	got := readJSONFile(t, path)
 
-	if got["theme"] != "light" {
-		t.Errorf("theme = %v, want light", got["theme"])
+	// The theme is written as the "theme" object (theme_style.go).
+	if th, _ := got["theme"].(map[string]any); th["name"] != "light" {
+		t.Errorf("theme = %v, want object with name light", got["theme"])
 	}
 	if _, ok := got["mystery"]; !ok {
 		t.Error("unknown top-level key was dropped")

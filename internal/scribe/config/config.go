@@ -98,9 +98,11 @@ type MCPServer struct {
 // Config is the merged configuration. Pointer and zero values mean "unset"
 // so merging can tell them apart.
 type Config struct {
-	Model     string `json:"model,omitempty"`      // provider/model
-	Mode      string `json:"mode,omitempty"`       // default mode
-	Theme     string `json:"theme,omitempty"`      // theme name
+	Model string `json:"model,omitempty"` // provider/model
+	Mode  string `json:"mode,omitempty"`  // default mode
+	// Theme is the theme name. It is saved in the "theme" object together with
+	// the style fields below; see MarshalJSON and UnmarshalJSON in theme_style.go.
+	Theme     string `json:"-"`                    // theme name
 	Reasoning string `json:"reasoning,omitempty"`  // "", low, medium, high
 	MaxTokens int    `json:"max_tokens,omitempty"` // per response
 
@@ -225,10 +227,12 @@ type Config struct {
 	// Theme style (wave 10): transparency, message and diff background
 	// opacity (percent, 0 to 100) and border strength ("", default, strong or
 	// op). Applied at startup and by the settings screen.
-	ThemeTransparent    *bool  `json:"theme_transparent,omitempty"`
-	ThemeMessageOpacity *int   `json:"theme_message_opacity,omitempty"`
-	ThemeDiffOpacity    *int   `json:"theme_diff_opacity,omitempty"`
-	ThemeBorder         string `json:"theme_border,omitempty"`
+	// They are stored in the "theme" object (theme_style.go); the flat keys
+	// older versions wrote are still read.
+	ThemeTransparent    *bool  `json:"-"`
+	ThemeMessageOpacity *int   `json:"-"`
+	ThemeDiffOpacity    *int   `json:"-"`
+	ThemeBorder         string `json:"-"`
 	// Performance holds per-provider request options that change the wire
 	// format. Unset fields keep the adapter's default.
 	Performance Performance `json:"performance,omitempty"`
@@ -701,6 +705,12 @@ func save(path string, c Config) error {
 	kept, err := readObject(path)
 	if err != nil {
 		return err
+	}
+	// The theme is written whole as the "theme" object, so the saved object
+	// replaces any old one and the flat keys older versions wrote are dropped.
+	delete(kept, "theme")
+	for _, k := range legacyThemeKeys {
+		delete(kept, k)
 	}
 	merged, err := mergeObject(kept, next, reflect.TypeOf(Config{}))
 	if err != nil {
