@@ -803,6 +803,10 @@ func (a *Agent) saveAfterPanic() {
 // loop runs model steps until done. It returns the final answer text.
 func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 	continues := 0
+	// emptyRetries counts steps that ended with no text and no tool call. A
+	// reasoning model sometimes stops after a token or two; asking again
+	// usually gets the answer (QA41: 3 of 3 headless runs failed this way).
+	emptyRetries := 0
 	silent := 0 // reminders sent for a reply that ended silently after tools
 	var final string
 	for step := 1; ; step++ {
@@ -853,6 +857,18 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 		calls := msg.ToolCalls()
 		if len(calls) == 0 {
 			final = msg.Text()
+			if strings.TrimSpace(final) == "" && finish != llm.FinishLength && emptyRetries < 2 {
+				emptyRetries++
+				// Drop the empty reply: some providers refuse an empty
+				// assistant message, and the retry should not see it.
+				a.mu.Lock()
+				if n := len(a.msgs); n > 0 && a.msgs[n-1].Text() == "" && len(a.msgs[n-1].ToolCalls()) == 0 {
+					a.msgs = a.msgs[:n-1]
+				}
+				a.mu.Unlock()
+				a.appendUser("<system-reminder>Your last reply had no text. Answer the user's last message now, in plain text.</system-reminder>")
+				continue
+			}
 			if finish == llm.FinishLength && continues < 2 {
 				continues++
 				a.appendUser("<system-reminder>Your last response was cut off by the output limit. Continue exactly where you stopped.</system-reminder>")
