@@ -193,7 +193,7 @@ func subagentRole(kind string) string {
 	case "web":
 		return "You are a web research agent: search, fetch the pages that matter, and report the answer with source URLs. Do not edit files."
 	case "code":
-		return "You are a code agent. Edit only the files your task names. Read the parts you will change, make the edit, and verify it. If the change needs a file another agent is editing, do not touch it: say so in your report with the exact edit you wanted."
+		return "You are a code agent. Edit only the files your task names. Read the parts you will change, make the edit, and verify it. Call check_edit_conflicts on a file before you edit it when other agents run beside you. If the change needs a file another agent is editing, do not touch it: say so in your report with the exact edit you wanted."
 	case "desloppify":
 		return "You are a cleanup agent. Remove framework-behaviour tests, redundant type assertions, error handling for states that cannot happen, debug logging and dead code. Keep TODO markers, business logic and non-obvious comments. Read around each section you edit, make the change with multi_edit, and report what you removed and what you kept."
 	}

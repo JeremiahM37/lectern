@@ -30,6 +30,51 @@ func asyncModal(owner Modal, work func() func() (tea.Cmd, bool)) tea.Cmd {
 	return func() tea.Msg { return modalDone{owner: owner, apply: work()} }
 }
 
+// busyWait is the modal that stands in while a backend operation runs off the
+// event loop (checkpoint undo, restore and redo). It owns the job, so the
+// result lands on it, and it reports Busy until the result is applied. Keys
+// wait while it is on top, so a second press cannot start the same operation
+// again. It closes itself when the result is applied.
+type busyWait struct {
+	title string
+	done  bool
+}
+
+// Busy implements busyModal: keys wait until the operation has finished.
+func (w *busyWait) Busy() bool { return !w.done }
+
+// Update implements Modal. Keys never reach it while it is busy; other
+// messages (ticks) change nothing.
+func (w *busyWait) Update(tea.Msg) (Modal, tea.Cmd, bool) { return w, nil, false }
+
+// Title implements Modal.
+func (w *busyWait) Title() string { return w.title }
+
+// View implements Modal.
+func (w *busyWait) View(width, h int) string {
+	return fitJoin([]string{"", "  " + spinner() + " Working…"}, width, h)
+}
+
+// Size implements Sized.
+func (w *busyWait) Size(cols, rows int) (int, int) {
+	return min(cols-4, 44), min(rows-4, 4)
+}
+
+// runBusy pushes a busyWait and runs work behind it. work reads and writes the
+// backend only; the apply function it returns runs on the event loop and may
+// touch the model. The wait modal closes once apply has run.
+func (m *Model) runBusy(title string, work func() func() tea.Cmd) tea.Cmd {
+	w := &busyWait{title: title}
+	m.pushModal(w)
+	return asyncModal(w, func() func() (tea.Cmd, bool) {
+		apply := work()
+		return func() (tea.Cmd, bool) {
+			w.done = true
+			return apply(), true
+		}
+	})
+}
+
 // deliverModal applies a finished job to its owner when the owner is still open.
 func (m *Model) deliverModal(msg modalDone) tea.Cmd {
 	for _, md := range m.modals {

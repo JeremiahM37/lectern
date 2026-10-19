@@ -44,7 +44,7 @@ func TestPresetWritesMapEveryFlatField(t *testing.T) {
 		Providers: []config.Provider{{ID: "p"}},
 	}
 	cur := map[string]any{"allow": []string{"go test"}, "deny": []string{}}
-	writes, skipped := presetWrites(p, cur)
+	writes := presetWrites(p, cur)
 
 	got := map[string]any{}
 	for _, w := range writes {
@@ -67,15 +67,12 @@ func TestPresetWritesMapEveryFlatField(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("writes:\n got %v\nwant %v", got, want)
 	}
-	if len(skipped) != 0 {
-		t.Fatalf("providers now apply through provider.add, nothing should be skipped, got %v", skipped)
-	}
 }
 
 func TestPresetWritesSkipUnsetFields(t *testing.T) {
-	writes, skipped := presetWrites(config.Config{Mode: "auto"}, nil)
-	if len(writes) != 1 || writes[0].key != "mode" || len(skipped) != 0 {
-		t.Fatalf("only the mode should be written: %+v skipped %v", writes, skipped)
+	writes := presetWrites(config.Config{Mode: "auto"}, nil)
+	if len(writes) != 1 || writes[0].key != "mode" {
+		t.Fatalf("only the mode should be written: %+v", writes)
 	}
 }
 

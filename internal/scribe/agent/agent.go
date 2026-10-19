@@ -212,6 +212,10 @@ type Agent struct {
 
 	// retries counts transient and stall retries in model calls this turn.
 	retries int
+	// partial is the answer text the last model call left when it gave up
+	// after its retries. A subagent hands it back as its partial report
+	// (subagent_partial.go).
+	partial string
 
 	// optDropped are the optional request fields a provider refused this
 	// turn, per model (reduce.go). sentGroups are the option groups the last
@@ -304,9 +308,9 @@ const (
 	// maxFallbackCycles is how many times the fallback chain may restart
 	// from the primary model before the step fails.
 	maxFallbackCycles = 3
-	// resumeText is sent after a stalled answer's partial text, so the model
-	// continues it instead of starting over.
-	resumeText = "Continue exactly where you stopped."
+	// resumeText is sent after a partial answer, so the model continues it
+	// instead of starting over (spec 03 §2.7 step 4, §5.3).
+	resumeText = "Continue."
 )
 
 // New creates an agent.
@@ -1261,6 +1265,10 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 	// one model-log record, so the final error can carry it.
 	var lastLatency time.Duration
 	source := a.callSource()
+	// partial is the answer text of the last failed attempt. It is kept for
+	// the caller when the step gives up (Partial).
+	var partial string
+	a.setPartial("")
 	for i := 0; ; i++ {
 		if i >= len(chain) {
 			// The chain is spent. Go back to the primary, or give up.
@@ -1299,9 +1307,11 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 				return msg, "", ctx.Err()
 			}
 			lastErr = err
+			partial = ""
 			var st *stallError
 			if errors.As(err, &st) {
 				resume = st.partial
+				partial = st.partial
 				stalls++
 				limit := max(a.opts.MaxStallRetries, 0)
 				if stalls > limit {
@@ -1318,6 +1328,7 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 			cause, pf := err, (*partialError)(nil)
 			if errors.As(err, &pf) {
 				cause = pf.err
+				partial = pf.partial
 			}
 			if !optionRetried {
 				if dropped := a.dropRejected(a.CurrentModel().Ref, cause); len(dropped) > 0 {
@@ -1369,6 +1380,7 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 	cat, _ := llm.Classify(lastErr)
 	a.emit(Event{Kind: EvError, Category: cat, Text: errText(lastErr), Status: statusOf(lastErr),
 		Duration: lastLatency, Meta: callMeta(source, callStateError)})
+	a.setPartial(partial)
 	return llm.Message{}, "", lastErr
 }
 
@@ -1456,33 +1468,44 @@ func (e *partialError) Error() string { return e.err.Error() }
 func (e *partialError) Unwrap() error { return e.err }
 
 // partialFailure marks a transient error as resumable when the reply had
-// answer text. Other errors, and replies that completed a tool call, are
-// returned unchanged.
+// answer text. Other errors, and replies with no text, are returned
+// unchanged. A reply that also completed a tool call keeps its text: the
+// call has not run yet (tools run after the step returns), so the retry
+// asks for it again, and the text the reader already has is not streamed a
+// second time (spec 03 §2.7 step 4).
 func partialFailure(parts []llm.Part, err error) error {
 	if _, retry := llm.Classify(err); !retry {
 		return err
 	}
-	text, ok := resumableText(parts)
-	if !ok || text == "" {
+	text := answerText(parts)
+	if text == "" {
 		return err
 	}
 	return &partialError{partial: text, err: err}
 }
 
-// resumableText is the answer text of a reply and whether a retry can
-// continue it as text. It cannot when a tool call already completed: the
-// call would be made again, since its result is not in the text.
-func resumableText(parts []llm.Part) (string, bool) {
+// answerText is the text parts of a reply, joined.
+func answerText(parts []llm.Part) string {
 	var b strings.Builder
 	for _, p := range parts {
-		switch p.Type {
-		case llm.PartText:
+		if p.Type == llm.PartText {
 			b.WriteString(p.Text)
-		case llm.PartToolCall:
+		}
+	}
+	return b.String()
+}
+
+// resumableText is the answer text of a reply and whether a stalled attempt
+// can continue it as text. It cannot when a tool call already completed: a
+// stall restarts that attempt, so the call is made again. A transient
+// failure keeps its text instead (partialFailure).
+func resumableText(parts []llm.Part) (string, bool) {
+	for _, p := range parts {
+		if p.Type == llm.PartToolCall {
 			return "", false
 		}
 	}
-	return b.String(), true
+	return answerText(parts), true
 }
 
 // errContentFilter ends a step whose reply the provider's safety filter cut

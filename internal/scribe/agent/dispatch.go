@@ -443,6 +443,13 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 		}
 		b.WriteString("\n")
 	}
+	if forced := run.locks.forcedReleases(); len(forced) > 0 {
+		b.WriteString("## Edit locks\n")
+		for _, f := range forced {
+			fmt.Fprintf(&b, "- %s\n", f)
+		}
+		b.WriteString("\n")
+	}
 	if cache := run.cache.render(run.board.labels()); cache != "" {
 		fmt.Fprintf(&b, "## Cache\n%s\n", cache)
 	}

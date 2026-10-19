@@ -318,7 +318,8 @@ func pickCtrlYText(selection string, hasSelection bool, focused string, hasFocus
 }
 
 // copyForCtrlY copies the selection or the focused message to the terminal
-// clipboard and flashes what was copied, so the user can see which one it was.
+// clipboard (OSC 52) and the OS clipboard, and flashes what was copied, so the
+// user can see which one it was.
 func (m *Model) copyForCtrlY(t *tab) {
 	selection, hasSelection := selectedTextOf(t.chat)
 	focused, hasFocused := t.chat.FocusedText()
@@ -328,6 +329,9 @@ func (m *Model) copyForCtrlY(t *tab) {
 		return
 	}
 	copyToTerminal(text)
+	// The native write is quiet on failure: OSC 52 already went out, and a
+	// machine with no clipboard tool (ssh, a bare console) is not a fault.
+	_ = nativeCopy(text)
 	n := strings.Count(strings.TrimRight(text, "\n"), "\n") + 1
 	unit := " lines)"
 	if n == 1 {

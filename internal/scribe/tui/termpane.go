@@ -75,7 +75,7 @@ func (m *Model) onPaneMsg(msg paneMsg) tea.Cmd {
 		if exited, code := p.Exited(); exited {
 			m.closeEditor()
 			if code > 0 {
-				m.setFlash("err", "Editor exited with status "+itoa(code))
+				m.failAlert("Editor exited with status " + itoa(code))
 			} else {
 				m.setFlash("info", "Editor closed")
 			}

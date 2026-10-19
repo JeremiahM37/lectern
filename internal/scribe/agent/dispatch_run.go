@@ -194,6 +194,9 @@ type dispatchRun struct {
 	// bus is shared by the subagents of this dispatch: their findings and,
 	// when the dispatch_cache feature is on, their reads.
 	bus *AgentBus
+	// locks is the per-path edit lock the subagents' edit tools take
+	// (editlock_w40.go); it is shared by every subagent of the dispatch.
+	locks *editLocks
 
 	// cancel aborts every subagent of the dispatch when the breaker opens.
 	cancel context.CancelFunc
@@ -219,6 +222,11 @@ func newDispatchRun(d *Dispatcher, env *tools.Env) *dispatchRun {
 		env:       env,
 		retryWait: wait,
 		bus:       NewAgentBus(),
+		locks: newEditLocks(func(msg string) {
+			if d.Sink != nil {
+				d.Sink(Event{Kind: EvError, At: time.Now(), Category: "edit_lock", Text: msg})
+			}
+		}),
 		board: &board{
 			sink:   d.Sink,
 			callID: env.CallID,
@@ -361,6 +369,10 @@ func (r *dispatchRun) attempt(ctx context.Context, idx int, role string, purpose
 	if sub == nil {
 		return attempt{err: fmt.Errorf("could not start a %s agent", role)}
 	}
+	// Every edit this subagent makes takes the path's lock and is recorded
+	// as its edit (spec 03 section 3.7). Applied here so it covers every
+	// launch path: tasks, retries, cleanup, the fix pass and the reviewer.
+	guardEdits(sub.opts.Tools, role, id, r.bus, r.locks)
 	b.update(idx, func(a *AgentInfo) { a.Status, a.Error, a.Model = "running", "", sub.CurrentModel().Ref })
 	stats, err := sub.Run(sctx, task, nil)
 	stopped := b.wasStopped(id)
@@ -387,7 +399,7 @@ func (r *dispatchRun) attempt(ctx context.Context, idx int, role string, purpose
 	if dispatchStop {
 		err = errDispatchCancelled
 	}
-	report := lastAssistantText(sub.Messages())
+	report := SubagentReport(sub, err)
 	if err != nil && report == "" {
 		report = salvageReport(r.bus.Findings(), id, stats.FilesRead, stats.FilesEdited)
 	}
@@ -456,6 +468,12 @@ func (r *dispatchRun) launch(ctx context.Context, idx int, role string, purpose 
 // no-done.
 func (r *dispatchRun) runTask(ctx context.Context, idx int, role string, purpose Purpose, task string) taskResult {
 	res := r.runTaskOnce(ctx, idx, role, purpose, task)
+	// A subagent that stopped after writing something returns it, marked as
+	// partial in its report, instead of failing the task (spec 03 §3.6).
+	if res.err != nil && SalvageSucceeds(res.err, res.report) {
+		res.notes = append(res.notes, "stopped early: "+res.err.Error())
+		res.err = nil
+	}
 	if role == "code" && res.err == nil && len(res.edited) == 0 {
 		res.noDone = true
 	}

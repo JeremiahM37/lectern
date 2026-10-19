@@ -209,6 +209,14 @@ func (c *Config) setScalar(key string, v any) (bool, error) {
 			return true, err
 		}
 		c.DeferredTools = &b
+	case "auto_check":
+		b, err := toBool(v)
+		if err != nil {
+			return true, err
+		}
+		c.AutoCheck = &b
+	case "disabled_tools":
+		c.DisabledTools = toList(v)
 	case "key_priority":
 		s := toString(v)
 		if !oneOf(s, keyPriorities) {
@@ -369,6 +377,10 @@ func (c *Config) ClearField(key string) bool {
 		c.FormatOnEdit = nil
 	case "deferred_tools":
 		c.DeferredTools = nil
+	case "auto_check":
+		c.AutoCheck = nil
+	case "disabled_tools":
+		c.DisabledTools = nil
 	case "key_priority":
 		c.KeyPriority = ""
 	case "forbidden":

@@ -68,7 +68,7 @@ func (a *App) wire(ctx context.Context) error {
 	go lsp.ReapOrphans(lspDir) // bounded by its own budget; boot does not wait
 	a.ext.lsp.SetStateDir(lspDir)
 	a.ext.lsp.SetDisabled(a.Cfg.DisabledLSPServers)
-	lsp.Register(a.Tools, a.ext.lsp)
+	lsp.RegisterGated(a.Tools, a.ext.lsp, func(f string) bool { return a.liveConfig().EditorIntegrationOn(f) })
 	// Start the language servers for the project's languages in the background,
 	// each bounded, so the first symbol or diagnostic request does not wait for a
 	// cold start. Startup itself does not wait on them.

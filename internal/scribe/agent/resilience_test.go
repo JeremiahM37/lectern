@@ -391,7 +391,7 @@ func TestStalledAnswerResumesFromItsPartialText(t *testing.T) {
 	msgs := reqs[1].Messages
 	n := len(msgs)
 	if n < 3 || msgs[n-2].Role != llm.RoleAssistant || msgs[n-2].Text() != "The quick brown " ||
-		msgs[n-1].Role != llm.RoleUser || msgs[n-1].Text() != "Continue exactly where you stopped." {
+		msgs[n-1].Role != llm.RoleUser || msgs[n-1].Text() != "Continue." {
 		t.Fatalf("resume request ends with %+v", msgs[n-2:])
 	}
 	var streamed strings.Builder
@@ -531,7 +531,7 @@ func TestStallAfterAToolCallRestartsInsteadOfResuming(t *testing.T) {
 		t.Fatalf("requests=%d", len(reqs))
 	}
 	for _, m := range reqs[1].Messages {
-		if m.Text() == "Continue exactly where you stopped." || m.Text() == "Let me check. " {
+		if m.Text() == "Continue." || m.Text() == "Let me check. " {
 			t.Fatalf("restart request still carried the partial: %+v", m)
 		}
 	}

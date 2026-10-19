@@ -332,6 +332,7 @@ func Open(ctx context.Context, o Options) (*App, error) {
 	if err := a.wire(ctx); err != nil {
 		return nil, err
 	}
+	a.publishMemoryService()
 	a.Planner = &agent.Planner{Dir: a.Workdir, Sink: a.emit}
 	a.Planner.Register(a.Tools)
 	a.Dispatch = &agent.Dispatcher{New: a.newSubagent, MaxConcurrent: cfg.Router.MaxAgents, Sink: a.emit,
@@ -747,12 +748,14 @@ func (a *App) newSubagent(spec agent.SubagentSpec, sink agent.Sink) *agent.Agent
 	case "code":
 		budget = &agent.StepBudget{Kind: "code", NudgeAt: 12, Window: window}
 	}
-	return agent.New(agent.Options{
+	deferred, system := a.onDemandSubagent(reg, a.systemPrompt(role))
+	o := agent.Options{
 		ID:        id,
 		Model:     model,
 		Tools:     reg,
 		Env:       a.env(),
-		System:    a.systemPrompt(role),
+		System:    system,
+		Deferred:  deferred,
 		Mode:      mode,
 		MaxTokens: a.Cfg.MaxTokens,
 		Reasoning: reasoning,
@@ -770,7 +773,14 @@ func (a *App) newSubagent(spec agent.SubagentSpec, sink agent.Sink) *agent.Agent
 		// Peer findings reach each step, not only check_findings calls.
 		Peers: agent.PeerFeed(id, spec.Bus),
 		Hooks: a.subagentClaimHooks(a.ext.hooks),
-	})
+	}
+	// Subagents get the lead's first-token and inter-token watchdog, and the
+	// spec's step limit when the user set none (spec 03 §3.5).
+	applyWatchdog(&o, a.Cfg.WatchdogTimeouts)
+	if o.StepTimeout == 0 {
+		o.StepTimeout = agent.SubagentStepTimeout(a.toolTimeout())
+	}
+	return agent.New(o)
 }
 
 // editedFilesSnapshot returns the files this session has changed, sorted.
@@ -813,6 +823,9 @@ func (a *App) emit(e agent.Event) {
 		l(e)
 	}
 	a.record(e)
+	if e.Kind == agent.EvTurnStart && e.AgentID == "" {
+		a.memoryTurnStarted()
+	}
 	// Compaction drops the turns that carried recalled memories, so they may
 	// be recalled again (a skipped compaction replaced nothing).
 	if e.Kind == agent.EvCompactDone && e.AgentID == "" {
@@ -820,6 +833,7 @@ func (a *App) emit(e agent.Event) {
 			if a.Memory != nil {
 				_ = a.Memory.ResetSurfaced()
 			}
+			a.saveCompactionMemory(e.Text)
 			a.mapMu.Lock()
 			a.mapStale = true
 			a.frozen = nil // the next prompt reads the project state afresh

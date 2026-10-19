@@ -42,16 +42,20 @@ func (m *Model) openUndoConfirm(after func()) {
 	m.pushModal(checkpointConfirm(m.th, fmt.Sprintf("Undo turn %d?", cp.Turn),
 		"Restores the files this turn changed to their state before it. /redo brings them back.",
 		cp.Files, "Yes, undo", func() tea.Cmd {
-			undone, err := t.be.Undo()
-			if after != nil {
-				after()
-			}
-			if err != nil {
-				t.chat.AddSystem("error", "Undo failed: "+err.Error())
-				return nil
-			}
-			t.chat.AddSystem("info", fmt.Sprintf("Undid turn %d: %d files restored.", undone.Turn, len(undone.Files)))
-			return nil
+			return m.runBusy(fmt.Sprintf("Undoing turn %d…", cp.Turn), func() func() tea.Cmd {
+				undone, err := t.be.Undo()
+				return func() tea.Cmd {
+					if after != nil {
+						after()
+					}
+					if err != nil {
+						t.chat.AddSystem("error", "Undo failed: "+err.Error())
+						return nil
+					}
+					t.chat.AddSystem("info", fmt.Sprintf("Undid turn %d: %d files restored.", undone.Turn, len(undone.Files)))
+					return nil
+				}
+			})
 		}))
 }
 
@@ -157,30 +161,48 @@ func (b *cpBrowser) restore() {
 		intro += " These files are reverted:"
 	}
 	b.m.pushModal(checkpointConfirm(b.th, fmt.Sprintf("Restore to turn %d?", cp.Turn), intro, later, "Yes, restore", func() tea.Cmd {
-		if err := b.be.RestoreTo(cp.Turn); err != nil {
-			b.m.setFlash("err", "Restore failed: "+err.Error())
-			b.m.showAlert("Restore failed", "Files were not restored to turn "+itoa(cp.Turn)+".\n\n"+err.Error())
-			return nil
-		}
-		b.reload()
-		b.m.setFlash("ok", fmt.Sprintf("Restored files to turn %d", cp.Turn))
-		return nil
+		return b.m.runBusy(fmt.Sprintf("Restoring to turn %d…", cp.Turn), func() func() tea.Cmd {
+			err := b.be.RestoreTo(cp.Turn)
+			return func() tea.Cmd {
+				if err != nil {
+					b.m.setFlash("err", "Restore failed: "+err.Error())
+					b.m.showAlert("Restore failed", "Files were not restored to turn "+itoa(cp.Turn)+".\n\n"+err.Error())
+					return nil
+				}
+				b.reload()
+				b.m.setFlash("ok", fmt.Sprintf("Restored files to turn %d", cp.Turn))
+				return nil
+			}
+		})
 	}))
 }
 
 // redo reapplies the most recently undone turn. One redo can re-apply several
 // turns (the backend reports only the first), so the flash names every turn
 // that flipped from undone to live in the reload, and counts their files once.
-func (b *cpBrowser) redo() {
+// The backend call runs behind a busy modal; the reload and the report run
+// when it returns.
+func (b *cpBrowser) redo() tea.Cmd {
 	b.reload()
 	before := undoneTurns(b.cps)
-	_, err := b.be.Redo()
-	b.reload()
-	if err != nil {
-		b.m.setFlash("err", "Redo failed: "+err.Error())
-		b.m.showAlert("Redo failed", err.Error())
-		return
-	}
+	be := b.be
+	return b.m.runBusy("Redoing…", func() func() tea.Cmd {
+		_, err := be.Redo()
+		return func() tea.Cmd {
+			b.reload()
+			if err != nil {
+				b.m.setFlash("err", "Redo failed: "+err.Error())
+				b.m.showAlert("Redo failed", err.Error())
+				return nil
+			}
+			b.reportRedo(before)
+			return nil
+		}
+	})
+}
+
+// reportRedo names the turns that flipped from undone to live since before.
+func (b *cpBrowser) reportRedo(before map[int]bool) {
 	var turns []int
 	files := map[string]bool{}
 	for _, c := range b.cps {
@@ -247,7 +269,7 @@ func (b *cpBrowser) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 	case "u":
 		b.m.openUndoConfirm(b.reload)
 	case "r":
-		b.redo()
+		return b, b.redo(), false
 	}
 	return b, nil, false
 }

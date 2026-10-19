@@ -489,6 +489,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			t.chat.ClearHover()
 			return nil
 		}
+		if m.wheelPopup(msg) {
+			return nil
+		}
 		cm := m.chatMouse(msg)
 		if cmd, handled := m.railMouse(cm); handled {
 			return cmd

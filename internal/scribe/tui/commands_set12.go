@@ -9,9 +9,10 @@ package tui
 // context_management.pruning_target the same way.
 //
 // Wave 25 adds /thinking, /effort, /toolstream, /seqtools and /perf on the
-// performance.* keys. /codeexec, /computeruse, /cleartools and /clearthinking
-// are not registered: their settings do not exist in config or llm.Request,
-// and a command for them would store a value nothing reads.
+// performance.* keys. /codeexec and /computeruse are not registered: their
+// settings do not exist in config or llm.Request, and a command for them would
+// store a value nothing reads. /cleartools and /clearthinking are in
+// commands_w40clear.go, over the context_management keys.
 
 import (
 	"fmt"
@@ -277,10 +278,10 @@ func effortCommand(m *Model, arg string) tea.Cmd {
 	return choiceCommand(m, "/effort", "Effort", "performance.effort", cur, "off", effortChoices, arg)
 }
 
-// toolStreamCommand is /toolstream [on|off]. Tool streaming is on unless the
-// config says otherwise, so an unset value reads as on.
+// toolStreamCommand is /toolstream [on|off]. An unset value reads as off,
+// because only an explicit on changes what is sent (llm/anthropic/request.go).
 func toolStreamCommand(m *Model, arg string) tea.Cmd {
-	cur := config.Bool(fields7(m.cur().be).Performance.ToolStreaming, true)
+	cur := config.Bool(fields7(m.cur().be).Performance.ToolStreaming, false)
 	return toggleCommand(m, "/toolstream", "Tool streaming", "performance.tool_streaming", cur, arg)
 }
 
@@ -317,7 +318,7 @@ func perfLines(p config.Performance) []string {
 		row("effort", orOff(p.Effort), "/effort"),
 		row("speed", orOff(p.Speed), "/speed"),
 		row("cache lifetime", orWord(p.CacheTTL, "default"), "set in /settings"),
-		row("tool streaming", onOff(config.Bool(p.ToolStreaming, true)), "/toolstream"),
+		row("tool streaming", onOff(config.Bool(p.ToolStreaming, false)), "/toolstream"),
 		row("send reasoning", onOff(config.Bool(p.SendReasoning, false)), "/sendreasoning"),
 		row("one tool at a time", onOff(config.Bool(p.DisableParallelToolUse, false)), "/seqtools"),
 	}

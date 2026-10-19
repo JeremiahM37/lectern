@@ -21,12 +21,84 @@ import (
 // Register adds the language-server tools: navigate, diagnostics,
 // rename_symbol and format_file. All of them use m.
 func Register(r *tools.Registry, m *Manager) {
-	r.Register(&navigateTool{m: m})
-	r.Register(&diagnosticsTool{m: m})
-	r.Register(&renameTool{m: m})
-	r.Register(&formatTool{m: m})
-	r.Register(&codeActionTool{m: m})
-	r.Register(&refactorTool{m: m})
+	RegisterGated(r, m, nil)
+}
+
+// The editor integration toggles (config.EditorIntegrationKeys) that gate the
+// language-server tools. A tool whose toggle is off refuses the call.
+const (
+	featureDiagnostics = "diagnostics"
+	featureRename      = "rename"
+	featureFormat      = "format"
+	featureCodeActions = "code_actions"
+	featureDefinition  = "definition"
+	featureReferences  = "references"
+	featureHover       = "hover"
+	featureSymbols     = "symbols"
+)
+
+// RegisterGated is Register with a feature gate. gate reports whether one
+// editor integration toggle is on; a tool calls it with the toggle its action
+// needs and refuses the call when it returns false. A nil gate leaves every
+// tool on. The gate is read on each call, so a change in the editor settings
+// takes effect without a restart.
+func RegisterGated(r *tools.Registry, m *Manager, gate func(feature string) bool) {
+	add := func(t tools.Tool, feature func(json.RawMessage) string) {
+		r.Register(&gatedTool{Tool: t, gate: gate, feature: feature})
+	}
+	fixed := func(name string) func(json.RawMessage) string {
+		return func(json.RawMessage) string { return name }
+	}
+	add(&navigateTool{m: m}, navigateFeature)
+	add(&diagnosticsTool{m: m}, fixed(featureDiagnostics))
+	add(&renameTool{m: m}, fixed(featureRename))
+	add(&formatTool{m: m}, fixed(featureFormat))
+	add(&codeActionTool{m: m}, fixed(featureCodeActions))
+	add(&refactorTool{m: m}, fixed(featureCodeActions))
+}
+
+// gatedTool checks a feature toggle before it runs the tool. It forwards
+// ReadOnlyCall when the wrapped tool has one, because the mode gate prefers
+// it over ReadOnly.
+type gatedTool struct {
+	tools.Tool
+	gate    func(feature string) bool
+	feature func(args json.RawMessage) string
+}
+
+func (g *gatedTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage) tools.Result {
+	if f := g.feature(args); f != "" && g.gate != nil && !g.gate(f) {
+		return tools.Result{IsError: true, Output: fmt.Sprintf(
+			"The %q editor integration is off in settings. Turn it on with /editor settings to use this tool.", f)}
+	}
+	return g.Tool.Run(ctx, env, args)
+}
+
+func (g *gatedTool) ReadOnlyCall(args json.RawMessage) bool {
+	if c, ok := g.Tool.(tools.CallReadOnly); ok {
+		return c.ReadOnlyCall(args)
+	}
+	return g.Tool.ReadOnly()
+}
+
+// navigateFeature names the toggle for a navigate call by its action. An
+// unknown action names none, so the tool reports the bad action itself.
+func navigateFeature(args json.RawMessage) string {
+	var a struct {
+		Action string `json:"action"`
+	}
+	_ = json.Unmarshal(args, &a)
+	switch normalizeNavAction(a.Action) {
+	case "definition", "implementation":
+		return featureDefinition
+	case "references", hierIncoming, hierOutgoing, hierSuper, hierSub:
+		return featureReferences
+	case "hover":
+		return featureHover
+	case "symbols", "read_symbol", "workspace_symbols":
+		return featureSymbols
+	}
+	return ""
 }
 
 const maxListed = 200

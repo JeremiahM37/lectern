@@ -109,8 +109,8 @@ func TestAbortDuringRetryWaitKeepsTheTextShown(t *testing.T) {
 	}
 }
 
-// Only a reply that is text so far can be resumed as text. One that already
-// completed a tool call restarts, because the call would run again.
+// A transient failure keeps the text of any reply that has some. A reply
+// with no text is returned unchanged.
 func TestPartialFailureResumesOnlyTextOnlyReplies(t *testing.T) {
 	streamErr := errors.New("stream ended before the response finished")
 	text := []llm.Part{{Type: llm.PartText, Text: "half"}}
@@ -123,8 +123,10 @@ func TestPartialFailureResumesOnlyTextOnlyReplies(t *testing.T) {
 	if err := partialFailure(text, streamErr); !errors.As(err, &pf) || pf.partial != "half" {
 		t.Fatalf("text-only reply: got %v, want a partialError keeping the text", err)
 	}
-	if err := partialFailure(withCall, streamErr); errors.As(err, &pf) {
-		t.Fatalf("a reply with a completed call must not be resumed as text, got %v", err)
+	// A completed call is not run until the step returns, so its text is
+	// kept and the retry asks for the call again.
+	if err := partialFailure(withCall, streamErr); !errors.As(err, &pf) || pf.partial != "half" {
+		t.Fatalf("a reply with a completed call: got %v, want a partialError keeping the text", err)
 	}
 	if err := partialFailure(nil, streamErr); errors.As(err, &pf) {
 		t.Fatalf("an empty reply has nothing to resume, got %v", err)

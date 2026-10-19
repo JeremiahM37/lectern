@@ -74,7 +74,11 @@ func (t *memoryTool) Run(_ context.Context, _ *tools.Env, raw json.RawMessage) t
 	if t.stores == nil {
 		return tools.Errorf("memory is not available in this session.")
 	}
-	switch a.Action = normAction(a.Action); a.Action {
+	a.Action = normAction(a.Action)
+	if a.Action == "search" || a.Action == "list" || a.Action == "get" {
+		t.stores.MarkSearched()
+	}
+	switch a.Action {
 	case "save":
 		return t.save(a)
 	case "search":

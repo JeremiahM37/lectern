@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -427,6 +428,10 @@ type Stores struct {
 	// CoChange returns the files that change with file in git history, most
 	// frequent first. The app sets it from the repo map; nil means none.
 	CoChange func(file string) []string
+
+	// searchedThisTurn is set when the model searches memory in the current
+	// turn; FileHint then stays quiet until BeginTurn (see w40_memory.go).
+	searchedThisTurn atomic.Bool
 
 	session     string
 	surfMu      sync.Mutex // guards surfaced and surfacedDir: recall and compaction run on different goroutines

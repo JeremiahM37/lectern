@@ -202,7 +202,7 @@ func (m *Model) pasteClipboardText(t *tab, text string) {
 func (m *Model) attachFitted(t *tab, data []byte, mt, okText, what string) {
 	f, err := fitImage(data, mt)
 	if err != nil {
-		m.setFlash("err", "Can't attach "+what+": "+err.Error())
+		m.failAlert("Can't attach " + what + ": " + err.Error())
 		return
 	}
 	n := t.in.attach(f.data, f.mediaType)
@@ -217,7 +217,7 @@ func (m *Model) attachFitted(t *tab, data []byte, mt, okText, what string) {
 func (m *Model) attachImageFile(t *tab, path string) {
 	data, mt, err := loadImageFile(path)
 	if err != nil {
-		m.setFlash("err", "Can't attach "+path+": "+err.Error())
+		m.failAlert("Can't attach " + path + ": " + err.Error())
 		return
 	}
 	m.attachFitted(t, data, mt, "Attached image %d", path)

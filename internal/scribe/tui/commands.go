@@ -267,13 +267,7 @@ func init() {
 		&command{Name: "undo", Args: "[n]", Desc: "Undo the last turn and restore its files; /undo n undoes n turns", Group: "Session",
 			Run: func(m *Model, args string) tea.Cmd { return undoCommand(m, args) }},
 		&command{Name: "redo", Desc: "Redo the last undone turn", Group: "Session",
-			Run: func(m *Model, _ string) tea.Cmd {
-				cp, err := m.cur().be.Redo()
-				if err != nil {
-					return cmdErr(err)
-				}
-				return redone(m, cp)
-			}},
+			Run: func(m *Model, _ string) tea.Cmd { return redoCommand(m) }},
 		&command{Name: "checkpoints", Desc: "List turns that changed files", Group: "Session",
 			Run: func(m *Model, _ string) tea.Cmd { m.openCheckpoints(); return nil }},
 		&command{Name: "plan", Args: "[task]", Desc: "Plan mode: research and plan only. A task starts planning it; no argument toggles", Group: "Session",

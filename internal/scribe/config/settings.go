@@ -263,7 +263,8 @@ type Performance struct {
 	Speed string `json:"speed,omitempty"`
 	// CacheTTL is the prompt cache lifetime: 5m (default) or 1h.
 	CacheTTL string `json:"cache_ttl,omitempty"`
-	// ToolStreaming streams tool arguments as they are generated. Default on.
+	// ToolStreaming streams tool arguments as they are generated. Default off:
+	// only an explicit true is sent.
 	ToolStreaming *bool `json:"tool_streaming,omitempty"`
 	// SendReasoning sends prior reasoning back to the provider. Default off.
 	SendReasoning *bool `json:"send_reasoning,omitempty"`

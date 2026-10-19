@@ -77,11 +77,20 @@ func removePresets(t *tab, root string, names []string) {
 			t.chat.AddSystem("error", err.Error())
 			continue
 		}
+		// Hooks and servers the preset wrote come out first, so a removed
+		// preset does not keep running commands it no longer offers.
+		reverted, err := config.RevertPresetCommands(root, p)
+		if err != nil {
+			t.chat.AddSystem("error", fmt.Sprintf("preset %s: its hooks and MCP servers were not all removed: %v", name, err))
+		}
 		if err := config.RemovePreset(root, p); err != nil {
 			t.chat.AddSystem("error", "preset "+name+" was not removed: "+err.Error())
 			continue
 		}
 		msg := fmt.Sprintf("Removed preset %s (%s file %s)", name, p.Scope(), p.Path)
+		if !reverted.Empty() {
+			msg += fmt.Sprintf("; took back %s it had added to %s config", presetCommandCounts(reverted), p.Scope())
+		}
 		t.chat.AddSystem("info", msg)
 	}
 }
@@ -96,10 +105,12 @@ func applyOnePreset(m *Model, t *tab, root, name string) {
 		t.chat.AddSystem("info", err.Error())
 		return
 	}
-	writes, skipped := presetWrites(p.Config, t.be.Config())
+	cur := t.be.Config()
+	cur["disabled_tools"] = disabledToolNames(t.be.Tools())
+	writes := presetWrites(p.Config, cur)
 	var failed []string
 	for _, w := range writes {
-		if err := t.be.SetConfig(w.key, w.value, p.Project); err != nil {
+		if err := presetSet(t, w, p.Project); err != nil {
 			failed = append(failed, w.key+": "+err.Error())
 		}
 	}
@@ -109,10 +120,35 @@ func applyOnePreset(m *Model, t *tab, root, name string) {
 	if len(failed) == 0 {
 		t.chat.AddSystem("info", fmt.Sprintf("Applied preset %s: %d settings saved to %s config", name, len(writes), p.Scope()))
 	}
-	if len(skipped) > 0 {
-		t.chat.AddSystem("info", fmt.Sprintf("Not applied here: %s. Edit %s to change them.", strings.Join(skipped, ", "), p.Path))
-	}
 	askPresetCommands(m, t, root, p)
+}
+
+// presetFlatKeys are the preset keys that the settings writer (SetField7)
+// owns rather than SetConfig. The settings writer is the one that reloads
+// them the same way the settings screen does.
+var presetFlatKeys = map[string]bool{"deferred_tools": true, "auto_check": true, "disabled_tools": true}
+
+// presetSet writes one preset key to the preset's scope.
+func presetSet(t *tab, w presetWrite, project bool) error {
+	if !presetFlatKeys[w.key] {
+		return t.be.SetConfig(w.key, w.value, project)
+	}
+	ws, ok := t.be.(ConfigSetter7)
+	if !ok {
+		return fmt.Errorf("this backend cannot save %s", w.key)
+	}
+	return ws.SetField7(w.key, w.value, project)
+}
+
+// disabledToolNames is the list of tools the session has turned off.
+func disabledToolNames(tools []ToolInfo) []string {
+	var out []string
+	for _, t := range tools {
+		if !t.Enabled {
+			out = append(out, t.Name)
+		}
+	}
+	return out
 }
 
 // askPresetCommands shows the hooks and MCP servers that applying p would add
@@ -142,10 +178,20 @@ func askPresetCommands(m *Model, t *tab, root string, p config.Preset) {
 // servers are read from the config file when a session starts, so they take
 // effect in the next session.
 func writePresetCommands(t *tab, root string, p config.Preset) {
+	before, err := config.LoadPresetScope(root, p)
+	if err != nil {
+		t.chat.AddSystem("error", fmt.Sprintf("preset %s did not add its hooks or MCP servers: %v", p.Name, err))
+		return
+	}
 	added, err := config.SavePresetCommands(root, p)
 	if err != nil {
 		t.chat.AddSystem("error", fmt.Sprintf("preset %s did not add its hooks or MCP servers: %v", p.Name, err))
 		return
+	}
+	// Without the record, removing the preset could not tell its hooks from
+	// the user's, so say so rather than fail silently.
+	if err := config.RecordPresetCommands(root, p, before, added); err != nil {
+		t.chat.AddSystem("error", fmt.Sprintf("preset %s: its hooks and MCP servers will not be removed with it: %v", p.Name, err))
 	}
 	t.chat.AddSystem("info", fmt.Sprintf("Added %s from preset %s to %s config. They start with the next session.", presetCommandCounts(added), p.Name, p.Scope()))
 }
@@ -250,9 +296,10 @@ func listPresets(add func(kind, text string), root string) {
 }
 
 // presetWrites maps a preset onto the flat setting keys the backend accepts.
-// Scalars overwrite. Lists follow Merge: allow and deny add to what is there,
-// and fallback replaces it. Fields with no flat key are returned as skipped.
-func presetWrites(p config.Config, cur map[string]any) (writes []presetWrite, skipped []string) {
+// Scalars overwrite. Lists follow Merge: allow, deny and disabled tools add
+// to what is there, and fallback replaces it.
+func presetWrites(p config.Config, cur map[string]any) []presetWrite {
+	var writes []presetWrite
 	add := func(k string, v any) { writes = append(writes, presetWrite{k, v}) }
 	if p.Model != "" {
 		add("model", p.Model)
@@ -344,18 +391,16 @@ func presetWrites(p config.Config, cur map[string]any) (writes []presetWrite, sk
 			add(prefix+"exclude", rs.Exclude)
 		}
 	}
-	for _, s := range []struct {
-		name string
-		set  bool
-	}{
-		{"disabled tools", len(p.DisabledTools) > 0}, {"deferred tools", p.DeferredTools != nil},
-		{"auto-check", p.AutoCheck != nil},
-	} {
-		if s.set {
-			skipped = append(skipped, s.name)
-		}
+	if p.DeferredTools != nil {
+		add("deferred_tools", *p.DeferredTools)
 	}
-	return writes, skipped
+	if p.AutoCheck != nil {
+		add("auto_check", *p.AutoCheck)
+	}
+	if len(p.DisabledTools) > 0 {
+		add("disabled_tools", unionStrings(stringsOf(cur["disabled_tools"]), p.DisabledTools))
+	}
+	return writes
 }
 
 // stringsOf reads a []string from a Config() value, which may be nil.

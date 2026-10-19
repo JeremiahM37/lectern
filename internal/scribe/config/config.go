@@ -5,6 +5,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -88,6 +89,10 @@ type MCPServer struct {
 	// Timeout is the per-call limit in seconds. Zero means the MCP default
 	// (60 s).
 	Timeout int `json:"timeout,omitempty"`
+	// StartTimeout is how long the server may take to start and list its
+	// tools, in seconds. Zero means the manager default (20 s). Seconds,
+	// like Timeout, so one config file has one unit for MCP limits.
+	StartTimeout int `json:"start_timeout,omitempty"`
 }
 
 // Config is the merged configuration. Pointer and zero values mean "unset"
@@ -689,13 +694,11 @@ func save(path string, c Config) error {
 	if err != nil {
 		return err
 	}
-	for k := range configKeys() {
-		delete(kept, k)
+	merged, err := mergeObject(kept, next, reflect.TypeOf(Config{}))
+	if err != nil {
+		return err
 	}
-	for k, v := range next {
-		kept[k] = v
-	}
-	out, err := json.MarshalIndent(kept, "", "  ")
+	out, err := json.MarshalIndent(merged, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -722,17 +725,84 @@ func readObject(path string) (map[string]json.RawMessage, error) {
 	return obj, nil
 }
 
-// configKeys is the set of top-level JSON keys that Config owns.
-func configKeys() map[string]bool {
-	keys := map[string]bool{}
-	t := reflect.TypeOf(Config{})
+// jsonFields maps each JSON key a struct models to the field's type.
+func jsonFields(t reflect.Type) map[string]reflect.Type {
+	keys := map[string]reflect.Type{}
 	for i := 0; i < t.NumField(); i++ {
 		name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ",")
 		if name != "" && name != "-" {
-			keys[name] = true
+			keys[name] = t.Field(i).Type
 		}
 	}
 	return keys
+}
+
+// mergeObject combines the keys of a saved JSON object (kept) with the object
+// a struct type t marshals to (fresh). Keys t models come from fresh, so a
+// field that was cleared is cleared. Keys t does not model are kept as they
+// were, at every depth of struct-valued objects, so a hand-added key under a
+// known object such as "performance" survives a settings save. Maps and
+// slices are replaced whole: their keys are data, not schema.
+func mergeObject(kept, fresh map[string]json.RawMessage, t reflect.Type) (map[string]json.RawMessage, error) {
+	fields := jsonFields(t)
+	out := map[string]json.RawMessage{}
+	for k, v := range kept {
+		if _, modelled := fields[k]; !modelled {
+			out[k] = v
+		}
+	}
+	for k, v := range fresh {
+		if sub := structOf(fields[k]); sub != nil {
+			if old, ok := kept[k]; ok {
+				oldObj, err := rawObject(old)
+				if err != nil {
+					return nil, err
+				}
+				if oldObj != nil {
+					freshObj, err := rawObject(v)
+					if err != nil {
+						return nil, err
+					}
+					inner, err := mergeObject(oldObj, freshObj, sub)
+					if err != nil {
+						return nil, err
+					}
+					if v, err = json.Marshal(inner); err != nil {
+						return nil, err
+					}
+				}
+			}
+		}
+		out[k] = v
+	}
+	return out, nil
+}
+
+// structOf returns the struct type behind t (through pointers), or nil when t
+// is not a struct.
+func structOf(t reflect.Type) reflect.Type {
+	for t != nil && t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t == nil || t.Kind() != reflect.Struct {
+		return nil
+	}
+	return t
+}
+
+// rawObject decodes raw as a JSON object. It returns nil, not an error, when
+// raw is some other JSON value (null, a number), so the caller uses the fresh
+// value instead.
+func rawObject(raw json.RawMessage) (map[string]json.RawMessage, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return nil, nil
+	}
+	obj := map[string]json.RawMessage{}
+	if err := json.Unmarshal(trimmed, &obj); err != nil {
+		return nil, err
+	}
+	return obj, nil
 }
 
 // writeAtomic replaces path with data via a synced temporary file (0600).

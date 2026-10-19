@@ -359,7 +359,11 @@ func TestCheckpointRestoreCallsRestoreTo(t *testing.T) {
 	if _, ok := m.topModal().(*listConfirm); !ok {
 		t.Fatalf("enter should ask before restoring, top is %T", m.topModal())
 	}
-	gitKey(m, "y")
+	cmd := send(m, "y")
+	if _, ok := m.topModal().(*busyWait); !ok || len(rb.restored) != 0 {
+		t.Fatalf("restore should wait behind a busy modal before RestoreTo runs, top %T restored %v", m.topModal(), rb.restored)
+	}
+	gitPump(m, cmd)
 	if len(rb.restored) != 1 || rb.restored[0] != 2 {
 		t.Fatalf("RestoreTo should be called with turn 2, got %v", rb.restored)
 	}
@@ -391,7 +395,11 @@ func TestUndoConfirmListsFilesAndReportsInChat(t *testing.T) {
 	if !strings.Contains(lc.Confirm.message, "d.md") || !strings.Contains(lc.Confirm.message, "e.md") {
 		t.Fatalf("confirm should list the files that will be reverted: %q", lc.Confirm.message)
 	}
-	gitKey(m, "y")
+	cmd := send(m, "y")
+	if _, ok := m.topModal().(*busyWait); !ok || rb.undone != 0 {
+		t.Fatalf("undo should wait behind a busy modal before Undo runs, top %T undone %d", m.topModal(), rb.undone)
+	}
+	gitPump(m, cmd)
 	if rb.undone != 1 {
 		t.Fatalf("expected one undo, got %d", rb.undone)
 	}

@@ -350,7 +350,7 @@ func (m *Manager) connect(parent context.Context, name string) {
 		old.Close()
 	}
 
-	ctx, cancel := context.WithTimeout(parent, m.opts.StartTimeout)
+	ctx, cancel := context.WithTimeout(parent, startTimeout(spec, m.opts.StartTimeout))
 	defer cancel()
 	c, list, err := connect(ctx, name, spec, m.opts.ClientVersion, func(method string) {
 		if method == "notifications/tools/list_changed" {
@@ -453,9 +453,10 @@ func (m *Manager) refresh(name string, gen int) {
 		return
 	}
 	c := s.client
+	limit := startTimeout(s.spec, m.opts.StartTimeout)
 	m.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), m.opts.StartTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	list, err := c.listTools(ctx)
 
@@ -601,6 +602,16 @@ func (m *Manager) allowSession(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.allowed[name] = true
+}
+
+// startTimeout is the start limit for one server: its own start_timeout when
+// the config sets one, else the manager's default. Seconds in the config, to
+// match the per-call timeout; the spec's millisecond unit was not adopted.
+func startTimeout(spec config.MCPServer, def time.Duration) time.Duration {
+	if spec.StartTimeout > 0 {
+		return time.Duration(spec.StartTimeout) * time.Second
+	}
+	return def
 }
 
 // call runs one tool on a ready server, bounded by the server's timeout or CallTimeout.

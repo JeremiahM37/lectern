@@ -178,8 +178,10 @@ func TestW33DFooterListsEditedFilesWhenTheSubagentFails(t *testing.T) {
 	if !strings.Contains(res.Output, "Files edited: notes.txt") {
 		t.Fatalf("a failed subagent's footer must list the file it edited:\n%s", res.Output)
 	}
-	if !res.IsError {
-		t.Fatalf("no task finished, but IsError is false")
+	// Spec 03 §3.6: a failed subagent with reads, edits or findings is
+	// salvaged and counts as done, marked as stopped early.
+	if res.IsError || !strings.Contains(res.Output, "stopped early") {
+		t.Fatalf("a salvaged subagent must count as done and say it stopped early (IsError=%v):\n%s", res.IsError, res.Output)
 	}
 }
 

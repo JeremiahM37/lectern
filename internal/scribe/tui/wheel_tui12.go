@@ -76,3 +76,55 @@ func (p *Picker) wheel(dir int, now time.Time) tea.Cmd {
 	}
 	return p.fireCursor()
 }
+
+// popupWheelState is the burst state for the open autocomplete or history
+// popup. Only the active tab's popup is ever on screen, so one burst state is
+// enough; a tab switch within a tick or two only decays it.
+var popupWheelState listWheel
+
+// wheelPopup moves the open autocomplete or Ctrl+R history list by one compact
+// step per wheel tick. It reports false when no popup is open or the event is
+// not a wheel tick, so the wheel falls through to the transcript.
+func (m *Model) wheelPopup(msg tea.MouseMsg) bool {
+	return m.wheelPopupAt(msg, time.Now())
+}
+
+// wheelPopupAt is wheelPopup at a given time, so tests can pace the ticks.
+func (m *Model) wheelPopupAt(msg tea.MouseMsg, now time.Time) bool {
+	dir := 0
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		dir = -1
+	case tea.MouseButtonWheelDown:
+		dir = 1
+	default:
+		return false
+	}
+	t := m.cur()
+	if t == nil || t.in == nil {
+		return false
+	}
+	return t.in.stepPopup(m, dir, now)
+}
+
+// stepPopup moves the highlighted row of the open popup by dir, on the compact
+// profile. It reports whether a popup was open.
+func (s *inputState) stepPopup(m *Model, dir int, now time.Time) bool {
+	if s.search != nil {
+		n := popupWheelState.stepCompact(now)
+		s.search.sel = clamp(s.search.sel+dir*n, 0, max(0, len(s.search.matches)-1))
+		return true
+	}
+	switch s.popupKind() {
+	case "slash":
+		n := popupWheelState.stepCompact(now)
+		s.acSel = clamp(s.acSel+dir*n, 0, max(0, len(s.slashMatches())-1))
+	case "mention":
+		q, _ := s.mentionToken()
+		n := popupWheelState.stepCompact(now)
+		s.acSel = clamp(s.acSel+dir*n, 0, max(0, len(m.cur().be.FileCandidates(q, 8))-1))
+	default:
+		return false
+	}
+	return true
+}

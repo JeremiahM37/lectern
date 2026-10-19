@@ -93,7 +93,11 @@ func TestRedoFlashNamesEveryReappliedTurn(t *testing.T) {
 	}}
 	b := &cpBrowser{m: m, be: be, th: m.th}
 	b.reload()
-	b.redo()
+	cmd := b.redo()
+	if _, ok := m.topModal().(*busyWait); !ok {
+		t.Fatalf("redo should run behind a busy modal, top is %T", m.topModal())
+	}
+	runCmd(m, cmd)
 	want := "Redid turns 2 and 3 (3 files)"
 	if m.flash != want {
 		t.Fatalf("flash = %q, want %q", m.flash, want)

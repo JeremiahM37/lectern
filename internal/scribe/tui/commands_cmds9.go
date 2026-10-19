@@ -361,33 +361,47 @@ func undoMany(m *Model, count string) tea.Cmd {
 		return cmdErrText("Usage: /undo [n], where n is a positive number of turns")
 	}
 	t := m.cur()
-	done := 0
-	var files int
-	for i := 0; i < n; i++ {
-		cp, err := t.be.Undo()
-		if err != nil {
-			if done == 0 {
-				return cmdErrText("Undo failed: " + err.Error())
+	// The undos run off the UI loop; Busy() stays true behind the wait modal
+	// until the result is applied, so no key acts on a half-restored tree.
+	return m.runBusy("Undoing", func() func() tea.Cmd {
+		done, files := 0, 0
+		var stopErr error
+		for i := 0; i < n; i++ {
+			cp, err := t.be.Undo()
+			if err != nil {
+				stopErr = err
+				break
 			}
-			t.chat.AddSystem("error", fmt.Sprintf("Undo stopped after %d turn(s): %v", done, err))
-			break
+			done++
+			files += len(cp.Files)
 		}
-		done++
-		files += len(cp.Files)
-	}
-	t.browse = -1
-	msg := fmt.Sprintf("Undid %d turn(s): %d files restored. /redo brings them back.", done, files)
-	t.chat.AddSystem("info", msg)
-	return flashCmd("ok", msg)
+		return func() tea.Cmd {
+			if done == 0 && stopErr != nil {
+				return cmdErrText("Undo failed: " + stopErr.Error())
+			}
+			if stopErr != nil {
+				t.chat.AddSystem("error", fmt.Sprintf("Undo stopped after %d turn(s): %v", done, stopErr))
+			}
+			t.browse = -1
+			msg := fmt.Sprintf("Undid %d turn(s): %d files restored. /redo brings them back.", done, files)
+			t.chat.AddSystem("info", msg)
+			return flashCmd("ok", msg)
+		}
+	})
 }
 
 // redoCommand re-applies the last undone turn.
 func redoCommand(m *Model) tea.Cmd {
-	cp, err := m.cur().be.Redo()
-	if err != nil {
-		return cmdErr(err)
-	}
-	return redone(m, cp)
+	be := m.cur().be
+	return m.runBusy("Redoing", func() func() tea.Cmd {
+		cp, err := be.Redo()
+		return func() tea.Cmd {
+			if err != nil {
+				return cmdErr(err)
+			}
+			return redone(m, cp)
+		}
+	})
 }
 
 // hookCommand is /hooks: a list of events with their switch state, and
