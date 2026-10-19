@@ -811,6 +811,7 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 	// reasoning model sometimes stops after a token or two; asking again
 	// usually gets the answer (QA41: 3 of 3 headless runs failed this way).
 	emptyRetries := 0
+	compactionResends := 0
 	silent := 0 // reminders sent for a reply that ended silently after tools
 	var final string
 	for step := 1; ; step++ {
@@ -861,6 +862,13 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 		calls := msg.ToolCalls()
 		if len(calls) == 0 {
 			final = msg.Text()
+			// A reply that is only a server compaction block has no text yet.
+			// The block is already in history, so the same request is sent
+			// again and the model carries on from the summary.
+			if strings.TrimSpace(final) == "" && hasCompactionPart(msg) && compactionResends < 2 {
+				compactionResends++
+				continue
+			}
 			if strings.TrimSpace(final) == "" && finish != llm.FinishLength && emptyRetries < 2 {
 				emptyRetries++
 				// Drop the empty reply: some providers refuse an empty
@@ -2369,4 +2377,14 @@ func (a *Agent) afterToolResults() bool {
 	defer a.mu.Unlock()
 	n := len(a.msgs)
 	return n >= 2 && a.msgs[n-2].Role == llm.RoleTool
+}
+
+// hasCompactionPart reports whether a message carries a server compaction block.
+func hasCompactionPart(m llm.Message) bool {
+	for _, p := range m.Parts {
+		if p.Type == llm.PartCompaction {
+			return true
+		}
+	}
+	return false
 }
