@@ -197,6 +197,10 @@ type Request struct {
 	// (code_execution_20250825, with its beta flag). false leaves the request
 	// unchanged.
 	CodeExecution bool
+	// Container is the code-execution container id from an earlier response.
+	// Sent with CodeExecution, it keeps the same sandbox (files, variables).
+	// Empty starts a new container.
+	Container string
 	// ComputerUse adds Anthropic's computer-use tool to the request
 	// (computer_20251124, with its beta flag). The model can only ask for
 	// clicks and keystrokes; the caller must execute them. false leaves the
@@ -228,6 +232,7 @@ const (
 	EvToolCallDelta EventType = "tool_call_delta" // ToolCallID, ArgsDelta (partial JSON)
 	EvToolCallEnd   EventType = "tool_call_end"   // ToolCallID, ToolName, Args complete
 	EvCompaction    EventType = "compaction"      // Text is the whole server compaction summary
+	EvContainer     EventType = "container"       // Text is the code-execution container id to reuse
 	EvFinish        EventType = "finish"          // FinishReason, Usage
 	EvError         EventType = "error"           // Err
 )

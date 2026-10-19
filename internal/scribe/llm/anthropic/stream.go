@@ -70,7 +70,10 @@ type wireEvent struct {
 	Type    string `json:"type"`
 	Index   int    `json:"index"`
 	Message *struct {
-		Usage wireUsage `json:"usage"`
+		Usage     wireUsage `json:"usage"`
+		Container *struct {
+			ID string `json:"id"`
+		} `json:"container"`
 	} `json:"message"`
 	ContentBlock *struct {
 		Type     string `json:"type"`
@@ -144,6 +147,9 @@ func (s *streamState) apply(data []byte) (evs []llm.Event, done bool, err error)
 	case "message_start":
 		if ev.Message != nil {
 			s.mergeUsage(ev.Message.Usage)
+			if c := ev.Message.Container; c != nil && c.ID != "" {
+				evs = append(evs, llm.Event{Type: llm.EvContainer, Text: c.ID})
+			}
 		}
 
 	case "content_block_start":

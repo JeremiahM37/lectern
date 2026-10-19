@@ -41,7 +41,7 @@ type Runner struct {
 
 // New returns a Runner that runs its commands on this machine.
 func New() *Runner {
-	return &Runner{run: localRun, owner: fmt.Sprintf("scribe-%d", os.Getpid())}
+	return &Runner{run: localRun, owner: fmt.Sprintf("scribe%d", os.Getpid())}
 }
 
 // localRun runs one desktop script with bash, as the driver expects.

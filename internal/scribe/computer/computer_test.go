@@ -160,3 +160,14 @@ func TestToActionNamesEveryAction(t *testing.T) {
 		t.Fatal("an unsupported action must be refused")
 	}
 }
+
+// The desktop driver accepts only letters and digits in the owner id. A
+// hyphen here made every real session fail on its first screenshot.
+func TestOwnerIdPassesTheDriverCheck(t *testing.T) {
+	r := New()
+	if _, err := desktop.Start(context.Background(), func(context.Context, string) (string, error) {
+		return "", nil
+	}, r.owner, Width, Height); err != nil && strings.Contains(err.Error(), "invalid owner id") {
+		t.Fatalf("owner %q is rejected: %v", r.owner, err)
+	}
+}

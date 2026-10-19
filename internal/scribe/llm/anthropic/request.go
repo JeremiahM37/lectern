@@ -54,6 +54,7 @@ type wireRequest struct {
 	ServiceTier  string            `json:"service_tier,omitempty"`
 	Speed        string            `json:"speed,omitempty"`
 	Metadata     map[string]string `json:"metadata,omitempty"`
+	Container    string            `json:"container,omitempty"`
 	// ContextManagement carries server-side context edits. It is nil unless a
 	// setting asked for one, so the body is unchanged by default.
 	ContextManagement *wireContextManagement `json:"context_management,omitempty"`
@@ -335,6 +336,9 @@ func buildWire(req llm.Request) (wireRequest, error) {
 	// keeps the body it always had.
 	if req.CodeExecution {
 		body.Tools = append(body.Tools, block{"type": codeExecutionTool, "name": "code_execution"})
+	}
+	if req.CodeExecution && req.Container != "" {
+		body.Container = req.Container
 	}
 	if req.ComputerUse {
 		body.Tools = append(body.Tools, block{

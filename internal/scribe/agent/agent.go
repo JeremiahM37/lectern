@@ -217,10 +217,11 @@ type Agent struct {
 	learned map[string]int
 	// gen counts history replacements (compaction, reset, resume); it is
 	// part of tools.Env.Scope so per-context tool memory starts over.
-	gen      int
-	planExec bool // carrying out a plan approved this turn (plan_exec.go)
-	running  bool
-	stopTurn bool
+	gen       int
+	planExec  bool   // carrying out a plan approved this turn (plan_exec.go)
+	container string // code-execution container to reuse, from the last response (guarded by mu)
+	running   bool
+	stopTurn  bool
 	// premature is why the turn is ending before the model finished (set by
 	// loop, read by Run for the notice and the Notification hook).
 	premature string
@@ -1641,6 +1642,7 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 	}
 	sctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	req.Container = a.containerID()
 	ch, err := m.Provider.Stream(sctx, req)
 	if err != nil {
 		return llm.Message{}, "", err
@@ -1735,6 +1737,8 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 				flushText()
 				reason.WriteString(ev.Text)
 				a.emit(Event{Kind: EvReasoning, Text: ev.Text, Step: step})
+			case llm.EvContainer:
+				a.setContainer(ev.Text)
 			case llm.EvCompaction:
 				hasContent = true
 				compaction = ev.Text
@@ -2043,6 +2047,21 @@ func (a *Agent) runComputer(ctx context.Context, args json.RawMessage) tools.Res
 		return tools.Errorf("mode_restricted: %s mode is read-only, so the computer tool cannot run. %s", mode, restrictedNext(mode))
 	}
 	return a.opts.Computer.Run(ctx, a.opts.Env.Host, args)
+}
+
+// containerID is the code-execution container the session reuses, or "".
+func (a *Agent) containerID() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.container
+}
+
+// setContainer records the container a response named, so the next request
+// reuses it.
+func (a *Agent) setContainer(id string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.container = id
 }
 
 // dropOldImages clears the screenshots in earlier tool results. Only the newest
