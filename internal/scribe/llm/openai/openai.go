@@ -108,21 +108,27 @@ func (p *Provider) modelsTimeout() time.Duration {
 // ---- request ---------------------------------------------------------------
 
 type wireRequest struct {
-	Model               string          `json:"model"`
-	Messages            []wireMessage   `json:"messages"`
-	Tools               []wireTool      `json:"tools,omitempty"`
-	ToolChoice          any             `json:"tool_choice,omitempty"`
-	MaxTokens           int             `json:"max_tokens,omitempty"`
-	MaxCompletionTokens int             `json:"max_completion_tokens,omitempty"`
-	Temperature         *float64        `json:"temperature,omitempty"`
-	ReasoningEffort     string          `json:"reasoning_effort,omitempty"`
-	Reasoning           *wireReasoning  `json:"reasoning,omitempty"`
-	Thinking            *wireThinking   `json:"thinking,omitempty"`
-	Verbosity           string          `json:"verbosity,omitempty"`
-	ParallelToolCalls   *bool           `json:"parallel_tool_calls,omitempty"`
-	ServiceTier         string          `json:"service_tier,omitempty"`
-	Stream              bool            `json:"stream"`
-	StreamOptions       *wireStreamOpts `json:"stream_options,omitempty"`
+	Model               string         `json:"model"`
+	Messages            []wireMessage  `json:"messages"`
+	Tools               []wireTool     `json:"tools,omitempty"`
+	ToolChoice          any            `json:"tool_choice,omitempty"`
+	MaxTokens           int            `json:"max_tokens,omitempty"`
+	MaxCompletionTokens int            `json:"max_completion_tokens,omitempty"`
+	Temperature         *float64       `json:"temperature,omitempty"`
+	ReasoningEffort     string         `json:"reasoning_effort,omitempty"`
+	Reasoning           *wireReasoning `json:"reasoning,omitempty"`
+	Thinking            *wireThinking  `json:"thinking,omitempty"`
+	Verbosity           string         `json:"verbosity,omitempty"`
+	// ReasoningFormat is Groq's reasoning_format. Only Groq sends it.
+	ReasoningFormat string `json:"reasoning_format,omitempty"`
+	// EnableThinking and ThinkingBudget are DashScope's thinking switch and
+	// token budget. Only DashScope sends them.
+	EnableThinking    *bool           `json:"enable_thinking,omitempty"`
+	ThinkingBudget    int             `json:"thinking_budget,omitempty"`
+	ParallelToolCalls *bool           `json:"parallel_tool_calls,omitempty"`
+	ServiceTier       string          `json:"service_tier,omitempty"`
+	Stream            bool            `json:"stream"`
+	StreamOptions     *wireStreamOpts `json:"stream_options,omitempty"`
 }
 
 // wireReasoning is OpenRouter's unified reasoning object. Effort and
@@ -354,6 +360,20 @@ func (p *Provider) buildBody(req llm.Request) ([]byte, error) {
 	}
 	if t := deepSeekThinkingType(req.DeepSeekThinking); t != "" && sendsDeepSeekThinking(p.opts.ID, req.Model) {
 		w.Thinking = &wireThinking{Type: t}
+	}
+	// Each of these is sent only by its own provider id, so a provider that
+	// is not Groq or DashScope never sees the field.
+	if p.opts.ID == "groq" && req.ReasoningFormat != "" {
+		w.ReasoningFormat = req.ReasoningFormat
+	}
+	if p.opts.ID == "dashscope" {
+		if req.DashScopeThinking == "on" {
+			on := true
+			w.EnableThinking = &on
+		}
+		if req.ThinkingBudget > 0 {
+			w.ThinkingBudget = req.ThinkingBudget
+		}
 	}
 	w.ServiceTier = req.ServiceTier
 	if !p.opts.NoStreamUsage {

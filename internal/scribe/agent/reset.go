@@ -39,6 +39,13 @@ func RunClearing(ctx context.Context, a *Agent, p *Planner, prompt string, image
 		a.emit(Event{Kind: EvNotice, Text: "Plan approved: context cleared. Implementing in a fresh conversation in Default mode."})
 		stats, err = a.Run(ctx, clearedPlanMessage(c), nil)
 	}
+	// An approved plan runs as its own turn, after the turn that approved it
+	// (spec 03 §2.3).
+	if p != nil {
+		if s, ran, e := RunPendingExecution(ctx, a, p); ran {
+			stats, err = s, e
+		}
+	}
 	if p != nil {
 		p.settle(err == nil && ctx.Err() == nil)
 	}

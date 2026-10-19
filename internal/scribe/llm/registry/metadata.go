@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 
@@ -161,4 +162,24 @@ func (r *Registry) probe(ctx context.Context, base string) bool {
 		return true
 	}
 	return false
+}
+
+// groupByVendor orders a gateway's listing so each vendor's models sit
+// together, vendors alphabetically. The sort is stable, so the provider's own
+// order holds within a vendor. A gateway's ids are "<vendor>/<model>"; an id
+// with no slash is its own group, sorted by its whole id.
+func groupByVendor(models []llm.ModelInfo) []llm.ModelInfo {
+	sort.SliceStable(models, func(i, j int) bool {
+		return vendorOf(models[i].ID) < vendorOf(models[j].ID)
+	})
+	return models
+}
+
+// vendorOf is the id part before the first slash, or the whole id.
+func vendorOf(modelID string) string {
+	vendor, _ := llm.SplitModelRef(modelID)
+	if vendor == "" {
+		return modelID
+	}
+	return vendor
 }

@@ -20,6 +20,7 @@ const (
 	PickAgent   = "agent"
 	PickCommand = "command"
 	PickModel   = "model"
+	PickHistory = "history" // a prompt picked from Ctrl+R history search
 )
 
 // FrecencyCap bounds how many keys are remembered per kind. The least

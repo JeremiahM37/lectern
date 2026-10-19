@@ -102,9 +102,13 @@ var modelLogKinds = map[EventKind]bool{
 
 // Call sources, as recorded in a model-log entry's Meta["source"].
 const (
-	callSourceMain     = "main"
-	callSourceSubagent = "subagent"
+	callSourceMain       = "main"
+	callSourceSubagent   = "subagent"
+	callSourceCompaction = "compaction"
 )
+
+// metaTab is the Meta key for the TUI tab that made a model call.
+const metaTab = "tab"
 
 // Call states, as recorded in a model-log entry's Meta["state"].
 const (

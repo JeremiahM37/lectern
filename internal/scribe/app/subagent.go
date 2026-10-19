@@ -14,6 +14,12 @@ import (
 //
 // tier_routing off sends every subagent to the parent model, whatever the
 // slots name, as it did before the slots were honoured.
+//
+// The spec's spark and ember tiers (spec 03 section 3.3) are not separate
+// settings here. Spark is the explore slot (r.Explore) and ember is the code
+// slot (r.Code), and the slots fall back to r.Default. That is the decision
+// for REAUDIT5 03#83: the slots replace classifyTask and selectModel, and
+// config.Router gains no spark or ember keys.
 func subagentRef(r config.Router, spec agent.SubagentSpec, tierRouting bool) string {
 	if !tierRouting {
 		return ""
@@ -77,13 +83,18 @@ func withReadCache(reg *tools.Registry, bus *agent.AgentBus) *tools.Registry {
 }
 
 // withReadCacheFor is withReadCache for the subagent id. The id is what the
-// cache notes name, so the subagent's row can show its cache state.
+// cache notes name, so the subagent's row can show its cache state. Every
+// other tool goes through the bus's result cache (spec 03 section 3.7): read-only
+// calls are answered from it, and calls that may write clear what they could
+// have changed. The read tool keeps its own cache, keyed by file stamp.
 func withReadCacheFor(reg *tools.Registry, bus *agent.AgentBus, id string) *tools.Registry {
 	out := tools.NewRegistry()
 	for _, n := range reg.Names() {
 		t, _ := reg.Get(n)
 		if n == "read" {
 			t = agent.ReadCacheTool(t, bus, id)
+		} else {
+			t = agent.ResultCacheTool(t, bus, id)
 		}
 		out.Register(t)
 	}

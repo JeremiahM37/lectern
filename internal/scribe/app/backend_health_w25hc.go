@@ -36,8 +36,14 @@ type healthSource struct {
 	run   func() []tui.HealthBackend
 }
 
-// HealthChecks implements tui.HealthChecker.
+// HealthChecks implements tui.HealthChecker. It is the quick checks only, so
+// it returns within healthBudget. The popup uses HealthChecksStream instead.
 func (b *scribeBackend) HealthChecks() []tui.HealthBackend {
+	return b.quickHealth()
+}
+
+// quickHealth runs the checks that answer within healthBudget.
+func (b *scribeBackend) quickHealth() []tui.HealthBackend {
 	a := b.current()
 	times := newDialTimes()
 	sources := []healthSource{

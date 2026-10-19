@@ -81,6 +81,10 @@ func TestPlanExecuteLiftsRestrictionsAndSavesPlan(t *testing.T) {
 	if stats.Error != "" {
 		t.Fatalf("stats.Error = %q", stats.Error)
 	}
+	// Approval ends the turn; the plan then runs as a turn of its own.
+	if _, ran, err := RunPendingExecution(context.Background(), h.agent, h.planner); !ran || err != nil {
+		t.Fatalf("approved plan did not run: ran=%v err=%v", ran, err)
+	}
 
 	if h.agent.Mode() != "default" {
 		t.Fatalf("mode after Execute = %q", h.agent.Mode())
@@ -155,6 +159,9 @@ func TestPlanReviseReturnsFeedbackAndReplans(t *testing.T) {
 	))
 	_, err := h.agent.Run(context.Background(), "add tests", nil)
 	must(t, err)
+	if _, ran, err := RunPendingExecution(context.Background(), h.agent, h.planner); !ran || err != nil {
+		t.Fatalf("approved plan did not run: ran=%v err=%v", ran, err)
+	}
 
 	reqs := h.fake.requests()
 	if len(reqs) != 3 {

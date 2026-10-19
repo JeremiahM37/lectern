@@ -31,6 +31,10 @@ const (
 	staleRefreshAt = 30 * time.Second
 )
 
+// maxErrorRows caps the error log. The oldest rows go first, so a long session
+// keeps its recent faults and the errors view stays short enough to scan.
+const maxErrorRows = 200
+
 // addError records one fault in the error log. A repeat of a fault already in
 // the log (same source, tab and text) does not add a row: the row moves to the
 // newest place and counts the repeat, so a tool that fails in a loop cannot
@@ -53,6 +57,14 @@ func (m *Model) addError(tab, source, text string, at time.Time) {
 		}
 	}
 	m.errLog = append(m.errLog, errEntry{At: at, Tab: tab, Source: source, Text: text, Count: 1})
+	m.capErrorLog()
+}
+
+// capErrorLog drops the oldest rows once the log is over maxErrorRows.
+func (m *Model) capErrorLog() {
+	if n := len(m.errLog); n > maxErrorRows {
+		m.errLog = append([]errEntry(nil), m.errLog[n-maxErrorRows:]...)
+	}
 }
 
 // logErrorFrom records a fault from source against tab t and marks the tab

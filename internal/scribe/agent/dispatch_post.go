@@ -2,7 +2,11 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -264,6 +268,82 @@ func (b *board) labels() map[string]string {
 	out := make(map[string]string, len(b.infos))
 	for _, info := range b.infos {
 		out[info.ID] = info.Role + ": " + firstLine(clip(info.Task, 60))
+	}
+	return out
+}
+
+// relTarget is path as a key in the workdir's terms: relative to workdir when
+// it lies inside it, cleaned otherwise. Edit results and task targets may name
+// the same file either way.
+func relTarget(workdir, path string) string {
+	p := filepath.Clean(path)
+	if workdir != "" && filepath.IsAbs(p) {
+		if rel, err := filepath.Rel(workdir, p); err == nil && !strings.HasPrefix(rel, "..") {
+			return rel
+		}
+	}
+	return p
+}
+
+// digestFile is the SHA-256 of the file at path (relative paths are taken
+// under workdir). It is "" when the file cannot be read, so a file that did
+// not exist before an edit never counts as unchanged.
+func digestFile(workdir, path string) string {
+	full := path
+	if !filepath.IsAbs(full) {
+		full = filepath.Join(workdir, path)
+	}
+	data, err := os.ReadFile(full)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// filesEditedSection is the Files Edited section (spec 03 §3.8 step 1): each
+// file a task edited, with the agents that edited it. A file more than one
+// agent edited is flagged, since their edits were not coordinated. It is ""
+// when no task edited a file.
+func filesEditedSection(results []taskResult) string {
+	owners := map[string][]int{}
+	for i, r := range results {
+		for _, f := range r.edited {
+			if !slices.Contains(owners[f], i+1) {
+				owners[f] = append(owners[f], i+1)
+			}
+		}
+	}
+	if len(owners) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Files Edited\n")
+	for _, f := range sortedKeys(owners) {
+		fmt.Fprintf(&b, "- %s (edited by agents %s)", f, joinInts(owners[f]))
+		if len(owners[f]) > 1 {
+			b.WriteString(" WARNING: more than one agent edited this file; check the merged result")
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// archiveLinks names the full text of each task report archiveReports saved
+// to dir (spec 03 §3.8 step 1), one line per agent. It runs after
+// archiveReports. A report that was short enough to show whole was not saved,
+// so there is no file to name.
+func archiveLinks(ids []string, dir, callID string) []string {
+	if dir == "" {
+		return nil
+	}
+	var out []string
+	for i, id := range ids {
+		path := filepath.Join(dir, archiveName(callID+"-"+id)+".txt")
+		if _, err := os.Stat(path); err == nil {
+			out = append(out, fmt.Sprintf("agent %d: %s", i+1, path))
+		}
 	}
 	return out
 }

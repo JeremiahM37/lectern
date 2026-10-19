@@ -75,6 +75,30 @@ const contextManagementBeta = "context-management-2025-06-27"
 // clearToolUsesKeep is how many of the latest tool uses survive a clear.
 const clearToolUsesKeep = 5
 
+// compactionBeta is the beta flag the server-side compaction edit needs.
+const compactionBeta = "compact-2026-01-12"
+
+// compactMinWindow is the smallest context window that gets server
+// compaction. Smaller models keep the client-side summary path.
+const compactMinWindow = 200000
+
+// compactInstructions is the summary the server writes. It follows spec 03
+// section 8.8: under 2000 tokens, in summary tags, covering what matters for
+// resuming the work.
+const compactInstructions = "Summarise the conversation so far in under 2000 tokens, wrapped in <summary> tags. " +
+	"Cover the files modified, the decisions made, the progress so far and the next steps."
+
+// onlyCompaction reports whether every edit in cm is the compaction edit.
+// That is the case where the context-management beta is not needed.
+func onlyCompaction(cm *wireContextManagement) bool {
+	for _, e := range cm.Edits {
+		if e["type"] != "compact_20260112" {
+			return false
+		}
+	}
+	return true
+}
+
 // contextEdits returns the context management edits req asks for, in a fixed
 // order so the body stays the same from one request to the next. Thinking
 // preservation is sent only when thinking is on for this request, since the
@@ -87,7 +111,42 @@ func contextEdits(req llm.Request, thinking bool) []block {
 	if req.ClearToolUses {
 		edits = append(edits, clearToolUsesEdit(req.ContextWindow))
 	}
+	// Compaction goes last so the bodies of existing users, who never set
+	// it, keep the same edit order they always had.
+	if compactionOn(req) {
+		edits = append(edits, compactEdit(req.ContextWindow))
+	}
 	return edits
+}
+
+// compactionOn reports whether req asks for server compaction and the model
+// has a window large enough for it.
+func compactionOn(req llm.Request) bool {
+	return req.ServerCompaction && req.ContextWindow >= compactMinWindow
+}
+
+// compactEdit is the server compaction edit. It triggers at the larger of
+// 160 000 input tokens and 80% of the window, as spec 03 section 8.8 sets.
+func compactEdit(window int) block {
+	return block{
+		"type":         "compact_20260112",
+		"trigger":      block{"type": "input_tokens", "value": max(160000, window*80/100)},
+		"instructions": compactInstructions,
+	}
+}
+
+// hasEdit reports whether a context_management block carries an edit of
+// the given type.
+func hasEdit(cm *wireContextManagement, typ string) bool {
+	if cm == nil {
+		return false
+	}
+	for _, e := range cm.Edits {
+		if e["type"] == typ {
+			return true
+		}
+	}
+	return false
 }
 
 // clearToolUsesEdit is the clear_tool_uses edit. It triggers at the larger of
@@ -126,11 +185,17 @@ func betaFeatures(req llm.Request) []string {
 	if fastSpeed(req) {
 		out = append(out, fastModeBeta)
 	}
-	// The flag is needed only when the body carries an edit. A setting that
-	// is on but has nothing to act on (thinking off) adds neither.
-	if req.ClearThinking || req.ClearToolUses {
+	// The flags are needed only when the body carries an edit. A setting that
+	// is on but has nothing to act on (thinking off, window too small) adds
+	// neither.
+	if req.ClearThinking || req.ClearToolUses || compactionOn(req) {
 		if w, err := buildWire(req); err == nil && w.ContextManagement != nil {
-			out = append(out, contextManagementBeta)
+			if hasEdit(w.ContextManagement, "compact_20260112") {
+				out = append(out, compactionBeta)
+			}
+			if len(w.ContextManagement.Edits) > 0 && !onlyCompaction(w.ContextManagement) {
+				out = append(out, contextManagementBeta)
+			}
 		}
 	}
 	return out

@@ -195,14 +195,19 @@ func (a *App) toolTimeout() time.Duration {
 }
 
 // RenderMap returns the code map sized for a conversation of
-// conversationTokens tokens (repomap.Budget), focused on focus when given.
-// It is "" until the first build has finished or when the map is off.
+// conversationTokens tokens (budgetFor), focused on focus when given. It is
+// "" until the first build has finished or when the map is off. It never
+// waits for the build, so the TUI and the prompt path can call it freely.
 func (a *App) RenderMap(conversationTokens int, focus []string) string {
 	if a.ext.cmap == nil {
 		return ""
 	}
-	<-a.ext.mapOK
-	return a.ext.cmap.Render(repomap.Budget(conversationTokens), focus)
+	select {
+	case <-a.ext.mapOK:
+	default:
+		return ""
+	}
+	return a.ext.cmap.Render(budgetFor(mapBudget(), conversationTokens), focus)
 }
 
 // shellTools are the tools that can rewrite files the edit tools never

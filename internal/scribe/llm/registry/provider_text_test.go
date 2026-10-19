@@ -27,7 +27,7 @@ func TestBuiltinsHaveDescriptions(t *testing.T) {
 
 // Key pages are listed exactly, so a wrong or guessed URL fails here. A provider
 // gets a page only when its docs confirm the URL; everything else stays empty.
-func TestKeyURLsAreTheConfirmedPages(t *testing.T) {
+func TestKeyURLsAreTheCheckedPages(t *testing.T) {
 	want := map[string]string{
 		"anthropic":  "https://console.anthropic.com/settings/keys",
 		"openai":     "https://platform.openai.com/api-keys",
@@ -35,6 +35,14 @@ func TestKeyURLsAreTheConfirmedPages(t *testing.T) {
 		"openrouter": "https://openrouter.ai/keys",
 		"gemini":     "https://aistudio.google.com/apikey",
 		"groq":       "https://console.groq.com/keys",
+		"xai":        "https://console.x.ai",
+		"mistral":    "https://console.mistral.ai/api-keys",
+		"fireworks":  "https://app.fireworks.ai/account/api-keys",
+		"together":   "https://api.together.ai/settings/projects/~current/api-keys",
+		"cerebras":   "https://cloud.cerebras.ai",
+		"moonshot":   "https://platform.kimi.ai/console/api-keys",
+		"zai":        "https://z.ai/manage-apikey/apikey-list",
+		"minimax":    "https://platform.minimax.io/console/access",
 	}
 	isolate(t)
 	r := New(config.Config{})

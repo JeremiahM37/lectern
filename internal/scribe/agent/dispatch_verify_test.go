@@ -61,10 +61,14 @@ func TestDispatchVerifiesCodeEditsAndFixesFailingCheck(t *testing.T) {
 		{Output: "check passed"},
 	}}
 	h := newDispatchHarness(t, withProject(proj))
+	h.d.Features = &Features{VerifyEdits: true, TargetFileValidation: true, TierRouting: true, DispatchCache: true}
 	usage := &sseUsage{prompt: 100, completion: 10}
 	edit := writeThenReport("parser.go", "package p\n", "edited parser", usage)
 	fix := writeThenReport("parser.go", "package p // fixed\n", "removed the unused variable", usage)
 	h.f.setPick(func(_ int, req recordedReq) reply {
+		if strings.HasPrefix(openingOf(req), "Review the edits") {
+			return turn(sseTurn{text: []string{"VERDICT: PASS"}})
+		}
 		task := lastUserText(req)
 		switch {
 		case strings.Contains(task, "project check failed"):
@@ -116,6 +120,7 @@ func TestDispatchReportsFailingCheckAfterFixAttempt(t *testing.T) {
 		{IsError: true, Output: "parser.go:3: still unused"},
 	}}
 	h := newDispatchHarness(t, withProject(proj))
+	h.d.Features = &Features{VerifyEdits: true, TargetFileValidation: true, TierRouting: true, DispatchCache: true}
 	usage := &sseUsage{prompt: 10, completion: 1}
 	edit := writeThenReport("parser.go", "package p\n", "edited parser", usage)
 	fix := writeThenReport("parser.go", "package p // tried\n", "tried a fix", usage)
@@ -150,9 +155,13 @@ func TestDispatchReportsFailingCheckAfterFixAttempt(t *testing.T) {
 
 func TestDispatchSkipsVerificationWithoutProjectTool(t *testing.T) {
 	h := newDispatchHarness(t, plainRegistry)
+	h.d.Features = &Features{VerifyEdits: true, TargetFileValidation: true, TierRouting: true, DispatchCache: true}
 	usage := &sseUsage{prompt: 10, completion: 1}
 	edit := writeThenReport("parser.go", "package p\n", "edited parser", usage)
 	h.f.setPick(func(_ int, req recordedReq) reply {
+		if strings.HasPrefix(openingOf(req), "Review the edits") {
+			return turn(sseTurn{text: []string{"VERDICT: PASS"}})
+		}
 		if strings.Contains(lastUserText(req), "EDIT-PARSER") {
 			return edit(req)
 		}
@@ -169,8 +178,9 @@ func TestDispatchSkipsVerificationWithoutProjectTool(t *testing.T) {
 	if res.Meta["verification"] != "skipped" {
 		t.Fatalf("Meta[verification] = %v", res.Meta["verification"])
 	}
-	if h.f.count() != 2 {
-		t.Fatalf("%d model requests, want 2 (the code agent only; no fix-up)", h.f.count())
+	// The code agent (2 requests) and the reviewer (1); no fix-up agent.
+	if h.f.count() != 3 {
+		t.Fatalf("%d model requests, want 3 (the code agent and its reviewer; no fix-up)", h.f.count())
 	}
 }
 

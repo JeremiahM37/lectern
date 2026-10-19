@@ -446,6 +446,8 @@ func (b *scribeBackend) Providers() []tui.ProviderStatus {
 			Icon:         p.ASCIIIcon,
 			KeySource:    p.KeySource,
 			DefaultModel: p.DefaultModel,
+			KeyURL:       p.KeyURL,
+			Description:  p.Description,
 		})
 	}
 	return out
@@ -1136,7 +1138,7 @@ func (b *scribeBackend) RebuildMap() {
 		}()
 		if a.ext.cmap.Build(context.Background(), nil) == nil {
 			a.mu.Lock()
-			a.codeMap = a.ext.cmap.Render(budgetOr(mapBudget()), nil)
+			a.codeMap = a.RenderMap(a.conversationTokens(), nil)
 			a.mu.Unlock()
 			a.finishMapBuild(a.ext.cmap)
 		}

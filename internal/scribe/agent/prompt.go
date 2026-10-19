@@ -27,9 +27,15 @@ type PromptInput struct {
 	Skills       string // skills catalog, one line per skill
 	MemoryIndex  string // counts of saved memories per store (memory.Stores.Index)
 	Deferred     string // deferred tool catalog, one line per tool (may be empty)
-	CodeMap      string // rendered code map (may be empty)
-	Extra        string // --system text
-	Subagent     string // "" main agent, else "explore" / "code" / "web" / "desloppify"
+	// CodeMap is no longer rendered into the system prompt (spec 03 §7.1): the
+	// map reaches the conversation as a latched message (codemap_latch.go).
+	// It is kept only so existing callers compile; nothing reads it here.
+	CodeMap string
+	// NoMap is true when the code map tools are not registered, so the tool
+	// guidance must not name them. The zero value keeps the map guidance.
+	NoMap    bool
+	Extra    string // --system text
+	Subagent string // "" main agent, else "explore" / "code" / "web" / "desloppify"
 	// GitHub overrides the gh availability check. nil means detect it once
 	// per process (gh --version succeeds).
 	GitHub *bool
@@ -85,26 +91,45 @@ const howYouWork = `# How you work
 const toolsPrompt = `# Tools
 - read accepts several paths at once; use it to read related files together. Results show line numbers; never include them in edits.
 - edit_file needs old_string to match exactly once (or set replace_all). multi_edit applies several edits to one file atomically. write_file is for new files or full rewrites of files you have read.
-- grep and glob search text and names. find_symbol, symbol_refs, code_impact and file_outline use the code map and are faster for code navigation. navigate and diagnostics use language servers when available.
+- grep and glob search text and names. navigate and diagnostics use language servers when available.
 - shell runs commands in the project directory. Long-running servers or watchers go in background mode; check them with shell_output.
 - dispatch runs subagents in parallel: explore agents to investigate independent questions, code agents for independent, well-specified edits in different files. Give each a complete, self-contained task.
 - task_list keeps a visible checklist for multi-step work. memory saves durable facts (decisions, conventions, gotchas) for future sessions; save only what will matter later. When the user asks you to remember something ("remember that…", "from now on…"), save it with memory in that same turn, then confirm.`
+
+// mapToolsPrompt is added to the tool guidance when the code map is running.
+// Those tools come from the map, so the prompt names them only then.
+const mapToolsPrompt = "\n- find_symbol, symbol_refs, code_impact and file_outline use the code map and are faster for code navigation. Plan from the code map with no tool calls, discover with grep only when the map does not answer, and read in one parallel batch."
 
 const safetyPrompt = `# Safety
 - Destructive commands (deleting outside the project, force pushes, hard resets) need the user's approval; the tool will ask. When the user denies one, that is final for this request: do not rerun it or a variant, do not ask for it again another way, say it was not run and carry on. A denial is a choice, not a block in the tool, and it covers that one command: for any later request, even a similar one, call the tool so the user can decide.
 - Do not read or print secrets. Do not commit, push or open pull requests unless the user asked.`
 
-// basePrompt is the full prompt for the default family: identity, how to
-// work, tools and safety, in that order.
-var basePrompt = identityPrompt + "\n\n" + howYouWork + "\n\n" + toolsPrompt + "\n\n" + safetyPrompt
+// basePromptFor is the full prompt for the default family: identity, how to
+// work, tools and safety, in that order. noMap leaves out the code map tools.
+func basePromptFor(noMap bool) string {
+	work, tools := howYouWork, toolsPrompt
+	if noMap {
+		work = strings.Replace(work, mapWorkPhrase, "Search before reading whole files", 1)
+	} else {
+		tools += mapToolsPrompt
+	}
+	return identityPrompt + "\n\n" + work + "\n\n" + tools + "\n\n" + safetyPrompt
+}
+
+// mapWorkPhrase is the part of howYouWork that depends on the code map.
+const mapWorkPhrase = "Look at the code map and search before reading whole files"
+
+// PromptCaches reports whether the provider for modelRef caches the prompt
+// prefix (spec 04 §4.9): Claude explicitly, Google, OpenAI, DeepSeek and the
+// other named families implicitly. Unknown and local models do not, so their
+// code map is live and not frozen.
+func PromptCaches(modelRef string) bool {
+	return ModelFamily(modelRef) != "default"
+}
 
 // answerVoice is the whole prompt for models that get no tool guidance.
 const answerVoice = `# Answer voice
 Flat and direct. Lead with the answer. Put paths, identifiers, flags and error strings in verbatim form. Keep the length proportional to the work.`
-
-// codeMapPreamble introduces the code map. The map is a snapshot from session
-// start, so the model is told to read a file before it trusts the map for it.
-const codeMapPreamble = "\n# Code map\nThe most central files and their key symbols, ranked by how much of the codebase depends on them. This is a snapshot taken at session start: files may have changed since, so read a file before you edit it.\n\n"
 
 // familyBlocks adds one tone block per model family after the base prompt.
 // The default block covers models with no family of their own (Qwen, Llama,
@@ -272,7 +297,7 @@ func promptKey(in PromptInput, mode string) string {
 	if in.GitHub != nil {
 		gh = fmt.Sprint(*in.GitHub)
 	}
-	field(mode, in.Workdir, in.Date, in.Branch, in.ModelRef, in.Skills, in.Deferred, in.CodeMap, in.Extra, in.Subagent, gh, runtime.GOOS, runtime.GOARCH, in.Commands, in.GitContext, in.MemoryIndex)
+	field(mode, in.Workdir, in.Date, in.Branch, in.ModelRef, in.Skills, in.Deferred, in.Extra, in.Subagent, gh, runtime.GOOS, runtime.GOARCH, in.Commands, in.GitContext, in.MemoryIndex, fmt.Sprint(in.NoMap))
 	for _, ins := range in.Instructions {
 		field(ins.Path, ins.Text, ins.Scope, ins.Name)
 	}
@@ -291,7 +316,7 @@ func buildSystem(in PromptInput, mode string) string {
 		b.WriteString("\n\n")
 		b.WriteString(answerVoice)
 	} else {
-		b.WriteString(basePrompt)
+		b.WriteString(basePromptFor(in.NoMap))
 		if block := familyBlocks[family]; block != "" {
 			b.WriteString("\n\n")
 			b.WriteString(block)
@@ -359,11 +384,6 @@ func buildSystem(in PromptInput, mode string) string {
 	if in.Extra != "" {
 		b.WriteString("\n# Additional instructions\n")
 		b.WriteString(in.Extra)
-		b.WriteString("\n")
-	}
-	if !reasoner && in.CodeMap != "" {
-		b.WriteString(codeMapPreamble)
-		b.WriteString(in.CodeMap)
 		b.WriteString("\n")
 	}
 	return b.String()

@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -189,10 +190,18 @@ func embeddingsURL(base string) string {
 		return b
 	case strings.HasSuffix(b, "/v1"):
 		return b + "/embeddings"
+	case versionSegment.MatchString(b):
+		// A chat base that already names its version, such as Gemini's
+		// .../v1beta/openai, is the path prefix: the endpoint sits under it
+		// with no second /v1 added.
+		return b + "/embeddings"
 	default:
 		return b + "/v1/embeddings"
 	}
 }
+
+// versionSegment matches an API version in a URL path ("/v1", "/v1beta").
+var versionSegment = regexp.MustCompile(`/v[0-9]+[a-z]*(/|$)`)
 
 func clientOr(c *http.Client) *http.Client {
 	if c != nil {

@@ -89,7 +89,10 @@ type Options struct {
 	// System builds the system prompt. It is called once per turn so it
 	// can reflect the current mode; keep its output stable within a turn.
 	System func(mode string) string
-	Mode   string
+	// CodeMap returns the code map text the conversation carries ("" when off).
+	// It is latched into the history, not the system prompt (codemap_latch.go).
+	CodeMap func() string
+	Mode    string
 
 	MaxTokens int
 	Reasoning string
@@ -97,6 +100,9 @@ type Options struct {
 
 	MaxSteps   int // 0 = unlimited (main agent)
 	MaxRetries int // transient retries per step, default 3
+	// TabID is the TUI tab this agent serves. Model-log entries carry it, so
+	// the log can say which tab made each call.
+	TabID string
 
 	// Stream watchdog (spec 03 §5.3). FirstTokenTimeout applies until the
 	// first text or tool call, InterTokenTimeout after that, and StepTimeout
@@ -249,6 +255,8 @@ type Agent struct {
 	latchedMode string
 	// skills is the loaded-skills block for the next turn (SetSkills).
 	skills string
+	// codeMap is what the history was last told about the code map.
+	codeMap codeMapLatch
 	// dispatching counts this agent's dispatch tool calls in flight.
 	dispatching int
 	// waits counts tool calls blocked on an approval or a question. The tool
@@ -510,11 +518,38 @@ func (a *Agent) record(e Event) {
 		if e.Kind == EvError || e.Kind == EvRetry {
 			e.Text = fragment(e.Text, modelErrorTextCap)
 		}
+		e.Meta = a.withTab(e.Meta)
 		a.modelLog = appendEventCapped(a.modelLog, e, modelLogCap)
 	}
 	if compactKind {
 		a.compactLog = appendEventCapped(a.compactLog, e, journalCap)
 	}
+}
+
+// withTab returns meta with the agent's tab id added. It copies the map so
+// the event the sink receives is not changed under its reader.
+func (a *Agent) withTab(meta map[string]any) map[string]any {
+	if a.opts.TabID == "" {
+		return meta
+	}
+	out := make(map[string]any, len(meta)+1)
+	for k, v := range meta {
+		out[k] = v
+	}
+	out[metaTab] = a.opts.TabID
+	return out
+}
+
+// logCall puts a model call into the model log without sending it to the
+// sink. It is for calls and retries the UI already shows another way, or
+// that the loop handles without an event of their own, such as compaction
+// and the option and context-length retries.
+func (a *Agent) logCall(e Event) {
+	e.At = time.Now()
+	if e.AgentID == "" {
+		e.AgentID = a.opts.ID
+	}
+	a.record(e)
 }
 
 // appendEventCapped appends e and keeps only the newest limit events.
@@ -1202,7 +1237,12 @@ func (a *Agent) request(extra ...llm.Message) llm.Request {
 	}
 	offered := a.offeredNames() // takes the lock itself, so call it first
 	specs := a.opts.Tools.Specs(offered)
+	want := ""
+	if a.opts.CodeMap != nil {
+		want = a.opts.CodeMap() // read without the lock: it may call into the app
+	}
 	a.mu.Lock()
+	a.latchCodeMapLocked(want)
 	a.sysChars = len(sys)
 	msgs := append(append([]llm.Message(nil), a.msgs...), extra...)
 	if PruningApplies(a.pruning, a.opts.Budget != nil) {
@@ -1333,14 +1373,20 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 			if !optionRetried {
 				if dropped := a.dropRejected(a.CurrentModel().Ref, cause); len(dropped) > 0 {
 					optionRetried = true
-					a.emit(Event{Kind: EvWarning, Text: fmt.Sprintf(
+					text := fmt.Sprintf(
 						"%s rejected these options (%s), so this step was retried without them. The rest of this turn leaves them out too.",
-						a.CurrentModel().Ref, strings.Join(dropped, ", "))})
+						a.CurrentModel().Ref, strings.Join(dropped, ", "))
+					a.emit(Event{Kind: EvWarning, Text: text})
+					a.logCall(Event{Kind: EvRetry, Model: a.CurrentModel().Ref, Text: text,
+						Duration: lastLatency, Meta: callMeta(source, callStateError)})
 					continue
 				}
 			}
 			if window, long := contextLengthError(cause); long && !contextRetried {
 				contextRetried = true
+				a.logCall(Event{Kind: EvRetry, Model: a.CurrentModel().Ref,
+					Text:     fmt.Sprintf("%s rejected the request as too long (context window %d tokens); the history is compacted and the step retried.", a.CurrentModel().Ref, window),
+					Duration: lastLatency, Meta: callMeta(source, callStateError)})
 				if a.recoverContextLength(ctx, window) {
 					continue
 				}
@@ -2200,7 +2246,9 @@ func (a *Agent) compact(ctx context.Context, reason string, auto bool) error {
 	model := a.CurrentModel().Ref // the compaction log shows which model did the work
 	a.emit(Event{Kind: EvCompactStart, Text: reason, Meta: map[string]any{"model": model}})
 	before := a.Messages()
+	started := time.Now()
 	kept, summary, err := a.opts.Compactor.Compact(ctx, before)
+	a.logCompaction(ctx, model, started, err)
 	if err != nil {
 		// compact_start must always be closed, or the UI keeps its
 		// "compacting" spinner; skipped tells it nothing was replaced.
@@ -2236,6 +2284,23 @@ func (a *Agent) compact(ctx context.Context, reason string, auto bool) error {
 	used, _ := a.ContextEstimate()
 	a.emit(Event{Kind: EvContext, ContextUsed: used, ContextWindow: a.CurrentModel().Info.ContextWindow, Estimated: true})
 	return nil
+}
+
+// logCompaction records the summarising call in the model log, as a call of
+// source compaction. Too little history makes no call, and a stop or quit
+// is not an error, so neither is logged as one.
+func (a *Agent) logCompaction(ctx context.Context, model string, started time.Time, err error) {
+	if errors.Is(err, ErrNotEnoughHistory) {
+		return
+	}
+	state, text := callStateOK, ""
+	if err != nil && ctx.Err() == nil {
+		state, text = callStateError, err.Error()
+	} else if err != nil {
+		return
+	}
+	a.logCall(Event{Kind: EvStepFinish, Model: model, Text: text, Duration: time.Since(started),
+		Meta: callMeta(callSourceCompaction, state)})
 }
 
 // OfferedForTest reports which tool names the next request would carry.

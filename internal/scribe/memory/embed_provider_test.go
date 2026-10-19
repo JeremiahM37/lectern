@@ -72,6 +72,8 @@ func TestEmbeddingsURL(t *testing.T) {
 		"https://gw.example/v1":            "https://gw.example/v1/embeddings",
 		"https://gw.example/v1/":           "https://gw.example/v1/embeddings",
 		"https://gw.example/v1/embeddings": "https://gw.example/v1/embeddings",
+		// Gemini's OpenAI-compatible chat base has a version but no /v1 suffix.
+		"https://generativelanguage.googleapis.com/v1beta/openai": "https://generativelanguage.googleapis.com/v1beta/openai/embeddings",
 	}
 	for in, want := range cases {
 		if got := embeddingsURL(in); got != want {
@@ -173,5 +175,34 @@ func TestProviderErrorNeverCarriesTheKey(t *testing.T) {
 	// The body echo is in the error, so the key itself must not be.
 	if strings.Contains(err.Error(), "sk-secret-123") {
 		t.Errorf("key leaked into error: %v", err)
+	}
+}
+
+// A google/ embedding id reaches Gemini's OpenAI-compatible endpoint under the
+// versioned chat base, and the model name keeps the spec's google/ prefix.
+func TestGoogleEmbedderPostsUnderVersionedBase(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"index":0,"embedding":[3,4]}]}`))
+	}))
+	defer srv.Close()
+	e, err := NewEmbedder("google/text-embedding-004", srv.URL+"/v1beta/openai", "k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Model() != "google/text-embedding-004" {
+		t.Fatalf("model tag = %q", e.Model())
+	}
+	vec, err := e.Embed(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("embed: %v", err)
+	}
+	if gotPath != "/v1beta/openai/embeddings" {
+		t.Fatalf("path = %q, want /v1beta/openai/embeddings", gotPath)
+	}
+	if len(vec) != 2 {
+		t.Fatalf("vector = %v", vec)
 	}
 }

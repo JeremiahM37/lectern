@@ -238,7 +238,7 @@ func (c SummaryCompactor) summarise(ctx context.Context, old []llm.Message) (str
 	if c.Strategy == "v1" {
 		return c.batchSummaryWith(ctx, old, planText(plan))
 	}
-	ws := BuildWorkingState(old)
+	ws := buildWorkingState(old, c.toolResultCap())
 	ws.ToolResults = keepToolResults(ws.ToolResults, c.MaxToolResults)
 	ws.Plan = plan
 	if ws.Slots() == 0 {
@@ -267,6 +267,15 @@ func (c SummaryCompactor) activePlan() *Plan {
 // working state's Plan section holds, so both paths show one plan.
 func planText(p *Plan) string {
 	return strings.Join(planLines(p), "\n")
+}
+
+// toolResultCap is how many tool-result summaries the working state collects:
+// MaxToolResults when it is set, the default otherwise.
+func (c SummaryCompactor) toolResultCap() int {
+	if c.MaxToolResults > 0 {
+		return c.MaxToolResults
+	}
+	return defaultMaxToolResults
 }
 
 // keepToolResults keeps the newest n tool-result summaries. Zero or negative

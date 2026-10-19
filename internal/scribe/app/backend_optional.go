@@ -53,4 +53,5 @@ var (
 	_ tui.LSPStopper          = (*scribeBackend)(nil)
 	_ tui.ProxyManager        = (*scribeBackend)(nil)
 	_ tui.CodexAccount        = (*scribeBackend)(nil)
+	_ tui.SessionOriginer     = (*scribeBackend)(nil)
 )

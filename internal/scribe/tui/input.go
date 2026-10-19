@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/JeremiahM37/lectern/v2/internal/scribe/redact"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
 
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/redact"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -72,6 +73,9 @@ type histSearch struct {
 	query   []rune
 	matches []string
 	sel     int
+	// rank is each history line the person has picked before, by frecency
+	// (0 is the most used). Lines not in it keep their newest-first order.
+	rank map[string]int
 }
 
 func newInputState() *inputState {
@@ -532,16 +536,34 @@ func (s *inputState) histNext() {
 	s.setValue(s.history[len(s.history)-1-s.hidx])
 }
 
-// openSearch starts Ctrl+R.
+// openSearch starts Ctrl+R. The frecency ranking is read once here, not on
+// every key the person types into the search.
 func (s *inputState) openSearch() {
-	s.search = &histSearch{}
+	s.search = &histSearch{rank: searchRank()}
 	s.refreshSearch()
 }
 
+// searchRank maps each history line picked from Ctrl+R to its frecency place.
+// A store that cannot be read gives no ranking, so search falls back to the
+// newest-first order rather than failing.
+func searchRank() map[string]int {
+	keys, err := session.TopPicks(session.PickHistory, 0)
+	if err != nil {
+		return nil
+	}
+	rank := make(map[string]int, len(keys))
+	for i, k := range keys {
+		rank[k] = i
+	}
+	return rank
+}
+
+// refreshSearch rebuilds the hits for the current query. Lines the person has
+// picked come first in frecency order; the rest keep newest-first order.
 func (s *inputState) refreshSearch() {
 	q := strings.ToLower(string(s.search.query))
-	s.search.matches = s.search.matches[:0]
 	seen := map[string]bool{}
+	var hits []string
 	for i := len(s.history) - 1; i >= 0 && len(s.history)-i <= historyKeep; i-- {
 		h := s.history[i]
 		if seen[h] {
@@ -549,12 +571,22 @@ func (s *inputState) refreshSearch() {
 		}
 		seen[h] = true
 		if q == "" || strings.Contains(strings.ToLower(h), q) {
-			s.search.matches = append(s.search.matches, h)
-			if len(s.search.matches) >= historySearchN {
-				break
-			}
+			hits = append(hits, h)
 		}
 	}
+	rank := s.search.rank
+	sort.SliceStable(hits, func(i, j int) bool {
+		ri, iok := rank[hits[i]]
+		rj, jok := rank[hits[j]]
+		if iok != jok {
+			return iok
+		}
+		return iok && ri < rj
+	})
+	if len(hits) > historySearchN {
+		hits = hits[:historySearchN]
+	}
+	s.search.matches = hits
 	s.search.sel = clamp(s.search.sel, 0, max(0, len(s.search.matches)-1))
 }
 
@@ -785,7 +817,9 @@ func (m *Model) searchKey(t *tab, km tea.KeyMsg) tea.Cmd {
 		return nil
 	case "enter":
 		if len(ss.matches) > 0 {
-			s.setValue(ss.matches[ss.sel])
+			chosen := ss.matches[ss.sel]
+			s.setValue(chosen)
+			_ = session.RecordPick(session.PickHistory, chosen) // frecency ranks the next search
 		}
 		s.search = nil
 		return nil

@@ -11,7 +11,10 @@ package tui
 // reason. The older checklist stays as the fallback for backends without it.
 
 import (
+	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -56,6 +59,69 @@ type HealthBackend struct {
 // request.
 type HealthChecker interface {
 	HealthChecks() []HealthBackend
+}
+
+// HealthStreamer is optionally implemented by a Backend whose checks include
+// slow probes, such as a language server asked about a real file. It calls
+// report with the full result so far each time a check finishes, and returns
+// the final result. The popup prefers it over HealthChecker, so the rows fill
+// in as they arrive instead of appearing together at the end.
+type HealthStreamer interface {
+	HealthChecksStream(report func([]HealthBackend)) []HealthBackend
+}
+
+// healthPopupTimeout is the most time one Health Check run may take (spec 02
+// DiagnosePopup: 90 s, then the error "Health check timed out"). A check still
+// running at the deadline is abandoned; its goroutine ends on its own. It is a
+// variable so a test can shorten it.
+var healthPopupTimeout = 90 * time.Second
+
+// healthPollEvery is how often a streaming run hands its partial result to the
+// popup.
+const healthPollEvery = 250 * time.Millisecond
+
+// healthLive is the shared state of one streaming run. The check goroutine
+// writes it and the popup reads it on each poll, so neither waits for the other.
+type healthLive struct {
+	mu       sync.Mutex
+	backends []HealthBackend
+	done     bool
+	err      string
+}
+
+// set replaces the partial result.
+func (l *healthLive) set(bs []HealthBackend) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !l.done {
+		l.backends = bs
+	}
+}
+
+// finish records the final result, or an error, once. A later call is ignored,
+// so a timeout and a late finish cannot both win.
+func (l *healthLive) finish(bs []HealthBackend, errText string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.done {
+		return
+	}
+	if bs != nil {
+		l.backends = bs
+	}
+	l.done, l.err = true, errText
+}
+
+// snapshot returns the partial result and whether the run has ended.
+func (l *healthLive) snapshot() ([]HealthBackend, bool, string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.backends, l.done, l.err
+}
+
+// healthPoll asks a streaming run for its latest partial result.
+type healthPoll struct {
+	gen int
 }
 
 // combinedDiagnoser runs the base checks, then the index probes, then the
@@ -115,12 +181,42 @@ type healthPopup struct {
 	loading  bool
 	gen      int
 	off      int
+	live     *healthLive // set while a streaming run is in flight
+	err      string      // why the last run ended without a full result
 }
 
-// run starts the probes in the background.
+// run starts the probes in the background. A backend that streams gets a
+// poll loop that refreshes the popup until the run ends.
 func (p *healthPopup) run() tea.Cmd {
 	be, gen := p.be, p.gen
-	return func() tea.Msg { return healthDone{gen: gen, backends: be.HealthChecks()} }
+	st, streams := be.(HealthStreamer)
+	if !streams {
+		return func() tea.Msg { return healthDone{gen: gen, backends: be.HealthChecks()} }
+	}
+	live := &healthLive{}
+	p.live, p.err = live, ""
+	time.AfterFunc(healthPopupTimeout, func() {
+		bs, done, _ := live.snapshot()
+		if !done {
+			live.finish(bs, "Health check timed out")
+		}
+	})
+	go func() {
+		// A panic in a check must not take the TUI down. It ends the run with
+		// its text, the same as a rejected promise would.
+		defer func() {
+			if r := recover(); r != nil {
+				live.finish(nil, "check stopped: "+oneLine(fmt.Sprint(r)))
+			}
+		}()
+		live.finish(st.HealthChecksStream(live.set), "")
+	}()
+	return healthPollCmd(gen)
+}
+
+// healthPollCmd waits one poll interval and then asks for the latest result.
+func healthPollCmd(gen int) tea.Cmd {
+	return tea.Tick(healthPollEvery, func(time.Time) tea.Msg { return healthPoll{gen: gen} })
 }
 
 // Title implements Modal.
@@ -146,13 +242,25 @@ func (p *healthPopup) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 			return p, nil, false
 		}
 		p.backends, p.loading, p.off = msg.backends, false, 0
+	case healthPoll:
+		if msg.gen != p.gen || p.live == nil {
+			return p, nil, false
+		}
+		bs, done, errText := p.live.snapshot()
+		if bs != nil {
+			p.backends = bs
+		}
+		if !done {
+			return p, healthPollCmd(p.gen), false
+		}
+		p.loading, p.err, p.live = false, errText, nil
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "esc":
 			return p, nil, true
 		case "r":
 			p.gen++
-			p.loading = true
+			p.loading, p.err = true, ""
 			return p, p.run(), false
 		case "up", "k":
 			p.off = max(0, p.off-1)
@@ -192,6 +300,9 @@ func (p *healthPopup) View(w, h int) string {
 				}
 			}
 		}
+	}
+	if p.err != "" {
+		rows = append(rows, "", fg(th.Error).Render("  "+p.err))
 	}
 	if p.loading {
 		rows = append(rows, "", fg(th.TextFaint).Render("  Running probes again…"))

@@ -449,6 +449,9 @@ func (r *Registry) ListModels(ctx context.Context, id string) ([]llm.ModelInfo, 
 	for i := range models {
 		models[i] = r.enrich(id, models[i])
 	}
+	if groupedProviders[id] {
+		models = groupByVendor(models)
+	}
 	if err != nil {
 		return models, err
 	}

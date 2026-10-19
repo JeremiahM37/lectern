@@ -3,14 +3,17 @@ package app
 import (
 	"path"
 	"strings"
+
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 )
 
-// refreshCodeMap draws the code map the system prompt carries. The map is a
-// snapshot (spec 03 §4.9): it is drawn once, when the first build is done,
-// and again only after a compaction replaced the history. Drawing it on
-// every change would alter the system prompt mid-session, which breaks
-// provider prompt caching; the prompt tells the model the map may be stale
-// and to read a file before editing it, and code_map gives a live view.
+// refreshCodeMap draws the code map the conversation carries. The map is
+// latched into the history, never the system prompt (agent/codemap_latch.go),
+// so a change does not alter the system prompt. Providers that cache the
+// prompt prefix (spec 03 §4.9) keep one snapshot until a compaction replaces
+// the history, so the cached bytes do not move mid-session. Other providers
+// get a fresh map whenever the map changes, and the agent latches only the
+// changed lines. code_map gives a live view either way.
 func (a *App) refreshCodeMap() {
 	cm := a.ext.cmap
 	if cm == nil {
@@ -21,22 +24,50 @@ func (a *App) refreshCodeMap() {
 	default:
 		return
 	}
+	caches := a.modelCachesPrompt()
 	g := cm.Generation()
 	a.mapMu.Lock()
 	a.mu.Lock()
 	drawn := a.codeMap != ""
 	a.mu.Unlock()
-	if g == a.mapGen || (drawn && !a.mapStale) {
+	frozen := drawn && !a.mapStale && caches
+	if g == a.mapGen || frozen {
 		a.mapMu.Unlock()
 		return
 	}
 	a.mapGen = g
 	a.mapStale = false
 	a.mapMu.Unlock()
-	text := cm.Render(budgetOr(mapBudget()), nil)
+	text := a.RenderMap(a.conversationTokens(), nil)
 	a.mu.Lock()
 	a.codeMap = text
 	a.mu.Unlock()
+}
+
+// codeMapText is the map the conversation carries, for the agent's
+// Options.CodeMap. It is "" until the first build has been drawn.
+func (a *App) codeMapText() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.codeMap
+}
+
+// modelCachesPrompt reports whether the lead's model caches the prompt prefix,
+// which decides whether the code map is frozen (refreshCodeMap).
+func (a *App) modelCachesPrompt() bool {
+	if a.Agent == nil {
+		return false
+	}
+	return agent.PromptCaches(a.Agent.CurrentModel().Ref)
+}
+
+// conversationTokens is the size of the conversation the map is sized for
+// (spec 04 §4.7). It is 0 before the first request, which takes the default.
+func (a *App) conversationTokens() int {
+	if a.Agent == nil {
+		return 0
+	}
+	return a.Agent.ContextParts().Conversation
 }
 
 // recallFiles is the file list memory recall works from: the files this

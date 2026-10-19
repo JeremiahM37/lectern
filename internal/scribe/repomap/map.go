@@ -49,32 +49,34 @@ type Map struct {
 	mu      sync.RWMutex
 	tri     triIndex // file-content trigrams for grep (trigram.go)
 
-	files      map[string]*fileInfo
-	paths      []string
-	nodeIdx    map[string]int
-	syms       []Symbol
-	fileSyms   map[string][]Symbol
-	symsByName map[string][]Symbol
-	defs       map[string][]string
-	expDefs    map[string]map[string]bool
-	refCount   map[string]int
-	outW       []float64
-	eFrom      []int32
-	eTo        []int32
-	eCoef      []float64
-	edgeCount  int
-	in         map[string][]string // files that import each file
-	imports    map[string][]string // files each file imports (resolved)
-	renderMu   sync.Mutex          // guards rendered
-	rendered   []string            // paths in the last Render, for memory injection
-	rank       []float64
-	cochange   map[string][]Pair
-	recent     []string
-	lastParsed int
-	warning    string               // set by Build: a truncated walk, and similar notes
-	callers    map[string][]callRef // callee name -> functions whose body calls it
-	summarizer Summarizer
-	summaries  map[string]summaryEntry // model summaries, keyed by path
+	files        map[string]*fileInfo
+	paths        []string
+	nodeIdx      map[string]int
+	syms         []Symbol
+	fileSyms     map[string][]Symbol
+	symsByName   map[string][]Symbol
+	defs         map[string][]string
+	expDefs      map[string]map[string]bool
+	refCount     map[string]int
+	outW         []float64
+	eFrom        []int32
+	eTo          []int32
+	eCoef        []float64
+	edgeCount    int
+	in           map[string][]string // files that import each file
+	imports      map[string][]string // files each file imports (resolved)
+	renderMu     sync.Mutex          // guards rendered
+	rendered     []string            // paths in the last Render, for memory injection
+	rank         []float64
+	cochange     map[string][]Pair
+	recent       []string
+	lastParsed   int
+	warning      string               // set by Build: a truncated walk, and similar notes
+	buildErr     string               // the error the last Build returned; "" when it finished
+	renderTokens int                  // estimated size of the last Render, in tokens
+	callers      map[string][]callRef // callee name -> functions whose body calls it
+	summarizer   Summarizer
+	summaries    map[string]summaryEntry // model summaries, keyed by path
 	// summaryMode picks what the map shows as a symbol's one-line summary; see
 	// SetSummaryMode.
 	summaryMode string
@@ -237,8 +239,21 @@ type fileResult struct {
 
 // Build scans the repository and brings the map up to date. progress, if
 // non-nil, is called after each file with (done, total). A home directory or
-// filesystem root is refused with ErrUnsafeRoot before anything is read.
+// filesystem root is refused with ErrUnsafeRoot before anything is read. The
+// error is kept for Status, so the /repo-map view can show why a build failed
+// even when the caller dropped it.
 func (m *Map) Build(ctx context.Context, progress func(done, total int)) error {
+	err := m.build(ctx, progress)
+	m.mu.Lock()
+	m.buildErr = ""
+	if err != nil {
+		m.buildErr = err.Error()
+	}
+	m.mu.Unlock()
+	return err
+}
+
+func (m *Map) build(ctx context.Context, progress func(done, total int)) error {
 	if unsafeRoot(m.root) {
 		return ErrUnsafeRoot
 	}

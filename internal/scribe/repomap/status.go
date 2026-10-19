@@ -14,6 +14,8 @@ type Status struct {
 	SummaryMode   string // off, ast, synthetic, llm or full
 	AutoRegen     bool   // whether a build should ask the model again
 	HasSummarizer bool   // a model is installed for summaries
+	BuildError    string // the error the last build returned; "" when it finished
+	MapTokens     int    // estimated size of the last rendered map, in tokens
 }
 
 // Status reports the current state of the map.
@@ -24,6 +26,8 @@ func (m *Map) Status() Status {
 		SummaryMode:   m.summaryMode,
 		AutoRegen:     m.autoRegen,
 		HasSummarizer: m.summarizer != nil,
+		BuildError:    m.buildErr,
+		MapTokens:     m.renderTokens,
 	}
 	if st.SummaryMode == "" {
 		st.SummaryMode = SummaryAST

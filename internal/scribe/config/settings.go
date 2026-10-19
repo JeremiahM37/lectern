@@ -270,9 +270,48 @@ type Performance struct {
 	SendReasoning *bool `json:"send_reasoning,omitempty"`
 	// DisableParallelToolUse makes the model call one tool at a time.
 	DisableParallelToolUse *bool `json:"disable_parallel_tool_use,omitempty"`
+	// SpeedByProvider overrides Speed for one provider id, so fast mode can
+	// be on for Claude and off for another provider. A provider with no
+	// entry uses Speed; an entry of "" or "standard" turns fast mode off for
+	// that provider only. Without this map every request keeps the old
+	// single global value.
+	SpeedByProvider map[string]string `json:"speed_by_provider,omitempty"`
+	// GroqReasoningFormat is Groq's reasoning_format: parsed, raw or hidden.
+	// "" and "off" send nothing, so Groq's own default applies.
+	GroqReasoningFormat string `json:"groq_reasoning_format,omitempty"`
+}
+
+// SpeedFor returns the speed tier for one provider: its own entry in
+// SpeedByProvider when it has one, else the global Speed.
+func (p Performance) SpeedFor(provider string) string {
+	if v, ok := p.SpeedByProvider[provider]; ok {
+		return v
+	}
+	return p.Speed
+}
+
+// mergeSpeedByProvider overlays o's per-provider speeds on base's. Entries
+// are merged one provider at a time, so a project file can change one
+// provider without dropping the global file's others.
+func mergeSpeedByProvider(base, o map[string]string) map[string]string {
+	if len(o) == 0 {
+		return base
+	}
+	out := make(map[string]string, len(base)+len(o))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range o {
+		out[k] = v
+	}
+	return out
 }
 
 func mergePerformance(base, o Performance) Performance {
+	base.SpeedByProvider = mergeSpeedByProvider(base.SpeedByProvider, o.SpeedByProvider)
+	if o.GroqReasoningFormat != "" {
+		base.GroqReasoningFormat = o.GroqReasoningFormat
+	}
 	if o.Thinking != "" {
 		base.Thinking = o.Thinking
 	}
@@ -401,6 +440,8 @@ var (
 	thinkingModes    = []string{"", "off", "adaptive", "auto", "enabled"}
 	cacheTTLs        = []string{"", "5m", "1h"}
 	reasoningEfforts = []string{"", "low", "medium", "high", "xhigh", "max", "minimal", "none"}
+	groqFormats      = []string{"", "off", "parsed", "raw", "hidden"}
+	speedTiers       = []string{"", "standard", "fast"}
 )
 
 func oneOf(v string, allowed []string) bool {
@@ -429,6 +470,14 @@ func (c Config) Validate() error {
 	check("performance.thinking", c.Performance.Thinking, thinkingModes)
 	check("performance.cache_ttl", c.Performance.CacheTTL, cacheTTLs)
 	check("performance.effort", c.Performance.Effort, reasoningEfforts)
+	check("performance.groq_reasoning_format", c.Performance.GroqReasoningFormat, groqFormats)
+	for k, v := range c.Performance.SpeedByProvider {
+		if k == "" {
+			bad = append(bad, "performance.speed_by_provider has an empty provider id")
+			continue
+		}
+		check(fmt.Sprintf("performance.speed_by_provider[%q]", k), v, speedTiers)
+	}
 	if c.CompactKeepRecent < 0 {
 		bad = append(bad, "compact_keep_recent cannot be negative; use 0 for the default")
 	}

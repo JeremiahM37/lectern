@@ -31,18 +31,32 @@ const readWaitTimeout = 30 * time.Second
 // subagent whose read supplied the entry (hit) or is being waited on (wait).
 // It is empty when no subagent is named, for example an entry stored before
 // the reader's id was known.
+//
+// Tool is set for a read-only tool result (bus_results.go), so the tally can
+// count it apart from file reads.
 type CacheNote struct {
 	Agent   string
 	Outcome string
 	From    string
+	Tool    bool
 }
 
 // readFlight is a read of one file that is running now, so a second reader
 // can wait for it rather than start its own.
 type readFlight struct {
-	stamp string
-	by    string
-	done  chan struct{}
+	stamp  string
+	by     string
+	done   chan struct{}
+	closed bool // done is closed; it is closed once, by whoever ends the flight
+}
+
+// releaseFlightLocked wakes the waiters of f. b.mu must be held, so a flight
+// released by Dispose is not closed a second time by its ticket's Finish.
+func releaseFlightLocked(f *readFlight) {
+	if !f.closed {
+		f.closed = true
+		close(f.done)
+	}
 }
 
 // ReadTicket is a reader's claim on a read it has to run itself. Finish keeps
@@ -85,6 +99,9 @@ func (b *AgentBus) lookupLocked(key, stamp string) (out, by string, ok bool) {
 	if !found || c.stamp != stamp {
 		return "", "", false
 	}
+	b.readTick++
+	c.used = b.readTick
+	b.reads[key] = c
 	return c.output, c.by, true
 }
 
@@ -98,6 +115,10 @@ func (b *AgentBus) ReadStart(id, key, stamp string) (string, bool, *ReadTicket) 
 		return "", false, nil
 	}
 	b.mu.Lock()
+	if b.disposed {
+		b.mu.Unlock()
+		return "", false, nil
+	}
 	if out, by, ok := b.lookupLocked(key, stamp); ok {
 		b.mu.Unlock()
 		b.noteCache(CacheNote{Agent: id, Outcome: CacheHit, From: by})
@@ -144,14 +165,14 @@ func (b *AgentBus) finishRead(t *ReadTicket, output string, ok bool) {
 	outcome := ""
 	if ok {
 		old, existed := b.reads[t.key]
-		b.reads[t.key] = cachedRead{stamp: t.stamp, output: output, by: t.agent}
+		b.storeReadLocked(t.key, cachedRead{stamp: t.stamp, output: output, by: t.agent})
 		outcome = CacheStore
 		if existed && old.stamp != t.stamp {
 			outcome = CacheInvalidate
 		}
 	}
+	releaseFlightLocked(t.f)
 	b.mu.Unlock()
-	close(t.f.done)
 	if outcome != "" {
 		b.noteCache(CacheNote{Agent: t.agent, Outcome: outcome})
 	}

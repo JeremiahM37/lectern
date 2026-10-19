@@ -242,17 +242,6 @@ func (s wizStep) section() int {
 // rest stay on the Providers tab of /settings.
 var wizardProviders = []string{"anthropic", "openai", "deepseek", "openrouter", "gemini", "groq", "ollama"}
 
-// keyPages names where to get a key. Hosts only, so the hint cannot go stale
-// on a path change.
-var keyPages = map[string]string{
-	"anthropic":  "console.anthropic.com",
-	"openai":     "platform.openai.com",
-	"deepseek":   "platform.deepseek.com",
-	"openrouter": "openrouter.ai",
-	"gemini":     "aistudio.google.com",
-	"groq":       "console.groq.com",
-}
-
 // Messages from background work.
 type (
 	wizDetectMsg struct {
@@ -1025,8 +1014,13 @@ func (w *wizard) keyView(th theme.Theme, width int) []string {
 		name = w.chosen.ID
 	}
 	out := []string{fgb(th.TextPrimary).Render("Set your " + name + " key")}
-	if host, ok := keyPages[w.chosen.ID]; ok {
-		out = append(out, fg(th.TextMuted).Render("Get one at "+host), "")
+	// The link and the one-line description come from the provider registry,
+	// so the wizard and the settings screen show the same text.
+	if w.chosen.Description != "" {
+		out = append(out, fg(th.TextMuted).Render(render.Wrap(w.chosen.Description, width)))
+	}
+	if w.chosen.KeyURL != "" {
+		out = append(out, fg(th.TextMuted).Render(render.Wrap("Get one at "+w.chosen.KeyURL, width)), "")
 	} else {
 		out = append(out, "")
 	}

@@ -123,8 +123,9 @@ func applyLiveMapPrefs(a *App, p tui.MapPrefs) {
 	a.ext.cmap.SetSummaryMode(p.Mode)
 	a.ext.cmap.SetAutoRegen(p.AutoRegen)
 	setMapBudget(p.Budget)
+	text := a.RenderMap(a.conversationTokens(), nil)
 	a.mu.Lock()
-	a.codeMap = a.ext.cmap.Render(budgetOr(p.Budget), nil)
+	a.codeMap = text
 	a.mu.Unlock()
 }
 
@@ -255,8 +256,9 @@ func (a *App) summarizeAndRender(m *repomap.Map, limit int) {
 	if err != nil || n == 0 {
 		return
 	}
+	text := a.RenderMap(a.conversationTokens(), nil)
 	a.mu.Lock()
-	a.codeMap = m.Render(budgetOr(mapBudget()), nil)
+	a.codeMap = text
 	a.mu.Unlock()
 }
 
@@ -267,10 +269,16 @@ func setMapBudget(n int) {
 	mapUI.mu.Unlock()
 }
 
-// budgetOr returns the chosen budget, or the conversation default when auto.
-func budgetOr(budget int) int {
+// budgetOr returns the chosen budget, or the default for a short conversation
+// when auto.
+func budgetOr(budget int) int { return budgetFor(budget, 0) }
+
+// budgetFor returns the chosen budget, or the auto budget for a conversation of
+// conversationTokens tokens (spec 04 §4.7): the map shrinks a little as the
+// conversation grows, so a deep session still fits.
+func budgetFor(budget, conversationTokens int) int {
 	if budget > 0 {
 		return budget
 	}
-	return repomap.Budget(0)
+	return repomap.Budget(conversationTokens)
 }

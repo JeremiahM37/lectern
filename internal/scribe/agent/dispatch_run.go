@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"strings"
 	"sync"
 	"time"
@@ -194,6 +195,9 @@ type dispatchRun struct {
 	// bus is shared by the subagents of this dispatch: their findings and,
 	// when the dispatch_cache feature is on, their reads.
 	bus *AgentBus
+	// targets are the files each code task may edit, by task index, so a
+	// run's edits can be checked against their content before it ran.
+	targets map[int][]string
 	// locks is the per-path edit lock the subagents' edit tools take
 	// (editlock_w40.go); it is shared by every subagent of the dispatch.
 	locks *editLocks
@@ -221,6 +225,7 @@ func newDispatchRun(d *Dispatcher, env *tools.Env) *dispatchRun {
 		d:         d,
 		env:       env,
 		retryWait: wait,
+		targets:   map[int][]string{},
 		bus:       NewAgentBus(),
 		locks: newEditLocks(func(msg string) {
 			if d.Sink != nil {
@@ -326,14 +331,16 @@ type taskResult struct {
 
 // attempt is one subagent run.
 type attempt struct {
-	report   string
-	err      error
-	usage    llm.Usage
-	cost     float64
-	edited   []string
-	read     []string
-	reg      *tools.Registry
-	attempts int // 1 when the subagent ran, plus its transient and stall retries
+	report string
+	err    error
+	usage  llm.Usage
+	cost   float64
+	edited []string
+	read   []string
+	reg    *tools.Registry
+	// attempts is the provider attempts this run made: the first, plus its
+	// transient and stall retries. The task report counts these.
+	attempts int
 }
 
 // attempt runs one fresh subagent on task and reports how it ended. Its
@@ -352,6 +359,7 @@ func (r *dispatchRun) attempt(ctx context.Context, idx int, role string, purpose
 		Role: role, Purpose: purpose, ID: id,
 		MaxRetries: r.d.MaxRetries, MaxStallRetries: r.d.MaxStallRetries,
 		Bus: r.bus, ReadCache: r.d.features().DispatchCache,
+		Task: task,
 	}
 	sub := r.d.New(spec, func(e Event) {
 		switch e.Kind {
@@ -480,51 +488,160 @@ func (r *dispatchRun) runTask(ctx context.Context, idx int, role string, purpose
 	return res
 }
 
-// runTaskOnce runs one task. A code task gets one retry, with a note saying why,
-// when it finished without editing any file or stopped on a retryable
-// provider error. Explore and web tasks are not retried. A code task that
-// still edited nothing is marked no-done.
-func (r *dispatchRun) runTaskOnce(ctx context.Context, idx int, role string, purpose Purpose, task string) taskResult {
-	first := r.launch(ctx, idx, role, purpose, task)
-	res := taskResult{report: first.report, err: first.err, edited: first.edited, read: first.read, reg: first.reg}
-	res.attempts = first.attempts
-	res.err = r.mapStop(res.err)
-	if role != "code" || ctx.Err() != nil || r.tripped() || r.bus.Aborted() {
-		return res
+// defaultSubagentRetries is the transient retry count a subagent gets when the
+// dispatcher names none: the agent default (spec 03 §10).
+const defaultSubagentRetries = 3
+
+// attemptBudget is how many fresh subagent runs one task may make while its
+// provider keeps failing: the transient retries plus the first run (spec 03
+// §3.6). Every role gets the same budget. Each run also makes its own
+// transient retries, which the task report counts as attempts.
+func (r *dispatchRun) attemptBudget() int {
+	n := r.d.MaxRetries
+	if n <= 0 {
+		n = defaultSubagentRetries
 	}
-	var why string
+	return n + 1
+}
+
+// retryBackoff is the pause before fresh run n (n >= 2): the base doubled for
+// each run after the second, plus up to half the base of jitter. The base is
+// retryWait, 2 s by default, so the default is 2 s, 4 s, 8 s plus jitter.
+func (r *dispatchRun) retryBackoff(n int) time.Duration {
+	shift := min(max(n-2, 0), 10)
+	base := r.retryWait << shift
+	return base + time.Duration(rand.Int64N(int64(r.retryWait/2)+1))
+}
+
+// absorb folds one fresh run into the task's running result. A run the breaker
+// kept from starting made no provider attempt, so it adds none.
+func (res *taskResult) absorb(a attempt) {
+	res.report, res.err = a.report, a.err
+	res.edited = appendUnique(res.edited, a.edited...)
+	res.read = appendUnique(res.read, a.read...)
+	if a.reg != nil {
+		res.reg = a.reg
+	}
+	res.attempts += a.attempts
+}
+
+// retryReason says why a task whose run number run just ended runs again, or
+// is "" when it must not. A code task that finished its first run without
+// editing gets one focused retry. Any task whose run failed on a retryable
+// provider error gets another run while its budget of runs lasts. Nothing
+// retries once the caller cancelled, the breaker opened, or cancel_dispatch ran.
+func (r *dispatchRun) retryReason(ctx context.Context, role string, run int, a attempt, budget int) string {
+	if ctx.Err() != nil || r.tripped() || r.bus.Aborted() {
+		return ""
+	}
 	switch {
-	case retryableFailure(ctx, first.err):
-		why = "the previous attempt stopped on a provider error (" + first.err.Error() + ")"
-	case first.err == nil && len(first.edited) == 0:
-		why = retryNoteEdited
-	default:
-		return res
+	case role == "code" && run == 1 && a.err == nil && len(a.edited) == 0:
+		return retryNoteEdited
+	case retryableFailure(ctx, a.err) && run < budget:
+		return "the previous attempt stopped on a provider error (" + a.err.Error() + ")"
 	}
-	select {
-	case <-time.After(r.retryWait):
-	case <-ctx.Done():
-		return res
+	return ""
+}
+
+// retryLabel names a retry for the report: the first is "retried once", later
+// ones are numbered. next is the number of the run that is about to start.
+func retryLabel(next int) string {
+	if next == 2 {
+		return "retried once: "
 	}
-	note := task + "\n\nNote: " + why + ". Make the edits the task asks for now. If the change is already in place, say so and give the file:line that shows it."
-	if len(first.read) > 0 {
-		note += "\nYou already read these files, so do not read them again: " + strings.Join(first.read, ", ") + "."
+	return fmt.Sprintf("retry %d: ", next-1)
+}
+
+// retryPrompt is the task text of a retry: the task, why it runs again, and
+// the files the earlier runs already read.
+func retryPrompt(task, role, why string, read []string) string {
+	action := "Give the report the task asks for now."
+	if role == "code" {
+		action = "Make the edits the task asks for now. If the change is already in place, say so and give the file:line that shows it."
 	}
-	second := r.launch(ctx, idx, role, purpose, note)
-	if errors.Is(second.err, errBreakerOpen) {
-		res.notes = append(res.notes, "retry skipped: "+errBreakerOpen.Error())
-		return res
+	p := task + "\n\nNote: " + why + ". " + action
+	if len(read) > 0 {
+		p += "\nYou already read these files, so do not read them again: " + strings.Join(read, ", ") + "."
 	}
-	res.attempts += second.attempts
-	res.notes = append(res.notes, "retried once: "+why)
-	res.report, res.err = second.report, second.err
-	res.edited = sortedUnique(append(append([]string(nil), first.edited...), second.edited...))
-	res.read = sortedUnique(append(append([]string(nil), first.read...), second.read...))
-	if second.reg != nil {
-		res.reg = second.reg
+	return p
+}
+
+// runTaskOnce runs one task until it succeeds, fails for good, or uses up its
+// attempt budget (attemptBudget). Each run is a fresh subagent. A code task
+// that finished its first run without editing anything is retried once with
+// a focused note (spec 03 §3.6). The result is the last run's, with the files
+// every run read and edited.
+func (r *dispatchRun) runTaskOnce(ctx context.Context, idx int, role string, purpose Purpose, task string) taskResult {
+	var res taskResult
+	budget := r.attemptBudget()
+	prompt := task
+	for run := 1; ; run++ {
+		before := r.targetDigests(idx, role)
+		a := r.launch(ctx, idx, role, purpose, prompt)
+		if run > 1 && errors.Is(a.err, errBreakerOpen) {
+			res.notes = append(res.notes, "retry skipped: "+errBreakerOpen.Error())
+			break
+		}
+		res.absorb(a)
+		res.notes = append(res.notes, r.unchangedWarnings(idx, before, a.edited)...)
+		res.err = r.mapStop(res.err)
+		why := r.retryReason(ctx, role, run, a, budget)
+		if why == "" {
+			break
+		}
+		res.notes = append(res.notes, retryLabel(run+1)+why)
+		prompt = retryPrompt(task, role, why, res.read)
+		if !r.pauseBeforeRetry(ctx, run+1) {
+			break
+		}
 	}
-	res.err = r.mapStop(res.err)
 	return res
+}
+
+// pauseBeforeRetry waits the backoff before run n. It reports false when the
+// caller cancelled during the wait.
+func (r *dispatchRun) pauseBeforeRetry(ctx context.Context, n int) bool {
+	select {
+	case <-time.After(r.retryBackoff(n)):
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// targetDigests hashes the files a code task may edit, before one of its runs
+// starts, so unchangedWarnings can tell an edit that changed nothing. Nil for
+// other roles and for subagents with no task targets (cleanup, fix, review).
+func (r *dispatchRun) targetDigests(idx int, role string) map[string]string {
+	files := r.targets[idx]
+	if role != "code" || len(files) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(files))
+	for _, f := range files {
+		out[f] = digestFile(r.env.Workdir, f)
+	}
+	return out
+}
+
+// unchangedWarnings names each edited target whose content is the same as it
+// was before the run, so the edit changed nothing. Each one is also sent as a
+// warning event (spec 03 §3.6, post-edit verification).
+func (r *dispatchRun) unchangedWarnings(idx int, before map[string]string, edited []string) []string {
+	var out []string
+	for _, f := range edited {
+		key := relTarget(r.env.Workdir, f)
+		old, tracked := before[key]
+		if !tracked || old == "" || digestFile(r.env.Workdir, key) != old {
+			continue
+		}
+		msg := "marked as edited but content unchanged: " + key
+		out = append(out, msg)
+		if r.d.Sink != nil {
+			r.d.Sink(Event{Kind: EvWarning, At: time.Now(), AgentID: r.board.id(idx), Text: msg})
+		}
+	}
+	return out
 }
 
 // providerFailure reports whether err came from the model provider (an HTTP

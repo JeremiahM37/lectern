@@ -80,8 +80,21 @@ func (a *App) tune(m agent.Model, r *llm.Request) {
 	applyReasoning(r, rs, m.Info.ReasoningStyle)
 	applyPerformance(r, perf, rs, m.Info.ReasoningStyle)
 	applyProviderReasoning(r, provider, rs, m.Info.ReasoningStyle)
+	applyPerProviderPerformance(r, provider, perf)
 	applyExtraParams(r, rs)
 	applyContextManagement(r, cm, provider, m.Info.ContextWindow)
+}
+
+// applyPerProviderPerformance sets the Performance values that differ by
+// provider. applyPerformance writes the global speed first; this replaces it
+// with the provider's own entry when it has one, so a provider that was never
+// configured keeps the old value. Groq's reasoning format is sent only to
+// Groq, and "" or "off" leaves it out.
+func applyPerProviderPerformance(r *llm.Request, provider string, p config.Performance) {
+	r.Speed = p.SpeedFor(provider)
+	if provider == "groq" && p.GroqReasoningFormat != "" && p.GroqReasoningFormat != "off" {
+		r.ReasoningFormat = p.GroqReasoningFormat
+	}
 }
 
 // applyExtraParams hands the provider's extra_params to the request. They are
@@ -133,6 +146,16 @@ func applyProviderReasoning(r *llm.Request, provider string, rs config.Reasoning
 		// keeps the request unchanged for every other DeepSeek model.
 		if rs.Thinking != "" && style == llm.ReasoningEffort {
 			r.DeepSeekThinking = rs.Thinking
+		}
+	case "dashscope":
+		// DashScope takes an on switch and a token budget. Effort or a budget
+		// on the provider's Think settings turns it on; with neither set the
+		// request is unchanged and DashScope's own default applies.
+		if (rs.Effort != "" && rs.Effort != "off") || rs.Budget > 0 {
+			r.DashScopeThinking = "on"
+		}
+		if rs.Budget > 0 {
+			r.ThinkingBudget = rs.Budget
 		}
 	}
 }

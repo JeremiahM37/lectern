@@ -343,6 +343,15 @@ func Open(ctx context.Context, o Options) (*App, error) {
 	if a.ext.hookR != nil {
 		a.Dispatch.Hooks = a.ext.hookR // SubagentStart and SubagentStop
 	}
+	// Subagent attempt budget, matching skills, and the code map for task
+	// targets (spec 03 sections 3.1 and 3.6).
+	a.Dispatch.MaxRetries = a.Cfg.Retry.Transient
+	if a.Skills != nil && a.Cfg.AgentFeatures.Enabled("agent_skills") {
+		a.Dispatch.Skills = a.Skills
+	}
+	if a.ext.cmap != nil {
+		a.Dispatch.Map = a.ext.cmap
+	}
 	a.Dispatch.Register(a.Tools)
 	// The lead agent can stop a running subagent, or all of them. It is not a
 	// core tool: it is loaded with request_tools when a dispatch needs it.
@@ -470,7 +479,8 @@ func (a *App) systemPrompt(sub string) func(string) string {
 		a.mu.Lock()
 		in := agent.PromptInput{
 			Workdir: a.Workdir, Date: a.date, Branch: a.branch,
-			Instructions: a.instr, CodeMap: a.codeMap, Extra: a.opts.System, Subagent: sub,
+			Instructions: a.instr, Extra: a.opts.System, Subagent: sub,
+			NoMap: a.ext.cmap == nil,
 		}
 		a.mu.Unlock()
 		// The project commands, memory counts and git state are read once and
@@ -543,6 +553,7 @@ func (a *App) agentOptions(model agent.Model, mode string) agent.Options {
 		Active:    a.activeTools(),
 		Env:       a.env(),
 		System:    a.systemPrompt(""),
+		CodeMap:   a.codeMapText,
 		Mode:      mode,
 		MaxTokens: a.Cfg.MaxTokens,
 		Reasoning: a.Cfg.Reasoning,
@@ -709,7 +720,12 @@ func (t capReadLines) Run(ctx context.Context, env *tools.Env, raw json.RawMessa
 func (a *App) newSubagent(spec agent.SubagentSpec, sink agent.Sink) *agent.Agent {
 	role, id := spec.Role, spec.ID
 	model := a.Agent.CurrentModel()
-	if ref := subagentRef(a.Cfg.Router, spec, a.Cfg.AgentFeatures.Enabled("tier_routing")); ref != "" {
+	// A router rule that matches the task wins over the role's model slot.
+	if rule, ok := config.ResolveRouterRule(a.Cfg.RouterRules, spec.Task); ok {
+		if m, err := a.resolve(rule); err == nil {
+			model = m
+		}
+	} else if ref := subagentRef(a.Cfg.Router, spec, a.Cfg.AgentFeatures.Enabled("tier_routing")); ref != "" {
 		if m, err := a.resolve(ref); err == nil {
 			model = m
 		}
@@ -756,6 +772,7 @@ func (a *App) newSubagent(spec agent.SubagentSpec, sink agent.Sink) *agent.Agent
 		Env:       a.env(),
 		System:    system,
 		Deferred:  deferred,
+		CodeMap:   a.codeMapText,
 		Mode:      mode,
 		MaxTokens: a.Cfg.MaxTokens,
 		Reasoning: reasoning,
@@ -768,7 +785,7 @@ func (a *App) newSubagent(spec agent.SubagentSpec, sink agent.Sink) *agent.Agent
 		MaxRetries:      spec.MaxRetries,
 		MaxStallRetries: spec.MaxStallRetries,
 		CompactAt:       -1,
-		RetryBase:       2 * time.Second, // subagents back off from 2 s (spec 03 §10)
+		RetryBase:       a.Cfg.Retry.BaseDelay(),
 		Budget:          budget,
 		// Peer findings reach each step, not only check_findings calls.
 		Peers: agent.PeerFeed(id, spec.Bus),
@@ -777,6 +794,9 @@ func (a *App) newSubagent(spec agent.SubagentSpec, sink agent.Sink) *agent.Agent
 	// Subagents get the lead's first-token and inter-token watchdog, and the
 	// spec's step limit when the user set none (spec 03 §3.5).
 	applyWatchdog(&o, a.Cfg.WatchdogTimeouts)
+	if o.RetryBase == 0 {
+		o.RetryBase = 2 * time.Second // subagents back off from 2 s (spec 03 §10)
+	}
 	if o.StepTimeout == 0 {
 		o.StepTimeout = agent.SubagentStepTimeout(a.toolTimeout())
 	}

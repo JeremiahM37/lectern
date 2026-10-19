@@ -30,35 +30,32 @@ func TestW33PromptGrowthStaysSmall(t *testing.T) {
 	if n := len(familyBlocks["default"]); n > 300 {
 		t.Errorf("default family block is %d bytes, want at most 300", n)
 	}
-	if n := len(codeMapPreamble); n > 300 {
-		t.Errorf("code map preamble is %d bytes, want at most 300", n)
+	if n := len(codeMapIntro); n > 400 {
+		t.Errorf("code map intro is %d bytes, want at most 400", n)
 	}
 }
 
-// The code map is a snapshot from session start. The prompt must say so, and
-// say the model should read a file before editing it.
-func TestW33CodeMapSaysItIsASnapshot(t *testing.T) {
+// The code map is not in the system prompt any more: it is latched into the
+// conversation (codemap_latch.go), so the system prompt is the same bytes
+// whatever the map holds. The snapshot wording lives with the latch.
+func TestW33CodeMapIsNotInTheSystemPrompt(t *testing.T) {
 	for _, m := range []string{"anthropic/claude-x", "openai/gpt-5", "google/gemini-2.5-pro", "ollama/qwen3.6"} {
-		s := BuildSystem(w33SizeInput(m), "default")
-		want := "# Code map\nThe most central files and their key symbols, ranked by how much of the codebase depends on them. This is a snapshot taken at session start: files may have changed since, so read a file before you edit it.\n\n"
-		if !strings.Contains(s, want) {
-			t.Errorf("%s: code map preamble missing or changed", m)
+		with := BuildSystem(w33SizeInput(m), "default")
+		none := w33SizeInput(m)
+		none.CodeMap = ""
+		if with != BuildSystem(none, "default") {
+			t.Errorf("%s: the system prompt changed with the code map", m)
 		}
-		if strings.Index(s, want) < strings.Index(s, "# Environment") {
-			t.Errorf("%s: code map must come after the environment block", m)
+		if strings.Contains(with, "# Code map") || strings.Contains(with, "central files") {
+			t.Errorf("%s: the code map leaked into the system prompt", m)
 		}
-	}
-	none := w33SizeInput("ollama/qwen3.6")
-	none.CodeMap = ""
-	if strings.Contains(BuildSystem(none, "default"), "snapshot taken at session start") {
-		t.Error("the snapshot sentence must not appear without a code map")
 	}
 }
 
 // Reasoner models get no code map, so they get no snapshot sentence either.
 func TestW33ReasonerHasNoCodeMapSnapshot(t *testing.T) {
 	in := w33SizeInput("deepseek/deepseek-reasoner")
-	if strings.Contains(BuildSystem(in, "default"), "snapshot taken at session start") {
+	if strings.Contains(BuildSystem(in, "default"), "central files") {
 		t.Error("reasoner prompt must not carry the code map")
 	}
 }
@@ -107,5 +104,26 @@ func TestW33PromptIsByteIdenticalAcrossSteps(t *testing.T) {
 				t.Fatalf("%s: prompt changed on step %d with the same input", m, i+1)
 			}
 		}
+	}
+}
+
+// The map tools come from the code map. With the map off the guidance must not
+// name them; with it on the guidance names them and says to plan from the map.
+func TestToolGuidanceNamesMapToolsOnlyWithAMap(t *testing.T) {
+	withMap := BuildSystem(PromptInput{Workdir: "/w", ModelRef: "ollama/qwen3.6"}, "default")
+	if !strings.Contains(withMap, "find_symbol, symbol_refs, code_impact and file_outline") {
+		t.Fatal("with the map running, the guidance must name the map tools")
+	}
+	if !strings.Contains(withMap, "Plan from the code map") {
+		t.Error("with the map running, the guidance must say to plan from the map")
+	}
+	noMap := BuildSystem(PromptInput{Workdir: "/w", ModelRef: "ollama/qwen3.6", NoMap: true}, "default")
+	for _, bad := range []string{"find_symbol", "code_impact", "code map"} {
+		if strings.Contains(noMap, bad) {
+			t.Errorf("with no map, the guidance still names %q", bad)
+		}
+	}
+	if !strings.Contains(noMap, "navigate and diagnostics use language servers") {
+		t.Error("the no-map guidance lost the language server line")
 	}
 }

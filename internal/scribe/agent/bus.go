@@ -19,6 +19,18 @@ type AgentBus struct {
 	bytes    int                 // total text bytes of findings, capped at maxFindingsBytes
 	owners   map[string][]string // file -> agents that edited it, first claimant first
 	reads    map[string]cachedRead
+	// readBytes is the size of reads. readTick orders them by last use, so
+	// the least recently used read is the one evicted past maxReadBytes.
+	readBytes int
+	readTick  uint64
+	// results are the read-only tool results (bus_results.go), by tool and args.
+	results    map[string]cachedResult
+	resultTick uint64
+	// resultGen counts invalidations. A result computed before one is not
+	// stored after it, so a slow read-only call cannot cache a stale answer.
+	resultGen uint64
+	now       func() time.Time
+	disposed  bool
 	// flights are the reads in progress, by key, so a second reader of the
 	// same file at the same stamp waits for the first instead of reading again.
 	flights map[string]*readFlight
@@ -52,15 +64,21 @@ type cachedRead struct {
 	stamp  string
 	output string
 	by     string // the subagent whose read this is, "" when unknown
+	used   uint64 // readTick at the last store or hit, for eviction
 }
+
+// size is what the read costs against maxReadBytes: its output and key.
+func (c cachedRead) size() int { return len(c.output) + len(c.stamp) }
 
 // NewAgentBus returns an empty bus.
 func NewAgentBus() *AgentBus {
 	return &AgentBus{
 		owners:   map[string][]string{},
 		reads:    map[string]cachedRead{},
+		results:  map[string]cachedResult{},
 		flights:  map[string]*readFlight{},
 		readWait: readWaitTimeout,
+		now:      time.Now,
 	}
 }
 
@@ -165,11 +183,8 @@ func (b *AgentBus) CachedRead(key, stamp string) (string, bool) {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	c, ok := b.reads[key]
-	if !ok || c.stamp != stamp {
-		return "", false
-	}
-	return c.output, true
+	out, _, ok := b.lookupLocked(key, stamp)
+	return out, ok
 }
 
 // StoreRead remembers the output of a read of key at stamp.
@@ -179,7 +194,44 @@ func (b *AgentBus) StoreRead(key, stamp, output string) {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.reads[key] = cachedRead{stamp: stamp, output: output}
+	b.storeReadLocked(key, cachedRead{stamp: stamp, output: output})
+}
+
+// Limits on the read cache (spec 03 section 3.7): 50 MB in total, evicting
+// the least recently accessed read first.
+const maxReadBytes = 50 << 20
+
+// storeReadLocked puts c under key, evicting the least recently used reads
+// until the cache fits again. A read bigger than the whole cache is not kept.
+// b.mu must be held.
+func (b *AgentBus) storeReadLocked(key string, c cachedRead) {
+	if b.disposed {
+		return
+	}
+	if old, ok := b.reads[key]; ok {
+		b.readBytes -= old.size()
+		delete(b.reads, key)
+	}
+	if c.size() > maxReadBytes {
+		return
+	}
+	b.readTick++
+	c.used = b.readTick
+	b.reads[key] = c
+	b.readBytes += c.size()
+	for b.readBytes > maxReadBytes {
+		victim, found := "", false
+		for k, r := range b.reads {
+			if !found || r.used < b.reads[victim].used {
+				victim, found = k, true
+			}
+		}
+		if !found {
+			break
+		}
+		b.readBytes -= b.reads[victim].size()
+		delete(b.reads, victim)
+	}
 }
 
 func containsString(list []string, s string) bool {

@@ -50,6 +50,13 @@ type pendingClear struct {
 	md   string // the plan markdown, as saved
 }
 
+// pendingExecute is a plan the user approved in the turn that just ended. It
+// is carried out as a turn of its own (RunPendingExecution).
+type pendingExecute struct {
+	plan *Plan
+	md   string
+}
+
 // Planner owns the plan and task list of one agent and provides the plan,
 // update_plan_step, ask_user and task_list tools.
 type Planner struct {
@@ -62,6 +69,7 @@ type Planner struct {
 	extras  planExtras
 	tasks   []Task
 	cleared *pendingClear
+	execute *pendingExecute
 }
 
 // Plan returns the current plan (nil when none).
@@ -136,6 +144,54 @@ func (p *Planner) takeCleared() *pendingClear {
 	c := p.cleared
 	p.cleared = nil
 	return c
+}
+
+// takeExecute returns the approved plan waiting to run, once. It is nil when
+// there is none.
+func (p *Planner) takeExecute() *pendingExecute {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	x := p.execute
+	p.execute = nil
+	return x
+}
+
+// PlanExecuteLead opens the user message that starts an approved plan's
+// execution. The TUI shows a message with this lead as a collapsed plan.
+const PlanExecuteLead = "Execute this plan."
+
+// RunPendingExecution carries out the plan approved in the turn that just
+// ended, as a new turn with plan execution on (see PlanExecutionAllowed). It
+// returns false, with no turn run, when no plan is waiting. A plan still
+// waiting after a cancelled context is dropped, so it cannot run later
+// against a conversation the user has moved on from. p may be nil.
+func RunPendingExecution(ctx context.Context, a *Agent, p *Planner) (TurnStats, bool, error) {
+	if p == nil {
+		return TurnStats{}, false, nil
+	}
+	x := p.takeExecute()
+	if x == nil {
+		return TurnStats{}, false, nil
+	}
+	if ctx.Err() != nil {
+		return TurnStats{}, false, nil
+	}
+	a.BeginPlanExecution()
+	stats, err := a.Run(ctx, executePlanMessage(x), nil)
+	return stats, true, err
+}
+
+// executePlanMessage is the user message that starts an approved plan's turn.
+func executePlanMessage(x *pendingExecute) string {
+	var b strings.Builder
+	b.WriteString(PlanExecuteLead + "\n\n")
+	if x.plan.Path != "" {
+		b.WriteString("Plan file: " + x.plan.Path + "\n\n")
+	}
+	b.WriteString(x.md)
+	b.WriteString("\n\nCall update_plan_step with status active when you start a step and done when it is finished. ")
+	b.WriteString("Verify with tests or builds at the end.")
+	return b.String()
 }
 
 type planTool struct{ p *Planner }
@@ -287,11 +343,20 @@ func (t planTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage)
 				t.p.Agent.SetMode("default")
 				t.p.Agent.emit(Event{Kind: EvNotice, Text: "Plan approved: switched to Default mode to implement it."})
 			}
-			t.p.Agent.BeginPlanExecution()
+		}
+		// The plan runs in its own turn (spec 03 §2.6), not inside this one:
+		// this turn ends now and RunPendingExecution starts the plan. The
+		// approval is recorded as the outcome below and in the notice.
+		t.p.mu.Lock()
+		t.p.execute = &pendingExecute{plan: pl, md: md}
+		t.p.mu.Unlock()
+		if t.p.Agent != nil {
+			t.p.Agent.EndTurn()
+			t.p.Agent.emit(Event{Kind: EvNotice, Text: "Plan approved: the decision to execute is recorded, and the plan runs in its own turn."})
 		}
 		t.p.emitOutcome(pl, "approved", "")
-		return tools.Result{Output: "The user approved the plan. Restrictions are lifted: implement it now, step by step. " +
-			"Call update_plan_step with status active when you start a step and done when it is finished. Verify with tests or builds at the end.",
+		return tools.Result{Output: "The user approved the plan. It is carried out in a new turn that starts when this one ends. " +
+			"Stop here and do not start on the plan now.",
 			Summary: "approved"}
 	case strings.EqualFold(ans, AnswerClear) || strings.HasPrefix(lower, "clear"):
 		// The history is replaced after this turn ends (see RunClearing), so

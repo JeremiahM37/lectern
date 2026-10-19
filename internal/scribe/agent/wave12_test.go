@@ -31,8 +31,10 @@ func TestFailedTaskCountsItsInRunRetries(t *testing.T) {
 	}
 	h := &dispatchHarness{t: t, f: f, log: log, dir: dir, d: d}
 	res := h.run(`{"tasks":[{"id":"solo","role":"explore","task":"look at the parser"}]}`)
-	if !strings.Contains(res.Output, "FAILED after 3 attempts") {
-		t.Fatalf("one run with two in-run retries should count as 3 attempts:\n%s", res.Output)
+	// Explore tasks get the same attempt budget as code tasks: four runs of
+	// three provider attempts each (the first and two retries), so 12 in all.
+	if !strings.Contains(res.Output, "FAILED after 12 attempts") {
+		t.Fatalf("four runs of three attempts should count as 12 attempts:\n%s", res.Output)
 	}
 }
 

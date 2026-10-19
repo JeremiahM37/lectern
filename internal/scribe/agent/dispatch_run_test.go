@@ -319,16 +319,18 @@ func TestDispatchCircuitBreakerStopsLaunchingAfterSixRetryableFailures(t *testin
 		tasks = append(tasks, fmt.Sprintf(`{"role":"explore","task":"BRK-%d look"}`, i))
 	}
 	res := h.run(`{"tasks":[` + strings.Join(tasks, ",") + `]}`)
-	// Each subagent makes 4 requests (the first and three retries) before it
-	// fails, so six failed subagents mean 24 requests, and the last two never start.
+	// Each run makes 4 requests (the first and three retries) and fails. Task 1
+	// uses its whole attempt budget of 4 runs (16 requests); task 2 makes two
+	// runs (8 requests), and the second opens the breaker. Six failures in all,
+	// so 24 requests, and tasks 3 to 8 never start.
 	if n := h.f.count(); n != 24 {
-		t.Fatalf("%d requests reached the model, want 24 (six subagents)", n)
+		t.Fatalf("%d requests reached the model, want 24 (six failed runs)", n)
 	}
 	if !strings.Contains(res.Output, "## Circuit breaker\nOpened after 6 provider failures; tasks that had not started were not run.") {
 		t.Fatalf("output has no breaker section:\n%s", res.Output)
 	}
-	if got := strings.Count(res.Output, "FAILED: not started: 6 provider failures"); got != 2 {
-		t.Fatalf("%d unstarted tasks named, want 2:\n%s", got, res.Output)
+	if got := strings.Count(res.Output, "FAILED: not started: 6 provider failures"); got != 6 {
+		t.Fatalf("%d unstarted tasks named, want 6:\n%s", got, res.Output)
 	}
 	if !res.IsError {
 		t.Fatalf("no task finished, but IsError is false")

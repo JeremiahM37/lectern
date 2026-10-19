@@ -279,6 +279,7 @@ func (m *Model) addTab(be Backend, name string) *tab {
 		t.in.history = hl.History()
 	}
 	replayEvents(t.chat, be.Transcript())
+	applyForeignHeader(t)
 	t.git = be.Git()
 	t.local = isLocalModel(t.model)
 	m.tabs = append(m.tabs, t)

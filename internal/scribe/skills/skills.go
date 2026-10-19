@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
@@ -327,4 +328,112 @@ func trimRunes(s string, n int) string {
 	}
 	r := []rune(s)
 	return string(r[:n-1]) + "…"
+}
+
+// Matching a task to skills (spec 03 §3.1). A skill's content is handed to a
+// dispatched subagent when the task text shares enough words with the skill:
+// a word in its name counts MatchNameWeight, a word in its description counts
+// one, and the skill matches at MatchThreshold. The best MaxTaskSkills are
+// used, each cut to MaxTaskSkillChars, so a long skill cannot swamp the task.
+const (
+	MatchNameWeight   = 3
+	MatchThreshold    = 2
+	MaxTaskSkills     = 3
+	MaxTaskSkillChars = 2000
+)
+
+// taskStopwords are words too common to say anything about a task.
+var taskStopwords = map[string]bool{
+	"the": true, "and": true, "for": true, "with": true, "this": true, "that": true,
+	"from": true, "into": true, "file": true, "files": true, "code": true, "use": true,
+	"make": true, "all": true, "not": true, "are": true, "you": true, "your": true,
+	"its": true, "then": true, "when": true, "will": true, "should": true, "must": true,
+	"can": true, "any": true, "each": true, "new": true, "add": true, "run": true,
+	"using": true, "task": true, "agent": true, "skill": true,
+}
+
+// taskWords is the set of distinct words of s that are at least three letters
+// long and not stopwords, lowercased.
+func taskWords(s string) map[string]bool {
+	out := map[string]bool{}
+	for _, w := range strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		if utf8.RuneCountInString(w) < 3 || taskStopwords[w] {
+			continue
+		}
+		out[w] = true
+	}
+	return out
+}
+
+// Score is how well a task's words match skill sk: name words weigh
+// MatchNameWeight, description words one, and a word counts once even if it
+// appears in both.
+func Score(task string, sk Skill) int {
+	want := taskWords(task)
+	nameWords := taskWords(sk.Name)
+	score := 0
+	for w := range nameWords {
+		if want[w] {
+			score += MatchNameWeight
+		}
+	}
+	for w := range taskWords(sk.Description) {
+		if want[w] && !nameWords[w] {
+			score++
+		}
+	}
+	return score
+}
+
+// ForTask returns the rendered content of the skills that match task, best
+// first, each as a "Skill <name>:" heading and its instructions. Nil when none
+// match, or when the set is nil or empty. A nil *Set is safe to call.
+func (s *Set) ForTask(task string) []string {
+	if s == nil || len(s.Skills) == 0 {
+		return nil
+	}
+	type match struct {
+		sk    Skill
+		score int
+	}
+	var matches []match
+	for _, sk := range s.Skills {
+		if score := Score(task, sk); score >= MatchThreshold {
+			matches = append(matches, match{sk, score})
+		}
+	}
+	sort.SliceStable(matches, func(i, j int) bool {
+		if matches[i].score != matches[j].score {
+			return matches[i].score > matches[j].score
+		}
+		return matches[i].sk.Name < matches[j].sk.Name
+	})
+	if len(matches) > MaxTaskSkills {
+		matches = matches[:MaxTaskSkills]
+	}
+	var out []string
+	for _, m := range matches {
+		body, err := skillBody(m.sk, MaxTaskSkillChars)
+		if err != nil {
+			continue
+		}
+		out = append(out, fmt.Sprintf("Skill %s:\n%s", m.sk.Name, body))
+	}
+	return out
+}
+
+// skillBody is the instructions of sk with the frontmatter removed, cut to
+// limit characters.
+func skillBody(sk Skill, limit int) (string, error) {
+	src, err := os.ReadFile(filepath.Join(sk.Dir, SkillFile))
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", SkillFile, err)
+	}
+	_, body, err := ParseFrontmatter(string(src))
+	if err != nil {
+		body = strings.TrimSpace(string(src))
+	}
+	return trimRunes(strings.TrimSpace(body), limit), nil
 }

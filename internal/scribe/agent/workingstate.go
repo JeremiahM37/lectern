@@ -62,7 +62,15 @@ var sentenceEnd = regexp.MustCompile(`[.!?](\s+|$)`)
 var systemReminder = regexp.MustCompile(`(?s)<system-reminder>.*?(?:</system-reminder>|\z)`)
 
 // BuildWorkingState extracts the working state from msgs in one pass.
+// BuildWorkingState keeps the default number of tool-result summaries.
 func BuildWorkingState(msgs []llm.Message) WorkingState {
+	return buildWorkingState(msgs, maxToolResults)
+}
+
+// buildWorkingState builds the state, keeping at most toolCap tool-result
+// summaries. max_tool_results sets toolCap, so a config value above the default
+// is honoured.
+func buildWorkingState(msgs []llm.Message, toolCap int) WorkingState {
 	var ws WorkingState
 	files := map[string]*fileState{}
 	var fileOrder []string
@@ -115,7 +123,7 @@ func BuildWorkingState(msgs []llm.Message) WorkingState {
 				if failed[p.ToolCallID] {
 					continue
 				}
-				recordCall(p, addAction, &ws)
+				recordCall(p, addAction, &ws, toolCap)
 			case llm.PartToolResult:
 				tool := p.ToolName
 				if tool == "" {
@@ -126,7 +134,7 @@ func BuildWorkingState(msgs []llm.Message) WorkingState {
 					ws.Failures = appendCapped(ws.Failures, clip(tool+": "+firstLine(p.Result), 200), maxFailures)
 					continue
 				}
-				ws.ToolResults = appendToolResult(ws.ToolResults, toolSummary{Tool: tool, Summary: first}, maxToolResults)
+				ws.ToolResults = appendToolResult(ws.ToolResults, toolSummary{Tool: tool, Summary: first}, toolCap)
 			}
 		}
 	}
@@ -145,7 +153,7 @@ func shellRan(result string) bool {
 
 // recordCall turns one successful tool call into state: files touched, and
 // for shell calls a "ran:" line in the tool results.
-func recordCall(p llm.Part, addAction func(path, action string), ws *WorkingState) {
+func recordCall(p llm.Part, addAction func(path, action string), ws *WorkingState, toolCap int) {
 	var a struct {
 		Path      string   `json:"path"`
 		Paths     []string `json:"paths"`
@@ -172,7 +180,7 @@ func recordCall(p llm.Part, addAction func(path, action string), ws *WorkingStat
 		}
 	case "shell":
 		if a.Command != "" {
-			ws.ToolResults = appendToolResult(ws.ToolResults, toolSummary{Tool: "shell", Summary: "ran: " + clip(a.Command, maxCommandChars)}, maxToolResults)
+			ws.ToolResults = appendToolResult(ws.ToolResults, toolSummary{Tool: "shell", Summary: "ran: " + clip(a.Command, maxCommandChars)}, toolCap)
 		}
 	}
 }

@@ -44,11 +44,23 @@ func (p *peer) write(v any) {
 		p.t.Fatal(err)
 	}
 	if _, err := io.WriteString(p.out, "Content-Length: "+strconv.Itoa(len(body))+"\r\n\r\n"); err != nil {
-		p.t.Fatal(err)
+		p.writeFailed(err)
+		return
 	}
 	if _, err := p.out.Write(body); err != nil {
-		p.t.Fatal(err)
+		p.writeFailed(err)
 	}
+}
+
+// writeFailed reports a failed write. A pipe the test's cleanup already
+// closed is the end of the conversation, not a failure: a fake server's
+// goroutine may still be answering then, and t.Fatal after the test has
+// returned panics the whole package.
+func (p *peer) writeFailed(err error) {
+	if errors.Is(err, io.ErrClosedPipe) {
+		return
+	}
+	p.t.Error(err)
 }
 
 // pipes returns a client wired to a peer through io.Pipe, and the peer's ends.

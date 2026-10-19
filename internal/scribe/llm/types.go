@@ -176,6 +176,19 @@ type Request struct {
 	// ContextWindow is the model's context window in tokens. The clear-tool-uses
 	// thresholds scale with it. 0 uses the fixed floors alone.
 	ContextWindow int
+	// ServerCompaction asks Anthropic to summarise the conversation on its
+	// side once the input passes a trigger (context_management compact). The
+	// adapter sends it only for windows of 200 000 tokens or more. false
+	// leaves the request unchanged. The summary is not yet carried back in
+	// the history, so this stays opt-in.
+	ServerCompaction bool
+	// ReasoningFormat is Groq's reasoning_format (parsed, raw or hidden).
+	// "" sends nothing. Only the Groq adapter id reads it.
+	ReasoningFormat string
+	// DashScopeThinking is the DashScope thinking switch: "on" sends
+	// enable_thinking true, "" leaves it out. ThinkingBudget becomes
+	// thinking_budget. Only a provider id "dashscope" reads it.
+	DashScopeThinking string
 	// ExtraParams are provider-specific body fields. The OpenAI-compatible
 	// adapter merges them into the request body verbatim, and they win over
 	// the fields it sets itself, except the core fields model, messages,

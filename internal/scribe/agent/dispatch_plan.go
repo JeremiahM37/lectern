@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/repomap"
 )
 
 // dispatchPlan is a checked task list. ids names every task (given or
@@ -483,4 +485,175 @@ func joinInts(ns []int) string {
 		parts[i] = fmt.Sprint(n)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// CodeMap is the part of the code map the dispatcher reads to check and
+// describe a task's targets (spec 03 §3.1). *repomap.Map satisfies it. A nil
+// CodeMap means no map: targets are checked on disk only.
+type CodeMap interface {
+	FileSymbols(file string) ([]repomap.Symbol, bool)
+	Impact(file string) (repomap.Impact, error)
+}
+
+// TaskSkills supplies the skill content that matches a task's text (spec 03
+// §3.1). *skills.Set satisfies it. A nil TaskSkills adds nothing.
+type TaskSkills interface {
+	ForTask(task string) []string
+}
+
+// checkTargetsIn is checkTargets with the code map consulted first: a target
+// the map knows is kept without a disk check. It returns a note for each file
+// it dropped, and drops them from the tasks in place. An empty workdir skips
+// the disk check.
+func checkTargetsIn(tasks []subTask, workdir string, m CodeMap) []string {
+	if workdir == "" && m == nil {
+		return nil
+	}
+	var notes []string
+	for i := range tasks {
+		if tasks[i].Role != "code" || len(tasks[i].Files) == 0 {
+			continue
+		}
+		var keep []string
+		for _, f := range tasks[i].Files {
+			p := stripRange(f)
+			if !strings.Contains(p, ".") || targetKnown(p, workdir, m) {
+				keep = append(keep, f)
+				continue
+			}
+			notes = append(notes, fmt.Sprintf("dropped target %s from agent %d: no such file in the project", p, i+1))
+		}
+		tasks[i].Files = keep
+	}
+	return notes
+}
+
+// targetKnown reports whether a target path is in the code map, or on disk
+// when it is not. An empty workdir and no map leaves nothing to check against,
+// so the target is kept.
+func targetKnown(p, workdir string, m CodeMap) bool {
+	if m != nil {
+		if _, ok := m.FileSymbols(p); ok {
+			return true
+		}
+	}
+	if workdir == "" {
+		return true
+	}
+	return fileExists(filepath.Join(workdir, p))
+}
+
+// maxDependentNames caps how many importers one warning lists (spec 03 §3.1
+// rule 2).
+const maxDependentNames = 5
+
+// dependentNotes warns about the importers of each code target that are not
+// themselves targets of this dispatch, since changing the target can break
+// them. It lists up to maxDependentNames per file, and names each file once.
+func dependentNotes(tasks []subTask, m CodeMap) []string {
+	if m == nil {
+		return nil
+	}
+	inDispatch := map[string]bool{}
+	for _, st := range tasks {
+		for _, f := range st.Files {
+			inDispatch[stripRange(f)] = true
+		}
+	}
+	var notes []string
+	warned := map[string]bool{}
+	for _, st := range tasks {
+		if st.Role != "code" {
+			continue
+		}
+		for _, f := range st.Files {
+			p := stripRange(f)
+			if warned[p] {
+				continue
+			}
+			warned[p] = true
+			im, err := m.Impact(p)
+			if err != nil {
+				continue
+			}
+			var missing []string
+			for _, d := range im.Dependents {
+				if d.Level != 1 || inDispatch[d.Path] {
+					continue
+				}
+				missing = append(missing, d.Path)
+				if len(missing) == maxDependentNames {
+					break
+				}
+			}
+			if len(missing) > 0 {
+				notes = append(notes, fmt.Sprintf("importers of %s are not in this dispatch and may break if its exports change: %s", p, strings.Join(missing, ", ")))
+			}
+		}
+	}
+	return notes
+}
+
+// maxTargetSymbols caps the symbols listed for one target file.
+const maxTargetSymbols = 12
+
+// targetSymbolLines is the "Target files:" block for a task: each target the
+// code map has symbols for, with its symbols and their line ranges (spec 03
+// §3.1). It is "" when no target has symbols in the map.
+func targetSymbolLines(files []string, m CodeMap) string {
+	if m == nil {
+		return ""
+	}
+	var lines []string
+	for _, p := range sortedUnique(stripped(files)) {
+		syms, ok := m.FileSymbols(p)
+		if !ok || len(syms) == 0 {
+			continue
+		}
+		var parts []string
+		for i, s := range syms {
+			if i == maxTargetSymbols {
+				parts = append(parts, fmt.Sprintf("%d more", len(syms)-i))
+				break
+			}
+			end := max(s.EndLine, s.Line)
+			parts = append(parts, fmt.Sprintf("%s %s lines %d-%d", s.Kind, s.Name, s.Line, end))
+		}
+		lines = append(lines, fmt.Sprintf("- %s: %s", p, strings.Join(parts, "; ")))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "Target files:\n" + strings.Join(lines, "\n")
+}
+
+// stripped is files with each optional line range removed.
+func stripped(files []string) []string {
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		out = append(out, stripRange(f))
+	}
+	return out
+}
+
+// withTargetSymbols appends the task's "Target files:" block to task text.
+func withTargetSymbols(task string, st subTask, m CodeMap) string {
+	block := targetSymbolLines(st.Files, m)
+	if block == "" {
+		return task
+	}
+	return task + "\n\n" + block
+}
+
+// withSkillText appends the content of the skills that match the task's own
+// text (spec 03 §3.1). Nothing is added when no skill matches.
+func withSkillText(task, own string, skills TaskSkills) string {
+	if skills == nil {
+		return task
+	}
+	found := skills.ForTask(own)
+	if len(found) == 0 {
+		return task
+	}
+	return task + "\n\nSkills that match this task:\n\n" + strings.Join(found, "\n\n")
 }

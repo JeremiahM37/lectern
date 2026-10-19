@@ -152,6 +152,11 @@ func TestCodeMapSnapshotIsFrozenUntilCompaction(t *testing.T) {
 	case <-time.After(20 * time.Second):
 		t.Fatal("the first build did not finish")
 	}
+	// The freeze applies to providers that cache the prompt; the fake test
+	// model does not, so this test runs on a caching model reference.
+	cached := a.Agent.CurrentModel()
+	cached.Ref = "anthropic/claude-x"
+	a.Agent.SetModel(cached)
 	if err := os.WriteFile(filepath.Join(repo, "extra.go"), []byte("package main\n\nfunc FreshlyAddedThing() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

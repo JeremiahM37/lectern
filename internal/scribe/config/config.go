@@ -156,6 +156,11 @@ type Config struct {
 	Hooks     []Hook      `json:"hooks,omitempty"`
 	MCP       []MCPServer `json:"mcp,omitempty"`
 
+	// RouterRules pick a model for a task whose text matches a rule
+	// (spec 02 section 5.2, routerRules). The list is ordered and replaced
+	// wholesale by a project file, so it is not merged by id.
+	RouterRules []RouterRule `json:"router_rules,omitempty"`
+
 	// Permissions: shell command prefixes always allowed / denied.
 	Allow []string `json:"allow,omitempty"`
 	Deny  []string `json:"deny,omitempty"`
@@ -557,6 +562,9 @@ func Merge(base, o Config) Config {
 	// Providers and MCP servers merge by id/name, project wins.
 	r.Providers = mergeBy(base.Providers, o.Providers, func(p Provider) string { return p.ID })
 	r.MCP = mergeBy(base.MCP, o.MCP, func(m MCPServer) string { return m.Name })
+	if o.RouterRules != nil {
+		r.RouterRules = o.RouterRules
+	}
 	r.Hooks = append(append([]Hook(nil), base.Hooks...), o.Hooks...)
 	r.Allow = append(append([]string(nil), base.Allow...), o.Allow...)
 	r.Deny = append(append([]string(nil), base.Deny...), o.Deny...)
@@ -913,8 +921,8 @@ func (c Config) ChatDailyBudget() int {
 }
 
 // ToolResultsKept is how many tool-result summaries compaction keeps. Unset
-// or negative means the default of 30; the working state never holds more
-// than 30, so larger values are not honoured (see agent.SummaryCompactor).
+// or negative means the default of 30. Larger values are honoured: the
+// working state collects this many (see agent.SummaryCompactor).
 func (c Config) ToolResultsKept() int {
 	if c.MaxToolResults <= 0 {
 		return 0

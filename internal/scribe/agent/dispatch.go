@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -46,6 +45,8 @@ type SubagentSpec struct {
 	// ReadCache says whether its reads go through the bus cache (the
 	// dispatch_cache feature). Findings are shared either way.
 	ReadCache bool
+	// Task is the task text, matched against the config's router_rules.
+	Task string
 }
 
 // SubagentFactory builds the subagent a spec describes, whose events go to
@@ -67,6 +68,14 @@ type Dispatcher struct {
 	// it finished, "blocked" when it failed or never ran. The host uses it to
 	// mark the task list item. Nil does nothing.
 	TaskStatus func(taskID, status string)
+	// Map is the code map. Task targets the map knows are kept without a disk
+	// check, get their symbol ranges in a "Target files:" block, and get
+	// warnings about the importers left out of the dispatch (spec 03 §3.1).
+	// Nil means no map. Set it only to a real map: a typed nil is not nil here.
+	Map CodeMap
+	// Skills supplies the skill content that matches each task (spec 03 §3.1).
+	// Nil adds nothing.
+	Skills TaskSkills
 	// WorkDir is the project root that task file targets are checked against.
 	// It is also in env, but a dispatch with no env workdir skips the check.
 
@@ -96,6 +105,8 @@ type Dispatcher struct {
 	lastBoard atomic.Pointer[board]
 	// lastBus is the bus of the newest dispatch, for CancelDispatch.
 	lastBus atomic.Pointer[AgentBus]
+	// reads is the read cache the newest dispatch leaves for the next one.
+	reads cacheRef
 }
 
 // features is the feature set in force.
@@ -278,7 +289,8 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 		limit = 3
 	}
 	if d.features().TargetFileValidation {
-		notes = append(notes, checkTargets(in.Tasks, env.Workdir)...)
+		notes = append(notes, checkTargetsIn(in.Tasks, env.Workdir, d.Map)...)
+		notes = append(notes, dependentNotes(in.Tasks, d.Map)...)
 	}
 	notes = append(notes, sharedFileNotes(in.Tasks)...)
 	// Files another tab is editing: warned about on the task, never blocked.
@@ -288,9 +300,22 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 
 	n := len(in.Tasks)
 	run := newDispatchRun(d, env)
+	feats := d.features()
+	if feats.DispatchCache {
+		d.reads.seed(run.bus)
+	}
+	for i, st := range in.Tasks {
+		if st.Role == "code" {
+			run.targets[i] = codeLockKeys(st.Files)
+		}
+	}
 	observe := cacheObserver(run.board)
 	run.bus.SetCacheObserver(func(n CacheNote) {
-		observe(n)
+		// A tool-result hit is not a file read: it must not change a board
+		// row's cache state.
+		if !n.Tool {
+			observe(n)
+		}
 		run.cache.note(n)
 	})
 	d.lastBoard.Store(run.board)
@@ -373,12 +398,19 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 					defer locks[f].Unlock()
 				}
 			}
-			task := withPeerObjectives(withDependencyReports(taskText(st), plan, i, results), in.Tasks, plan, i)
+			task := withDependencyReports(taskText(st), plan, i, results)
+			task = withPeerObjectives(task, in.Tasks, plan, i)
+			task = withTargetSymbols(task, st, d.Map)
+			task = withSkillText(task, st.Task, d.Skills)
 			results[i] = run.runTask(ctx, i, st.Role, PurposeTask, task)
 		}(i, st)
 	}
 	wg.Wait()
+	if feats.DispatchCache {
+		d.reads.keep(run.bus)
+	}
 	archiveReports(results, runIDs(run.board, n), d.ArchiveDir, env.CallID)
+	links := archiveLinks(runIDs(run.board, n), d.ArchiveDir, env.CallID)
 	markTaskItems(d.TaskStatus, in.Tasks, results)
 
 	// Files that code tasks changed, and the project check that follows them.
@@ -396,7 +428,6 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 	// on the changed files, then a cleanup agent over them, both before the
 	// project check reads the files (spec 03 §3.8, spec 06 §9.5). The review
 	// runs read-only after the check.
-	feats := d.features()
 	var lint, cleanup string
 	var cleanupEdited []string
 	if len(changed) > 0 && feats.Desloppify && d.New != nil {
@@ -404,6 +435,10 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 		cleanup, cleanupEdited = run.desloppify(callerCtx, changed)
 		changed = sortedUnique(append(changed, cleanupEdited...))
 	}
+	// The project check runs after every dispatch that changed files: it is
+	// cheap and catches a broken build at once. Spec 03 §3.8 step 4 puts it
+	// behind verify_edits; Lectern keeps it on, and only the read-only model
+	// review (which costs a model call) waits for verify_edits.
 	var check verifyOutcome
 	if len(changed) > 0 {
 		check = run.verify(callerCtx, env, reg, changed)
@@ -436,10 +471,11 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 		}
 		b.WriteString("\n")
 	}
-	if conflicts := editConflicts(results); len(conflicts) > 0 {
-		b.WriteString("## Files edited by more than one agent\n")
-		for _, c := range conflicts {
-			fmt.Fprintf(&b, "- %s\n", c)
+	b.WriteString(filesEditedSection(results))
+	if len(links) > 0 {
+		b.WriteString("## Archived reports\n")
+		for _, l := range links {
+			fmt.Fprintf(&b, "- %s\n", l)
 		}
 		b.WriteString("\n")
 	}
@@ -462,7 +498,7 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 	if text := renderCleanup(lint, cleanup, cleanupEdited); text != "" {
 		fmt.Fprintf(&b, "## Cleanup\n%s\n", text)
 	}
-	if len(changed) > 0 {
+	if check.status != "" {
 		fmt.Fprintf(&b, "## Verification\n%s\n\n", check.text)
 	}
 	if verdict != "" {
@@ -485,7 +521,7 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 		IsError: ok == 0,
 		Meta:    map[string]any{"subagent_usage": run.usage(), "subagent_cost_usd": run.costUSD()},
 	}
-	if len(changed) > 0 {
+	if check.status != "" {
 		res.Meta["verification"] = check.status
 	}
 	if verdict != "" {
@@ -629,31 +665,10 @@ func taskText(st subTask) string {
 }
 
 // checkTargets drops code-task target files that do not exist, since an
-// edit to them cannot start (spec 03 §3.1 rule 1). A target is a path with a
-// dot in it; an optional path:start-end range is ignored for the check. It
-// returns a note for each file it dropped. Dropped files are removed from the
-// tasks in place. An empty workdir skips the check.
+// edit to them cannot start (spec 03 §3.1 rule 1). It is checkTargetsIn with
+// no code map.
 func checkTargets(tasks []subTask, workdir string) []string {
-	if workdir == "" {
-		return nil
-	}
-	var notes []string
-	for i := range tasks {
-		if tasks[i].Role != "code" || len(tasks[i].Files) == 0 {
-			continue
-		}
-		var keep []string
-		for _, f := range tasks[i].Files {
-			p := stripRange(f)
-			if !strings.Contains(p, ".") || fileExists(filepath.Join(workdir, p)) {
-				keep = append(keep, f)
-				continue
-			}
-			notes = append(notes, fmt.Sprintf("dropped target %s from agent %d: no such file in the project", p, i+1))
-		}
-		tasks[i].Files = keep
-	}
-	return notes
+	return checkTargetsIn(tasks, workdir, nil)
 }
 
 // sharedFileNotes says which files more than one task works on. It is

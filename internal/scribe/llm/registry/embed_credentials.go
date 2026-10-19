@@ -14,6 +14,7 @@ import (
 // The key is returned only to the caller that builds the embedder. Errors
 // never include it, and the registry does not log it.
 func (r *Registry) EmbeddingCredentials(id string) (baseURL, key string, err error) {
+	id = embeddingProviderAlias(id)
 	i, ok := r.byID[id]
 	if !ok {
 		return "", "", fmt.Errorf("unknown provider %q for memory embeddings", id)
@@ -34,4 +35,14 @@ func (r *Registry) EmbeddingCredentials(id string) (baseURL, key string, err err
 		baseURL = strings.TrimSuffix(baseURL, "/v1")
 	}
 	return baseURL, key, nil
+}
+
+// embeddingProviderAlias maps the spec's embedding provider names onto this
+// registry's ids. The spec calls Gemini "google" (google/text-embedding-004);
+// the registry id is "gemini", so the same key and base URL serve both.
+func embeddingProviderAlias(id string) string {
+	if id == "google" {
+		return "gemini"
+	}
+	return id
 }

@@ -50,6 +50,10 @@ func (e *editor) apply(text string, o op) (string, string, string, error) {
 		out, msg, err := insertText(text, o)
 		return out, msg, "file", err
 	}
+	if isModuleOp(o.Action) {
+		out, msg, err := e.moduleOp(text, o)
+		return out, msg, "imports", err
+	}
 	syms, err := e.symbols(text)
 	if err != nil {
 		return "", "", "", err

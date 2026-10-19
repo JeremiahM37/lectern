@@ -37,6 +37,7 @@ const toolName = "ast_edit"
 var actionNames = []string{
 	"replace", "replace_body", "insert_before", "insert_after", "delete", "rename_local", "replace_in_body", "add_import",
 	"insert_text",
+	"add_named_import", "remove_named_import", "remove_import", "set_module_specifier",
 	"set_return_type", "set_async", "add_parameter", "remove_parameter", "set_type", "set_initializer", "remove_initializer", "rename",
 	"add_method", "add_property", "remove_member",
 	"set_extends", "create_file",
@@ -49,7 +50,9 @@ const description = "Edit one definition by name instead of matching text. symbo
 	"insert_after, delete, rename_local (old_name to new_name inside the symbol), replace_in_body (old_string to " +
 	"new_string, must match once inside the symbol; with end_string, the span from old_string through end_string " +
 	"is replaced), add_import (new_code is the import; no symbol), insert_text (new_code at a file anchor: index 0 " +
-	"for the top, -1 for the bottom, or a line; or value after-imports / before-exports; no symbol). Micro edits: " +
+	"for the top, -1 for the bottom, or a line; or value after-imports / before-exports; no symbol). " +
+	"Module edits for TypeScript and JavaScript (no symbol; symbol is the module path, new_code the names or the new " +
+	"path): add_named_import, remove_named_import, remove_import, set_module_specifier. Micro edits: " +
 	"set_return_type, set_async, add_parameter and remove_parameter (new_code is the parameter name), set_type, " +
 	"set_initializer, remove_initializer, and rename (declaration name only; new_name). Member edits on a class: " +
 	"add_method and add_property (new_code is the member), remove_member (symbol Owner.member). " +
@@ -328,7 +331,7 @@ func (o op) check() error {
 	if !known {
 		return fmt.Errorf("unknown action %q. Use one of: %s", o.Action, strings.Join(actionNames, ", "))
 	}
-	if o.Action != "add_import" && o.Action != "insert_text" && o.Action != "create_file" && strings.TrimSpace(o.Symbol) == "" {
+	if !fileLevelAction(o.Action) && strings.TrimSpace(o.Symbol) == "" {
 		return fmt.Errorf("symbol is required for %s", o.Action)
 	}
 	switch o.Action {
@@ -520,4 +523,14 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// fileLevelAction says whether an action works on the file as a whole, so it
+// takes no symbol.
+func fileLevelAction(action string) bool {
+	switch action {
+	case "add_import", "insert_text", "create_file":
+		return true
+	}
+	return isModuleOp(action)
 }

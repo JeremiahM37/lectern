@@ -462,6 +462,14 @@ func (m *Map) fileRank(p string) float64 {
 // end the map, and no directory may take more than dirCap blocks before the
 // budget is used up.
 func (m *Map) Render(budgetTokens int, focus []string) string {
+	text := m.render(budgetTokens, focus)
+	m.mu.Lock()
+	m.renderTokens = estTokens(text)
+	m.mu.Unlock()
+	return text
+}
+
+func (m *Map) render(budgetTokens int, focus []string) string {
 	if budgetTokens <= 0 {
 		budgetTokens = 2500
 	}

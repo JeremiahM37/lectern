@@ -524,6 +524,7 @@ func (m *Model) resumeSession(id string) tea.Cmd {
 		return cmdErr(err)
 	}
 	m.replayTranscript(t)
+	applyForeignHeader(t)
 	m.setFlash("ok", "Resumed "+t.be.SessionTitle())
 	return nil
 }

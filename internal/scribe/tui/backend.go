@@ -22,6 +22,10 @@ type ProviderStatus struct {
 	KeySource string
 	// DefaultModel is the model the provider suggests; the wizard preselects it.
 	DefaultModel string
+	// KeyURL is the page where a key is created, or "" when none is known.
+	KeyURL string
+	// Description is one line saying what the provider is.
+	Description string
 }
 
 // SessionInfo is one saved session.

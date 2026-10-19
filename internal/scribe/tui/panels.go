@@ -239,6 +239,13 @@ func modelRows(evs []agent.Event) []modelRow {
 		if e.Model != "" {
 			cur = e.Model
 		}
+		// A failed attempt counts as an error whatever its kind: a retried
+		// step (EvRetry), a compaction call (EvStepFinish) and a final failure
+		// (EvError) each carry state "error". Counting only EvError hid the
+		// retries that were the reason a model felt slow.
+		if e.Kind == agent.EvError || modelEventState(e) == "error" {
+			row(e.Model).errors++
+		}
 		switch e.Kind {
 		case agent.EvStepFinish:
 			r := row(e.Model)
@@ -249,8 +256,6 @@ func modelRows(evs []agent.Event) []modelRow {
 				r.timed++
 				r.last = e.Duration
 			}
-		case agent.EvError:
-			row(e.Model).errors++
 		}
 	}
 	return rows
@@ -800,4 +805,11 @@ func subagentCount(n int) string {
 // (/cancel all).
 type DispatchCanceller interface {
 	CancelDispatch() error
+}
+
+// modelEventState is the state a model-log entry records in its Meta: "ok" or
+// "error". It is empty for entries that carry none.
+func modelEventState(e agent.Event) string {
+	st, _ := e.Meta["state"].(string)
+	return st
 }

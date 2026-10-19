@@ -19,6 +19,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/registry"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/nvim"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/chat"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
 )
 
@@ -424,7 +425,66 @@ func (s *settings) agentRows() []setRow {
 	rows = append(rows, s.numRow7("Concurrent subagents", "router.max_agents", c.Router.MaxAgents,
 		"2 to 8; 0 keeps the default (3)"))
 	rows = append(rows, s.toolTimeoutRow(c))
+	if row, ok := s.chatBudgetRow(); ok {
+		rows = append(rows, setRow{label: "Budget", header: true})
+		rows = append(rows, row)
+	}
 	return rows
+}
+
+// chatBudgetRow sets this chat's daily token budget. It saves through
+// ChatBudgeter.SetChatBudget, the same path /budget chat uses, and not through
+// setFlat7: the value is not a config.SetField key. The row is absent when the
+// backend has no per-chat budget.
+func (s *settings) chatBudgetRow() (setRow, bool) {
+	cb, ok := chatBudgetOf(s.be)
+	if !ok {
+		return setRow{}, false
+	}
+	shown := "no limit"
+	cur := ""
+	if cb.Limit > 0 {
+		shown = render.HumanTokens(cb.Limit)
+		cur = strconv.Itoa(cb.Limit)
+	}
+	return setRow{label: "This chat per day", value: shown, raw: cb.Limit,
+		note: "tokens this chat may spend each local day, on top of the daily budget",
+		act: func() tea.Cmd {
+			return s.prompt("This chat per day", "tokens, for example 500k; 0 or off for no limit", cur, func(v string) tea.Cmd {
+				return s.setChatBudget(strings.TrimSpace(v))
+			})
+		}}, true
+}
+
+// setChatBudget parses a typed per-chat budget and saves it. A parse error is
+// shown in the settings footer and nothing is saved.
+func (s *settings) setChatBudget(v string) tea.Cmd {
+	cb, ok := s.be.(ChatBudgeter)
+	if !ok {
+		s.say("err", "this build cannot save the per-chat budget")
+		return nil
+	}
+	n := 0
+	switch strings.ToLower(v) {
+	case "", "0", "off", "none", "no", "unlimited":
+	default:
+		parsed, err := parseTokenCount(v)
+		if err != nil {
+			s.say("err", "enter tokens, for example 500k, or 0 for no limit")
+			return nil
+		}
+		n = parsed
+	}
+	if err := cb.SetChatBudget(n); err != nil {
+		s.say("err", err.Error())
+		return nil
+	}
+	if n == 0 {
+		s.say("ok", "per-chat daily budget off")
+	} else {
+		s.say("ok", "per-chat daily budget set to "+render.HumanTokens(n))
+	}
+	return nil
 }
 
 // toolTimeoutRow sets the shell and project command limit, in minutes.
