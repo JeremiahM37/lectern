@@ -624,6 +624,9 @@ func (p *Provider) promptCacheKey(extra map[string]string) string {
 // Stream starts a chat completion and returns its event channel. Non-2xx
 // responses are returned as *llm.APIError before any event is produced.
 func (p *Provider) Stream(ctx context.Context, req llm.Request) (<-chan llm.Event, error) {
+	if summaryOn(p.opts.ID, req) {
+		return p.streamResponses(ctx, req)
+	}
 	body, err := p.buildBody(req)
 	if err != nil {
 		return nil, fmt.Errorf("%s: encode request: %w", p.opts.ID, err)

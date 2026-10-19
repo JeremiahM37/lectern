@@ -104,7 +104,9 @@ func (v *View) renderUser(rec *Record, w int) builder {
 	b.add(row(""))
 	b.add(row(fit(bold(th.AccentUser, "You")+fg(th.TextDim, " · "+clockText(rec.At))+userSuffix(v, rec), cw)))
 	for _, l := range v.collapseBody(wrapText(rec.Text, cw)) {
-		b.add(row(fit(l, cw)))
+		// Set the text colour explicitly: without it the body takes the
+		// terminal default, which is dark on the fixed user background.
+		b.add(row(fit(fg(v.th.TextPrimary, l), cw)))
 	}
 	if len(rec.imgs) > 0 {
 		b.add(row(""))

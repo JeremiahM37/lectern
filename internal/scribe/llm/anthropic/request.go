@@ -88,6 +88,23 @@ const compactMinWindow = 200000
 const compactInstructions = "Summarise the conversation so far in under 2000 tokens, wrapped in <summary> tags. " +
 	"Cover the files modified, the decisions made, the progress so far and the next steps."
 
+// codeExecutionTool is the server code-execution tool, and codeExecutionBeta
+// the beta flag it needs.
+const (
+	codeExecutionTool = "code_execution_20250825"
+	codeExecutionBeta = "code-execution-2025-08-25"
+)
+
+// computerUseTool is the computer-use tool, and computerUseBeta the beta flag
+// it needs. The display is fixed at 1024x768: the model sees that size, and
+// the caller's executor must scale its coordinates to match.
+const (
+	computerUseTool  = "computer_20251124"
+	computerUseBeta  = "computer-use-2025-11-24"
+	computerDisplayW = 1024
+	computerDisplayH = 768
+)
+
 // onlyCompaction reports whether every edit in cm is the compaction edit.
 // That is the case where the context-management beta is not needed.
 func onlyCompaction(cm *wireContextManagement) bool {
@@ -185,20 +202,38 @@ func betaFeatures(req llm.Request) []string {
 	if fastSpeed(req) {
 		out = append(out, fastModeBeta)
 	}
-	// The flags are needed only when the body carries an edit. A setting that
-	// is on but has nothing to act on (thinking off, window too small) adds
-	// neither.
-	if req.ClearThinking || req.ClearToolUses || compactionOn(req) {
-		if w, err := buildWire(req); err == nil && w.ContextManagement != nil {
-			if hasEdit(w.ContextManagement, "compact_20260112") {
-				out = append(out, compactionBeta)
+	// The flags are needed only when the body carries the feature. A setting
+	// that is on but has nothing to act on (thinking off, window too small)
+	// adds neither, so the flags are read from the built body.
+	if req.ClearThinking || req.ClearToolUses || compactionOn(req) || req.CodeExecution || req.ComputerUse {
+		if w, err := buildWire(req); err == nil {
+			if w.ContextManagement != nil {
+				if hasEdit(w.ContextManagement, "compact_20260112") {
+					out = append(out, compactionBeta)
+				}
+				if len(w.ContextManagement.Edits) > 0 && !onlyCompaction(w.ContextManagement) {
+					out = append(out, contextManagementBeta)
+				}
 			}
-			if len(w.ContextManagement.Edits) > 0 && !onlyCompaction(w.ContextManagement) {
-				out = append(out, contextManagementBeta)
+			if hasTool(w.Tools, codeExecutionTool) {
+				out = append(out, codeExecutionBeta)
+			}
+			if hasTool(w.Tools, computerUseTool) {
+				out = append(out, computerUseBeta)
 			}
 		}
 	}
 	return out
+}
+
+// hasTool reports whether a tool list carries a tool of the given type.
+func hasTool(tools []block, typ string) bool {
+	for _, t := range tools {
+		if t["type"] == typ {
+			return true
+		}
+	}
+	return false
 }
 
 // ephemeral is a cache breakpoint. ttl "1h" asks for the one-hour cache;
@@ -254,7 +289,7 @@ func buildWire(req llm.Request) (wireRequest, error) {
 		body.System = []block{sys}
 	}
 
-	body.Messages = convertMessages(req.Messages)
+	body.Messages = convertMessages(req.Messages, compactionOn(req))
 	if req.SendReasoning != nil && !*req.SendReasoning {
 		body.Messages = stripReasoning(body.Messages)
 	}
@@ -293,6 +328,21 @@ func buildWire(req llm.Request) (wireRequest, error) {
 		if req.DisableParallelToolUse && req.ToolChoice != "none" {
 			body.ToolChoice["disable_parallel_tool_use"] = true
 		}
+	}
+
+	// Server tools run on Anthropic's side. They come after the client tools
+	// and do not count toward tool_choice, so a request with only server tools
+	// keeps the body it always had.
+	if req.CodeExecution {
+		body.Tools = append(body.Tools, block{"type": codeExecutionTool, "name": "code_execution"})
+	}
+	if req.ComputerUse {
+		body.Tools = append(body.Tools, block{
+			"type":              computerUseTool,
+			"name":              "computer",
+			"display_width_px":  computerDisplayW,
+			"display_height_px": computerDisplayH,
+		})
 	}
 
 	style := ReasoningStyle(req.Model)
@@ -500,14 +550,17 @@ func effortForBudget(budget int) string {
 // convertMessages maps llm messages onto the API's user/assistant
 // alternation. Tool results fold into user messages, and consecutive
 // same-role messages are merged because the API rejects them.
-func convertMessages(msgs []llm.Message) []wireMessage {
+//
+// Compaction parts are sent only when keepCompaction is set (server compaction
+// is on). Otherwise they are dropped, so the history reads as it did before.
+func convertMessages(msgs []llm.Message, keepCompaction bool) []wireMessage {
 	var out []wireMessage
 	for _, m := range msgs {
 		role := "user"
 		if m.Role == llm.RoleAssistant {
 			role = "assistant"
 		}
-		blocks := convertParts(m.Parts)
+		blocks := convertParts(m.Parts, keepCompaction)
 		if len(blocks) == 0 {
 			continue
 		}
@@ -525,7 +578,7 @@ func convertMessages(msgs []llm.Message) []wireMessage {
 	return out
 }
 
-func convertParts(parts []llm.Part) []block {
+func convertParts(parts []llm.Part, keepCompaction bool) []block {
 	var out []block
 	for _, p := range parts {
 		switch p.Type {
@@ -541,6 +594,13 @@ func convertParts(parts []llm.Part) []block {
 				continue
 			}
 			out = append(out, block{"type": "thinking", "thinking": p.Text, "signature": p.Signature})
+		case llm.PartCompaction:
+			// The API ignores everything before a compaction block, so the
+			// block must come back as it was written. It is only valid when
+			// the request asks for compaction.
+			if keepCompaction {
+				out = append(out, block{"type": "compaction", "content": p.Text})
+			}
 		case llm.PartToolCall:
 			out = append(out, block{"type": "tool_use", "id": p.ToolCallID, "name": p.ToolName, "input": toolInput(p.Args)})
 		case llm.PartToolResult:

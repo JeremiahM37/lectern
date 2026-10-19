@@ -526,6 +526,10 @@ func (a *Agent) record(e Event) {
 	}
 }
 
+// SetTabID sets the TUI tab id that model-log entries carry. The TUI calls
+// it once, right after it creates the tab and before the first turn.
+func (a *Agent) SetTabID(id string) { a.opts.TabID = id }
+
 // withTab returns meta with the agent's tab id added. It copies the map so
 // the event the sink receives is not changed under its reader.
 func (a *Agent) withTab(meta map[string]any) map[string]any {
@@ -1628,6 +1632,7 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 		text       strings.Builder
 		reason     strings.Builder
 		sig        string
+		compaction string // server compaction summary, if Anthropic sent one
 		finish     llm.FinishReason
 		usage      llm.Usage
 		calls      = map[string]int{} // call id → index in parts
@@ -1712,6 +1717,9 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 				flushText()
 				reason.WriteString(ev.Text)
 				a.emit(Event{Kind: EvReasoning, Text: ev.Text, Step: step})
+			case llm.EvCompaction:
+				hasContent = true
+				compaction = ev.Text
 			case llm.EvReasoningSig:
 				sig += ev.Text
 			case llm.EvToolCallStart:
@@ -1791,6 +1799,11 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 	}
 	flushReason()
 	flushText()
+	// A compaction block must lead the message: Anthropic drops everything
+	// before it when the message is sent back.
+	if compaction != "" {
+		parts = append([]llm.Part{{Type: llm.PartCompaction, Text: compaction}}, parts...)
+	}
 	if finish == llm.FinishError {
 		return llm.Message{}, "", errors.New("the model ended the response with an error")
 	}

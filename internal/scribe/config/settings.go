@@ -270,6 +270,18 @@ type Performance struct {
 	SendReasoning *bool `json:"send_reasoning,omitempty"`
 	// DisableParallelToolUse makes the model call one tool at a time.
 	DisableParallelToolUse *bool `json:"disable_parallel_tool_use,omitempty"`
+	// AnthropicCodeExecution adds Anthropic's server code-execution tool to
+	// Claude requests. Default off.
+	AnthropicCodeExecution *bool `json:"anthropic_code_execution,omitempty"`
+	// AnthropicComputerUse adds Anthropic's computer-use tool to Claude
+	// requests. Default off; the model can then request clicks and keystrokes.
+	AnthropicComputerUse *bool `json:"anthropic_computer_use,omitempty"`
+	// AnthropicServerCompaction lets Anthropic summarise long Claude
+	// conversations on its side (models with a 200k+ window). Default off.
+	AnthropicServerCompaction *bool `json:"anthropic_server_compaction,omitempty"`
+	// OpenAIReasoningSummary asks OpenAI reasoning models for a summary of their
+	// reasoning: "auto", "concise" or "detailed". "" or "off" sends nothing.
+	OpenAIReasoningSummary string `json:"openai_reasoning_summary,omitempty"`
 	// SpeedByProvider overrides Speed for one provider id, so fast mode can
 	// be on for Claude and off for another provider. A provider with no
 	// entry uses Speed; an entry of "" or "standard" turns fast mode off for
@@ -280,6 +292,16 @@ type Performance struct {
 	// "" and "off" send nothing, so Groq's own default applies.
 	GroqReasoningFormat string `json:"groq_reasoning_format,omitempty"`
 }
+
+// CodeExecutionOn reports whether Anthropic code execution is on. Default off.
+func (p Performance) CodeExecutionOn() bool { return Bool(p.AnthropicCodeExecution, false) }
+
+// ComputerUseOn reports whether Anthropic computer use is on. Default off.
+func (p Performance) ComputerUseOn() bool { return Bool(p.AnthropicComputerUse, false) }
+
+// ServerCompactionOn reports whether Anthropic server compaction is on.
+// Default off.
+func (p Performance) ServerCompactionOn() bool { return Bool(p.AnthropicServerCompaction, false) }
 
 // SpeedFor returns the speed tier for one provider: its own entry in
 // SpeedByProvider when it has one, else the global Speed.
@@ -332,6 +354,18 @@ func mergePerformance(base, o Performance) Performance {
 	}
 	if o.DisableParallelToolUse != nil {
 		base.DisableParallelToolUse = o.DisableParallelToolUse
+	}
+	if o.AnthropicCodeExecution != nil {
+		base.AnthropicCodeExecution = o.AnthropicCodeExecution
+	}
+	if o.AnthropicComputerUse != nil {
+		base.AnthropicComputerUse = o.AnthropicComputerUse
+	}
+	if o.OpenAIReasoningSummary != "" {
+		base.OpenAIReasoningSummary = o.OpenAIReasoningSummary
+	}
+	if o.AnthropicServerCompaction != nil {
+		base.AnthropicServerCompaction = o.AnthropicServerCompaction
 	}
 	return base
 }

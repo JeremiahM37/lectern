@@ -240,6 +240,18 @@ func NewBackend(a *App, h *TUIHost) tui.Backend {
 }
 
 // attach makes a the current App and routes its events to the TUI.
+// SetTabID is called by the TUI once the tab exists. Sessions started later
+// (/new) take their tab id from b.opts, so it is kept there too.
+func (b *scribeBackend) SetTabID(id string) {
+	b.mu.Lock()
+	b.opts.TabID = id
+	a := b.app
+	b.mu.Unlock()
+	if a != nil {
+		a.SetTabID(id)
+	}
+}
+
 func (b *scribeBackend) attach(a *App) {
 	g := b.gen.Add(1)
 	b.mu.Lock()

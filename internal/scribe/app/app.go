@@ -1096,6 +1096,15 @@ func (a *App) SessionID() string { return a.Meta.ID }
 // Opts returns the options the app was opened with.
 func (a *App) Opts() Options { return a.opts }
 
+// SetTabID records the TUI tab that owns this session, on the App and on its
+// lead agent, so the model log tags the tab the user actually sees.
+func (a *App) SetTabID(id string) {
+	a.opts.TabID = id
+	if a.Agent != nil {
+		a.Agent.SetTabID(id)
+	}
+}
+
 // headlessHost answers prompts without a user.
 type headlessHost struct{}
 

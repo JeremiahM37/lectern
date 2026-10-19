@@ -61,6 +61,9 @@ func applyPerformance(r *llm.Request, p config.Performance, rs config.Reasoning,
 	// request is unchanged.
 	r.Speed = p.Speed
 	r.ToolStreaming = p.ToolStreaming
+	r.CodeExecution = p.CodeExecutionOn()
+	r.ComputerUse = p.ComputerUseOn()
+	r.ServerCompaction = p.ServerCompactionOn()
 	r.SendReasoning = p.SendReasoning
 }
 
@@ -92,6 +95,9 @@ func (a *App) tune(m agent.Model, r *llm.Request) {
 // Groq, and "" or "off" leaves it out.
 func applyPerProviderPerformance(r *llm.Request, provider string, p config.Performance) {
 	r.Speed = p.SpeedFor(provider)
+	if provider == "openai" {
+		r.ReasoningSummary = p.OpenAIReasoningSummary
+	}
 	if provider == "groq" && p.GroqReasoningFormat != "" && p.GroqReasoningFormat != "off" {
 		r.ReasoningFormat = p.GroqReasoningFormat
 	}

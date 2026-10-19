@@ -77,14 +77,18 @@ type wireEvent struct {
 		ID       string `json:"id"`
 		Name     string `json:"name"`
 		Thinking string `json:"thinking"`
+		// Content is raw: server tool results carry an object here, and a
+		// string field would fail the whole event. Only compaction reads it.
+		Content json.RawMessage `json:"content"`
 	} `json:"content_block"`
 	Delta *struct {
-		Type        string `json:"type"`
-		Text        string `json:"text"`
-		Thinking    string `json:"thinking"`
-		Signature   string `json:"signature"`
-		PartialJSON string `json:"partial_json"`
-		StopReason  string `json:"stop_reason"`
+		Type        string          `json:"type"`
+		Text        string          `json:"text"`
+		Thinking    string          `json:"thinking"`
+		Signature   string          `json:"signature"`
+		PartialJSON string          `json:"partial_json"`
+		StopReason  string          `json:"stop_reason"`
+		Content     json.RawMessage `json:"content"`
 	} `json:"delta"`
 	Usage *wireUsage `json:"usage"`
 	Error *struct {
@@ -100,8 +104,15 @@ type wireUsage struct {
 	CacheRead     int `json:"cache_read_input_tokens"`
 }
 
+// rawString decodes a JSON string, or returns "" for null and anything else.
+func rawString(raw json.RawMessage) string {
+	var s string
+	_ = json.Unmarshal(raw, &s)
+	return s
+}
+
 type openBlock struct {
-	kind string // "text", "thinking", "tool_use", or "other"
+	kind string // "text", "thinking", "tool_use", "compaction", or "other"
 	id   string
 	name string
 	args strings.Builder
@@ -154,8 +165,13 @@ func (s *streamState) apply(data []byte) (evs []llm.Event, done bool, err error)
 			b.name = ev.ContentBlock.Name
 			s.sawTool = true
 			evs = append(evs, llm.Event{Type: llm.EvToolCallStart, ToolCallID: b.id, ToolName: b.name})
+		case "compaction":
+			// The summary may arrive whole here or in compaction_delta events.
+			b.kind = "compaction"
+			b.args.WriteString(rawString(ev.ContentBlock.Content))
 		default:
-			// redacted_thinking and server tools are not surfaced yet.
+			// redacted_thinking and server tools (code execution, computer use)
+			// are not surfaced yet.
 			b.kind = "other"
 		}
 		s.blocks[ev.Index] = b
@@ -179,11 +195,20 @@ func (s *streamState) apply(data []byte) (evs []llm.Event, done bool, err error)
 			}
 			b.args.WriteString(ev.Delta.PartialJSON)
 			evs = append(evs, llm.Event{Type: llm.EvToolCallDelta, ToolCallID: b.id, ArgsDelta: ev.Delta.PartialJSON})
+		case "compaction_delta":
+			if b != nil && b.kind == "compaction" {
+				b.args.WriteString(rawString(ev.Delta.Content))
+			}
 		}
 
 	case "content_block_stop":
 		b := s.blocks[ev.Index]
 		delete(s.blocks, ev.Index)
+		if b != nil && b.kind == "compaction" {
+			// Emitted once, when the block is complete, so the caller stores
+			// the whole summary and never a fragment.
+			evs = append(evs, llm.Event{Type: llm.EvCompaction, Text: b.args.String()})
+		}
 		if b != nil && b.kind == "tool_use" {
 			evs = append(evs, llm.Event{
 				Type:       llm.EvToolCallEnd,

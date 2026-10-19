@@ -35,6 +35,10 @@ const (
 	PartToolCall   PartType = "tool_call"
 	PartToolResult PartType = "tool_result"
 	PartImage      PartType = "image"
+	// PartCompaction is a server-side compaction block: the summary Anthropic
+	// wrote in place of the earlier conversation. Text holds the summary. It
+	// must go back to Anthropic as the first block of its assistant message.
+	PartCompaction PartType = "compaction"
 )
 
 // Part is one block of a message. Only the fields for its Type are set.
@@ -126,6 +130,12 @@ type Request struct {
 	// ReasoningExclude asks OpenRouter to leave the reasoning text out of the
 	// response (reasoning.exclude). Other adapters ignore it.
 	ReasoningExclude bool
+	// ReasoningSummary asks OpenAI for a readable reasoning summary: "auto",
+	// "concise" or "detailed". "" (the default) is off. The openai adapter
+	// sends it only to reasoning models on the openai provider, through the
+	// Responses API, and the summary text arrives as EvReasoning. Other
+	// adapters and other values ignore it.
+	ReasoningSummary string
 	// DeepSeekThinking is the DeepSeek thinking switch: "on" sends
 	// thinking.type enabled, "off" sends disabled, "" leaves the field out so
 	// the provider default (on) applies. Other adapters ignore it.
@@ -179,9 +189,19 @@ type Request struct {
 	// ServerCompaction asks Anthropic to summarise the conversation on its
 	// side once the input passes a trigger (context_management compact). The
 	// adapter sends it only for windows of 200 000 tokens or more. false
-	// leaves the request unchanged. The summary is not yet carried back in
-	// the history, so this stays opt-in.
+	// leaves the request unchanged. When it is on, PartCompaction blocks in
+	// the history are sent back; the caller must store the compaction event
+	// as a PartCompaction part.
 	ServerCompaction bool
+	// CodeExecution adds Anthropic's server code-execution tool to the request
+	// (code_execution_20250825, with its beta flag). false leaves the request
+	// unchanged.
+	CodeExecution bool
+	// ComputerUse adds Anthropic's computer-use tool to the request
+	// (computer_20251124, with its beta flag). The model can only ask for
+	// clicks and keystrokes; the caller must execute them. false leaves the
+	// request unchanged.
+	ComputerUse bool
 	// ReasoningFormat is Groq's reasoning_format (parsed, raw or hidden).
 	// "" sends nothing. Only the Groq adapter id reads it.
 	ReasoningFormat string
@@ -207,6 +227,7 @@ const (
 	EvToolCallStart EventType = "tool_call_start" // ToolCallID, ToolName known
 	EvToolCallDelta EventType = "tool_call_delta" // ToolCallID, ArgsDelta (partial JSON)
 	EvToolCallEnd   EventType = "tool_call_end"   // ToolCallID, ToolName, Args complete
+	EvCompaction    EventType = "compaction"      // Text is the whole server compaction summary
 	EvFinish        EventType = "finish"          // FinishReason, Usage
 	EvError         EventType = "error"           // Err
 )

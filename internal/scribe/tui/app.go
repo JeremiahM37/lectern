@@ -243,6 +243,9 @@ func NewModel(first Backend, newBackend func() (Backend, error), opts Options) *
 func (m *Model) addTab(be Backend, name string) *tab {
 	m.nextID++
 	id := m.nextID
+	if s, ok := be.(interface{ SetTabID(string) }); ok {
+		s.SetTabID(fmt.Sprintf("tab-%d", id))
+	}
 	if name == "" {
 		name = fmt.Sprintf("TAB-%d", id)
 	}
