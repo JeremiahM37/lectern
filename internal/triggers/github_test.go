@@ -211,6 +211,7 @@ func TestParseGHInclude(t *testing.T) {
 // local repository with a local (file-based) remote, so it never needs
 // network access — the isolated runner disables it entirely.
 func TestCommitPushPR(t *testing.T) {
+	setGitIdentity(t)
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -277,5 +278,18 @@ func TestPostGitHubComment(t *testing.T) {
 func TestGHQueryEscape(t *testing.T) {
 	if got := ghQueryEscape("in progress & more"); got != "in%20progress%20%26%20more" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// setGitIdentity gives git an author and committer for the commits the code
+// under test makes. CI runners may have no global git identity, and git then
+// refuses to commit ("Author identity unknown").
+func setGitIdentity(t *testing.T) {
+	t.Helper()
+	for k, v := range map[string]string{
+		"GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+		"GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "t@example.invalid",
+	} {
+		t.Setenv(k, v)
 	}
 }

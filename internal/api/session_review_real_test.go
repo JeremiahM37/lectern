@@ -122,6 +122,7 @@ func TestRealSessionCommitRefusesWithoutIsolatedWorktree(t *testing.T) {
 // The whole point of the isolated-runner e2e/Go split: commit, push and land
 // on a real remote, using a local bare repository instead of GitHub.
 func TestRealSessionCommitPushToLocalBareRemote(t *testing.T) {
+	setGitIdentity(t)
 	h, proj, repo := newRealSessionHarness(t)
 	bare := t.TempDir()
 	gitIn(t, bare, "init", "-q", "--bare")
@@ -162,6 +163,7 @@ func TestRealSessionCommitPushToLocalBareRemote(t *testing.T) {
 // A second commit on an unrelated push=false call must not silently reuse a
 // stale PR flag, and a plain commit-only call must not touch the remote.
 func TestRealSessionCommitWithoutPushLeavesRemoteUntouched(t *testing.T) {
+	setGitIdentity(t)
 	h, proj, repo := newRealSessionHarness(t)
 	bare := t.TempDir()
 	gitIn(t, bare, "init", "-q", "--bare")
@@ -287,5 +289,18 @@ func TestRealMultiRepoSessionDiff(t *testing.T) {
 		if files[other] {
 			t.Errorf("repository %q leaked the other repository's change: %v", name, files)
 		}
+	}
+}
+
+// setGitIdentity gives git an author and committer for the commits the code
+// under test makes. CI runners may have no global git identity, and git then
+// refuses to commit ("Author identity unknown").
+func setGitIdentity(t *testing.T) {
+	t.Helper()
+	for k, v := range map[string]string{
+		"GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+		"GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "t@example.invalid",
+	} {
+		t.Setenv(k, v)
 	}
 }
