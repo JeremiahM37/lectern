@@ -50,6 +50,7 @@ func Run(ctx context.Context, newBackend func() (Backend, error), opts Options) 
 	icons.SetNerd(icons.DetectNerd())
 	loadUserThemes()
 	m := NewModel(be, newBackend, opts)
+	m.maybeStartTour()
 	// All-motion reporting, so the chat can highlight the row under the pointer
 	// without a button held. Motion over panes and side panels is routed away.
 	popts := []tea.ProgramOption{tea.WithMouseAllMotion(), tea.WithContext(ctx)}

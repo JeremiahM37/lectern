@@ -10,27 +10,41 @@ import (
 // tagline is the landing page line under the wordmark.
 const tagline = "Knows your code. Writes it carefully."
 
-// wordmarkRows returns the five rows of the block wordmark.
+// wordmarkGlyphs are the block letters of LECTERN, six rows tall, drawn with
+// box characters only. Each letter is padded to its own width in
+// wordmarkRows, so the rows of a letter always line up.
+var wordmarkGlyphs = map[rune][6]string{
+	'L': {"██╗     ", "██║     ", "██║     ", "██║     ", "███████╗", "╚══════╝"},
+	'E': {"███████╗", "██╔════╝", "█████╗  ", "██╔══╝  ", "███████╗", "╚══════╝"},
+	'C': {" ██████╗", "██╔════╝", "██║     ", "██║     ", "╚██████╗", " ╚═════╝"},
+	'T': {"████████╗", "╚══██╔══╝", "   ██║   ", "   ██║   ", "   ██║   ", "   ╚═╝   "},
+	'R': {"██████╗ ", "██╔══██╗", "██████╔╝", "██╔══██╗", "██║  ██║", "╚═╝  ╚═╝"},
+	'N': {"███╗   ██╗", "████╗  ██║", "██╔██╗ ██║", "██║╚██╗██║", "██║ ╚████║", "╚═╝  ╚═══╝"},
+}
+
+// wordmarkGap is the space between two letters of the wordmark.
+const wordmarkGap = "  "
+
+// wordmarkRows returns the six rows of the LECTERN block wordmark. Its widest
+// row is wordmarkWidth cells, so it fits 80 columns.
 func wordmarkRows() []string {
-	letters := map[rune][5]string{
-		'S': {".####", "#....", ".###.", "....#", "####."},
-		'C': {".###.", "#...#", "#....", "#...#", ".###."},
-		'R': {"####.", "#...#", "####.", "#..#.", "#...#"},
-		'I': {"#####", "..#..", "..#..", "..#..", "#####"},
-		'B': {"####.", "#...#", "####.", "#...#", "####."},
-		'E': {"#####", "#....", "####.", "#....", "#####"},
-	}
-	out := make([]string, 5)
-	for i, r := range "SCRIBE" {
-		g := letters[r]
-		for y := 0; y < 5; y++ {
+	out := make([]string, 6)
+	for i, r := range "LECTERN" {
+		g := wordmarkGlyphs[r]
+		for y := range out {
 			if i > 0 {
-				out[y] += " "
+				out[y] += wordmarkGap
 			}
-			out[y] += strings.ReplaceAll(strings.ReplaceAll(g[y], "#", "█"), ".", " ")
+			out[y] += g[y]
 		}
 	}
 	return out
+}
+
+// wordmarkWidth is the width in cells of the wordmark. The letters are
+// single-width box characters, so a rune count is the cell count.
+func wordmarkWidth() int {
+	return lipgloss.Width(wordmarkRows()[0])
 }
 
 // mascotBase is the quill dipped into an inkwell. Every row is a single-cell
@@ -75,12 +89,16 @@ type landingState struct {
 
 func newLandingState() landingState { return landingState{start: time.Now()} }
 
-// Landing page gates: the spacer rows go under 18 rows, the wordmark needs
-// 35 columns. (Empryo's drifting rune field is left out on purpose: it is that
-// product's look, and on Scribe's page it read as noise around the mascot.)
+// Landing page gates: the spacer rows go under 18 rows. The block wordmark
+// needs the terminal to be at least landingWordmarkRows tall and
+// landingWordmarkCols wide (wordmarkWidth, so it fits); narrower or shorter,
+// the page shows the small logo. (Empryo's drifting rune field is left out on
+// purpose: it is that product's look, and on Scribe's page it read as noise
+// around the mascot.)
 const (
 	landingSpacerRows   = 18
-	landingWordmarkCols = 35
+	landingWordmarkRows = 30
+	landingWordmarkCols = 71
 )
 
 // statusBlock is the landing page's health line: a red LSP or MCP mark when a
@@ -142,12 +160,12 @@ func (m *Model) viewLanding(w, rows int) []string {
 			parts = append(parts, "")
 		}
 	}
-	if w >= landingWordmarkCols {
+	if w >= landingWordmarkCols && m.height >= landingWordmarkRows {
 		for _, l := range wordmarkRows() {
 			parts = append(parts, center(fgb(th.Brand).Render(l)))
 		}
 	} else {
-		parts = append(parts, center(fgb(th.Brand).Render("SCRIBE")))
+		parts = append(parts, center(fgb(th.Brand).Render("LECTERN")))
 	}
 	if spacers {
 		parts = append(parts, "")

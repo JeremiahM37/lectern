@@ -33,7 +33,7 @@ type command struct {
 }
 
 // Palette groups, in display order (spec 02 section 2).
-var commandGroups = []string{"Session", "Git", "Models", "Intelligence", "Settings", "Tabs", "System"}
+var commandGroups = []string{"Session", "Git", "Models", "Intelligence", "Settings", "Tabs", "System", "Help"}
 
 // commandTable is the registry. It is filled by init below.
 var commandTable []*command
