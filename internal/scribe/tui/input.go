@@ -692,6 +692,13 @@ func (m *Model) handleInputKey(km tea.KeyMsg) tea.Cmd {
 			m.acceptMention(t)
 			return nil
 		case "esc":
+			// A bare command name ("/mo") is only there to pick from the
+			// popup. Dropping the popup with Esc drops it too, so the next
+			// command does not start with a second slash ("//model").
+			if v := s.value(); strings.HasPrefix(v, "/") && !strings.ContainsAny(v, " \n") {
+				s.clear()
+				return nil
+			}
 			s.dismissed = s.value()
 			return nil
 		}
