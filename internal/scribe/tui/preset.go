@@ -91,6 +91,12 @@ func removePresets(t *tab, root string, names []string) {
 		if !reverted.Empty() {
 			msg += fmt.Sprintf("; took back %s it had added to %s config", presetCommandCounts(reverted), p.Scope())
 		}
+		// Settings are not taken back: the user may have changed them since,
+		// and there is no telling the preset's value from theirs. Say which
+		// ones stay so nothing is left behind silently.
+		if keys := presetSettingKeys(p.Config); len(keys) > 0 {
+			msg += fmt.Sprintf(". The settings it set stay as they are (%s); change them in /settings", strings.Join(keys, ", "))
+		}
 		t.chat.AddSystem("info", msg)
 	}
 }
@@ -418,4 +424,14 @@ func unionStrings(base, add []string) []string {
 		}
 	}
 	return out
+}
+
+// presetSettingKeys names the settings a preset sets, in the order the apply
+// writes them. Hooks and MCP servers are not settings here.
+func presetSettingKeys(p config.Config) []string {
+	var keys []string
+	for _, w := range presetWrites(p, map[string]any{}) {
+		keys = append(keys, w.key)
+	}
+	return keys
 }

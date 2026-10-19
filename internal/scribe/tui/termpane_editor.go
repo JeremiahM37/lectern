@@ -62,8 +62,12 @@ func editorCommandAt(file string, line int) ([]string, error) {
 		if v == "" {
 			continue
 		}
-		// An explicit choice is honoured or reported, never swapped out.
-		argv = strings.Fields(v)
+		// An explicit choice is honoured or reported, never swapped out. It is
+		// split as a shell would, so "code --wait" and quoted arguments work.
+		argv = shellWords(v)
+		if len(argv) == 0 {
+			continue
+		}
 		if _, err := exec.LookPath(argv[0]); err != nil {
 			return nil, fmt.Errorf("%s is set to %q, which was not found", name, argv[0])
 		}
@@ -437,4 +441,53 @@ func setEditorCommand(cmd string, args []string) {
 	editorSettingMu.Lock()
 	editorSetting = v
 	editorSettingMu.Unlock()
+}
+
+// shellWords splits a command line the way a POSIX shell splits words:
+// whitespace separates words, single quotes keep everything literal, double
+// quotes keep spaces and allow \" and \\, and a backslash outside quotes
+// escapes the next character. It does no expansion. An unclosed quote takes
+// the rest of the line.
+func shellWords(s string) []string {
+	var (
+		words []string
+		cur   strings.Builder
+		inTok bool
+	)
+	rs := []rune(s)
+	for i := 0; i < len(rs); i++ {
+		r := rs[i]
+		switch {
+		case r == '\'':
+			inTok = true
+			for i++; i < len(rs) && rs[i] != '\''; i++ {
+				cur.WriteRune(rs[i])
+			}
+		case r == '"':
+			inTok = true
+			for i++; i < len(rs) && rs[i] != '"'; i++ {
+				if rs[i] == '\\' && i+1 < len(rs) && (rs[i+1] == '"' || rs[i+1] == '\\') {
+					i++
+				}
+				cur.WriteRune(rs[i])
+			}
+		case r == '\\' && i+1 < len(rs):
+			inTok = true
+			i++
+			cur.WriteRune(rs[i])
+		case r == ' ' || r == '\t' || r == '\n':
+			if inTok {
+				words = append(words, cur.String())
+				cur.Reset()
+				inTok = false
+			}
+		default:
+			inTok = true
+			cur.WriteRune(r)
+		}
+	}
+	if inTok {
+		words = append(words, cur.String())
+	}
+	return words
 }

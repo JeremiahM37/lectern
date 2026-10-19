@@ -59,6 +59,10 @@ func TestEnsureGlobalContentLoadsWithDefaults(t *testing.T) {
 	if c.AgentFeatures != nil {
 		t.Fatalf("agent_features written to the default file: %+v", c.AgentFeatures)
 	}
+	// No editor command is written: it would outrank $VISUAL and $EDITOR.
+	if c.Editor.Command != "" {
+		t.Errorf("the default file names an editor (%q), which would override $EDITOR", c.Editor.Command)
+	}
 	if cmd, _ := c.Editor.CommandOrDefault(); cmd != DefaultEditorCommand {
 		t.Errorf("editor command = %q, want %q", cmd, DefaultEditorCommand)
 	}

@@ -51,3 +51,26 @@ func TestPresetCommandAppliesDeferredToolsAndNotesNothingSkipped(t *testing.T) {
 		t.Fatalf("deferred_tools should now be off in the settings")
 	}
 }
+
+// Removing a preset says which of its settings stay, so a setting such as
+// deferred_tools is not left behind without a word (QA wave 40, item 6).
+func TestPresetRemoveNamesTheSettingsThatStay(t *testing.T) {
+	home := presetHome(t)
+	writePreset(t, home, "lean", `{"deferred_tools": true}`)
+	m, _ := newTestModel(t, 140, 40)
+
+	m.runCommand("/preset lean")
+	advanceChat(m)
+	m.runCommand("/preset remove lean")
+	advanceChat(m)
+
+	var out string
+	for _, r := range m.cur().chat.Export() {
+		if strings.Contains(r.Text, "Removed preset lean") {
+			out = r.Text
+		}
+	}
+	if !strings.Contains(out, "deferred_tools") || !strings.Contains(out, "/settings") {
+		t.Fatalf("the removal should name the setting that stays: %q", out)
+	}
+}

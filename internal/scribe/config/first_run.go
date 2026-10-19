@@ -40,7 +40,10 @@ func defaultGlobalJSON() ([]byte, error) {
 		Editor      EditorSettings `json:"editor"`
 		ToolTimeout float64        `json:"tool_timeout"`
 	}{
-		Editor:      EditorSettings{Command: DefaultEditorCommand},
+		// The editor section is there to be found and filled in, but empty: a
+		// command written here would count as the user's choice and outrank
+		// $VISUAL and $EDITOR.
+		Editor:      EditorSettings{},
 		ToolTimeout: DefaultToolTimeout,
 	}
 	b, err := json.MarshalIndent(doc, "", "  ")

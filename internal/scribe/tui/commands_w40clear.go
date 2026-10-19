@@ -32,5 +32,5 @@ func clearToolsCommand(m *Model, arg string) tea.Cmd {
 // thinking block; it only matters while thinking is on for the request.
 func clearThinkingCommand(m *Model, arg string) tea.Cmd {
 	cur := config.Bool(fields7(m.cur().be).ContextManagement.ClearThinking, false)
-	return toggleCommand(m, "/clearthinking", "Preserve thinking", "context_management.clear_thinking", cur, arg)
+	return toggleCommand(m, "/clearthinking", "Preserve thinking (on keeps earlier thinking blocks)", "context_management.clear_thinking", cur, arg)
 }
