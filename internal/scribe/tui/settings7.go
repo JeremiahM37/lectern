@@ -733,6 +733,7 @@ func (s *settings) performanceRows(c config.Config, provider, style string) []se
 		rows = append(rows, setRow{label: "Claude options", header: true, note: "sent with each Claude request"})
 		rows = append(rows, s.claudeContextRows(c.ContextManagement)...)
 		rows = append(rows, s.claudeRuntimeRows(p)...)
+		rows = append(rows, s.claudeFeatureRows(p)...)
 		switch style {
 		case llm.ReasoningBudget:
 			rows = append(rows, s.pickRow7("Thinking", "performance.thinking", p.Thinking,
@@ -745,6 +746,9 @@ func (s *settings) performanceRows(c config.Config, provider, style string) []se
 		}
 		rows = append(rows, s.pickRow7("Cache lifetime", "performance.cache_ttl", p.CacheTTL,
 			[]string{"default", "5m", "1h"}, "1h keeps the prompt cached longer, at a higher write cost"))
+	}
+	if provider == "openai" {
+		rows = append(rows, s.openAIReasoningSummaryRow(p))
 	}
 	if provider == "anthropic" || provider == "openai" {
 		rows = append(rows, s.flagRow7("One tool at a time", "performance.disable_parallel_tool_use",

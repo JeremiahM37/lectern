@@ -39,6 +39,8 @@ var settings7Keys = []string{
 	"performance.thinking", "performance.effort", "performance.speed",
 	"performance.cache_ttl", "performance.tool_streaming",
 	"performance.send_reasoning", "performance.disable_parallel_tool_use",
+	"performance.anthropic_code_execution", "performance.anthropic_computer_use",
+	"performance.anthropic_server_compaction", "performance.openai_reasoning_summary",
 	themeTransparentKey, themeMessageKey, themeDiffKey, themeBorderKey,
 	"compact_keep_recent", "watchdog.first_token", "watchdog.inter_token", "watchdog.step",
 	keyEditorIntPrefix,
@@ -336,6 +338,15 @@ func (c *Config) setPerformance(field string, v any) error {
 		return boolp(&p.SendReasoning)
 	case "disable_parallel_tool_use":
 		return boolp(&p.DisableParallelToolUse)
+	case "anthropic_code_execution":
+		return boolp(&p.AnthropicCodeExecution)
+	case "anthropic_computer_use":
+		return boolp(&p.AnthropicComputerUse)
+	case "anthropic_server_compaction":
+		return boolp(&p.AnthropicServerCompaction)
+	case "openai_reasoning_summary":
+		// "" and "off" both mean off; the row stores "" for off.
+		return str(&p.OpenAIReasoningSummary, []string{"", "off", "auto", "concise", "detailed"})
 	default:
 		return fmt.Errorf("unknown performance setting %q", field)
 	}
@@ -444,6 +455,14 @@ func (c *Config) ClearField(key string) bool {
 		c.Performance.SendReasoning = nil
 	case "performance.disable_parallel_tool_use":
 		c.Performance.DisableParallelToolUse = nil
+	case "performance.anthropic_code_execution":
+		c.Performance.AnthropicCodeExecution = nil
+	case "performance.anthropic_computer_use":
+		c.Performance.AnthropicComputerUse = nil
+	case "performance.anthropic_server_compaction":
+		c.Performance.AnthropicServerCompaction = nil
+	case "performance.openai_reasoning_summary":
+		c.Performance.OpenAIReasoningSummary = ""
 	default:
 		return false
 	}

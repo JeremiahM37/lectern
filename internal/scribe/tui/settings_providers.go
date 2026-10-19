@@ -153,3 +153,30 @@ func (s *settings) providerSpeedRow(provider string, p config.Performance) setRo
 	return s.pickRow7("Speed", "performance.speed_by_provider."+provider, cur, providerSpeedOptions,
 		"inherit uses the global speed ("+global+"); fast mode only on models that accept it")
 }
+
+// claudeFeatureRows are the Claude tab's server-side feature switches. Each
+// adds one Anthropic feature to requests and is off by default. The
+// notes say so, because none of them has been tested live against the API.
+func (s *settings) claudeFeatureRows(p config.Performance) []setRow {
+	return []setRow{
+		s.flagRow7("Code execution", "performance.anthropic_code_execution", p.CodeExecutionOn(),
+			"lets Claude run code on Anthropic's servers; off by default, not live-tested against the API"),
+		s.flagRow7("Computer use", "performance.anthropic_computer_use", p.ComputerUseOn(),
+			"adds the computer-use tool so Claude can ask for clicks and keystrokes; off by default, not live-tested against the API"),
+		s.flagRow7("Server compaction", "performance.anthropic_server_compaction", p.ServerCompactionOn(),
+			"Anthropic summarises long conversations on its side (200k+ windows); off by default, not live-tested against the API"),
+	}
+}
+
+// openAIReasoningSummaryOptions are the values of the OpenAI reasoning summary
+// row. The first entry, off, is stored as "", which sends nothing.
+var openAIReasoningSummaryOptions = []string{"off", "auto", "concise", "detailed"}
+
+// openAIReasoningSummaryRow is the OpenAI reasoning summary choice. It writes
+// performance.openai_reasoning_summary through the same flat-key path as the
+// other performance rows.
+func (s *settings) openAIReasoningSummaryRow(p config.Performance) setRow {
+	return s.pickRow7("Reasoning summary", "performance.openai_reasoning_summary", p.OpenAIReasoningSummary,
+		openAIReasoningSummaryOptions,
+		"OpenAI sends a summary of the model's reasoning: auto, concise or detailed; off by default, not live-tested against the API")
+}
