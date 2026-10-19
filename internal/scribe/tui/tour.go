@@ -137,7 +137,10 @@ func markTourSeen() error {
 // showing and the tour has never been seen. A session that opens with a
 // transcript is not a first launch, so it gets no tour.
 func (m *Model) maybeStartTour() {
-	if m.phase != phaseLanding || tourSeen() {
+	// A prompt given on the command line is already work in progress: the
+	// tour would hold it back (a modal stops the startup prompt), so it waits
+	// for a later launch.
+	if m.phase != phaseLanding || tourSeen() || strings.TrimSpace(m.opts.Prompt) != "" {
 		return
 	}
 	m.openTour()
@@ -190,6 +193,13 @@ func (t *tourModal) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 		t.page = (t.page - 1 + n) % n
 		return t, nil, false
 	case "enter":
+		// A message already typed is sent, not spent on a page: the tour must
+		// never swallow the first prompt of a new install.
+		if !t.m.cur().in.empty() {
+			t.m.closeModal(t)
+			cmd := t.m.onKey(km)
+			return t, cmd, true
+		}
 		if t.page == n-1 {
 			return t, nil, true
 		}

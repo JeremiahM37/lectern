@@ -1,6 +1,7 @@
 package tui
 
 import (
+	tea "github.com/charmbracelet/bubbletea"
 	"os"
 	"path/filepath"
 	"strings"
@@ -184,4 +185,33 @@ func commandGroupOf(name string) string {
 		}
 	}
 	return ""
+}
+
+// A message typed while the tour is open is sent on Enter, not spent on a
+// page, so a first prompt is never lost (the tour opens on a new install).
+func TestTourDoesNotSwallowAFirstPrompt(t *testing.T) {
+	m, _ := newTestModel(t, 100, 34)
+	m.maybeStartTour()
+	if m.topModal() == nil {
+		t.Fatal("the tour should open on a new install")
+	}
+	typeKeys(m, "hello there")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.topModal() != nil {
+		t.Fatal("Enter with a typed message should close the tour")
+	}
+	if got := m.cur().in.value(); got != "" {
+		t.Fatalf("input after Enter = %q, want it sent (empty)", got)
+	}
+}
+
+// A prompt given on the command line starts work at once, so the tour does not
+// open and hold it back.
+func TestTourDoesNotOpenWhenAPromptIsGiven(t *testing.T) {
+	m, _ := newTestModel(t, 100, 34)
+	m.opts.Prompt = "write the greeting"
+	m.maybeStartTour()
+	if m.topModal() != nil {
+		t.Fatal("the tour opened for a launch that already has a prompt")
+	}
 }
