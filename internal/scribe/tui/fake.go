@@ -20,6 +20,9 @@ import (
 // prompt, a subagent dispatch) and keeps just enough state for every screen to
 // work. It is used by the tests and by `lectern code --demo`.
 type FakeBackend struct {
+	// disposed counts DisposeLastBus calls, so a test can see a tab close
+	// released its bus (guarded by mu).
+	disposed int
 	// dirtyFiles are files the fake reports as changed in git, on top of the
 	// fixed list; a test that edits a file marks it here (markDirty).
 	dirtyFiles []string
@@ -774,6 +777,20 @@ func (f *FakeBackend) FileCandidates(query string, limit int) []string {
 }
 
 // Close implements Backend.
+// DisposeLastBus records that a closed tab released its last subagent bus.
+func (f *FakeBackend) DisposeLastBus() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.disposed++
+}
+
+// Disposed reports how many times DisposeLastBus was called.
+func (f *FakeBackend) Disposed() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.disposed
+}
+
 func (f *FakeBackend) Close() error {
 	f.Abort()
 	return nil

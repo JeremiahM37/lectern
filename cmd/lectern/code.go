@@ -83,6 +83,10 @@ func runScribeTUI(ctx context.Context, opts app.Options, args []string) int {
 				o.Resume = ""
 			}
 			tabs++
+			// The TUI numbers tabs from 1 in the order it adds them, and each
+			// backend here is created for exactly one new tab, so the count
+			// is the tab's id.
+			o.TabID = fmt.Sprintf("tab-%d", tabs)
 			host := app.NewTUIHost()
 			o.Host = host
 			a, err := app.Open(sigCtx, o)

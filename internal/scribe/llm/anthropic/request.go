@@ -274,9 +274,9 @@ func buildWire(req llm.Request) (wireRequest, error) {
 		if t.Description != "" {
 			tb["description"] = t.Description
 		}
-		// Only an explicit true changes the wire. Without the flag the API
-		// buffers each tool input and validates it whole.
-		if req.ToolStreaming != nil && *req.ToolStreaming {
+		// On unless the setting turns it off (spec 03 section 5.1.1). Off, the
+		// API buffers each tool input and validates it whole.
+		if req.ToolStreaming == nil || *req.ToolStreaming {
 			tb["eager_input_streaming"] = true
 		}
 		body.Tools = append(body.Tools, tb)

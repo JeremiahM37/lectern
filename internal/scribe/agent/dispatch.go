@@ -743,3 +743,10 @@ func argHint(args json.RawMessage) string {
 	}
 	return ""
 }
+
+// DisposeLastBus ends the newest dispatch's bus caches and forgets the bus, so
+// a closed tab does not keep its reads and results alive, and CancelDispatch
+// no longer reaches it. It is safe to call with no dispatch on record.
+func (d *Dispatcher) DisposeLastBus() {
+	d.lastBus.Swap(nil).Dispose()
+}

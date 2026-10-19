@@ -117,22 +117,39 @@ func (s *settings) claudeContextRows(cm config.ContextManagement) []setRow {
 }
 
 // claudeRuntimeRows are the Claude tab's request switches that have a config
-// key already: Speed (performance.speed), Tool streaming and Send reasoning.
-// The Anthropic adapter reads all three. Speed is a global value here; the
-// fast-mode allowlist lives in the adapter, so the note says models that take
-// it. Tool streaming shows off, the default, because only an explicit true is
-// sent.
+// key already: Tool streaming and Send reasoning. The Anthropic adapter reads
+// both. Speed is not here: each provider has its own row (providerSpeedRow).
+// Tool streaming shows its default, on, because only an explicit false turns
+// it off.
 func (s *settings) claudeRuntimeRows(p config.Performance) []setRow {
 	return []setRow{
-		s.pickRow7("Speed", "performance.speed", p.Speed, speedRowOptions,
-			"fast mode, only on models that accept it; others ignore it"),
-		s.flagRow7("Tool streaming", "performance.tool_streaming", config.Bool(p.ToolStreaming, false),
+		s.flagRow7("Tool streaming", "performance.tool_streaming", config.Bool(p.ToolStreaming, true),
 			"streams tool arguments as they are generated"),
 		s.flagRow7("Send reasoning", "performance.send_reasoning", config.Bool(p.SendReasoning, false),
 			"sends earlier reasoning back to Claude"),
 	}
 }
 
-// speedRowOptions are the Speed row's values; the first is the default (off),
-// which is stored as "" like the /speed command does.
-var speedRowOptions = []string{"off", "standard", "fast"}
+// providerSpeedOptions are the values of a provider's Speed row. "inherit" is
+// the default: it removes the provider's entry, so the global Speed applies.
+// "standard" turns fast mode off for this provider only.
+var providerSpeedOptions = []string{"inherit", "fast", "standard"}
+
+// providerSpeedRow is the Speed row for one provider. It writes that provider's
+// entry in performance.speed_by_provider and leaves every other provider's
+// entry alone. The note names the global Speed the row inherits.
+func (s *settings) providerSpeedRow(provider string, p config.Performance) setRow {
+	cur := ""
+	if v, ok := p.SpeedByProvider[provider]; ok {
+		cur = v
+		if cur == "" {
+			cur = "standard"
+		}
+	}
+	global := p.Speed
+	if global == "" {
+		global = "off"
+	}
+	return s.pickRow7("Speed", "performance.speed_by_provider."+provider, cur, providerSpeedOptions,
+		"inherit uses the global speed ("+global+"); fast mode only on models that accept it")
+}

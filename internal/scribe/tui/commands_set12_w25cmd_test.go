@@ -82,12 +82,11 @@ func TestEffortRejectsUnknownAndListsValid(t *testing.T) {
 	}
 }
 
-func TestToolStreamDefaultsOffAndTogglesTheFlag(t *testing.T) {
+func TestToolStreamDefaultsOnAndTogglesTheFlag(t *testing.T) {
 	m, fb := newTestModel(t, 100, 30)
 	f := flashOf(t, toolStreamCommand(m, ""))
-	// Unset reads as off: only an explicit on is sent to the provider.
-	if !strings.Contains(f.text, "Tool streaming: off") {
-		t.Fatalf("an unset flag should read as off, got %q", f.text)
+	if !strings.Contains(f.text, "Tool streaming: on") {
+		t.Fatalf("an unset flag should read as on, got %q", f.text)
 	}
 	f = flashOf(t, toolStreamCommand(m, "off"))
 	if p := fb.flat.Performance.ToolStreaming; p == nil || *p || f.kind != "ok" {

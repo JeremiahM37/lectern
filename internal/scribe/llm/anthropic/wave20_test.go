@@ -81,13 +81,19 @@ func TestBetaHeaderMergesWithExisting(t *testing.T) {
 	}
 }
 
-func TestToolStreamingOffLeavesToolsUnchanged(t *testing.T) {
+// Tool streaming is on unless the setting turns it off: nil and an explicit
+// true send eager_input_streaming, an explicit false leaves the tool unchanged.
+func TestToolStreamingDefaultsOnAndOffLeavesToolsUnchanged(t *testing.T) {
 	tools := []llm.ToolSpec{{Name: "read", Schema: []byte(`{"type":"object"}`)}}
-	for _, ts := range []*bool{nil, boolp(false)} {
-		body := decodeBody(t, llm.Request{Model: "claude-opus-5-5", Tools: tools, ToolStreaming: ts})
+	for _, c := range []struct {
+		ts   *bool
+		want bool
+	}{{nil, true}, {boolp(true), true}, {boolp(false), false}} {
+		body := decodeBody(t, llm.Request{Model: "claude-opus-5-5", Tools: tools, ToolStreaming: c.ts})
 		tool := body["tools"].([]any)[0].(map[string]any)
-		if _, ok := tool["eager_input_streaming"]; ok {
-			t.Errorf("eager_input_streaming sent with ToolStreaming=%v", ts)
+		_, got := tool["eager_input_streaming"]
+		if got != c.want {
+			t.Errorf("ToolStreaming=%v: eager_input_streaming sent = %v, want %v", c.ts, got, c.want)
 		}
 	}
 }

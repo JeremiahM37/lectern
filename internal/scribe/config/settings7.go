@@ -20,6 +20,7 @@ const (
 	keySearchPrefix    = "search."
 	keyRetryPrefix     = "retry."
 	keyPerfPrefix      = "performance."
+	keySpeedByProvider = "performance.speed_by_provider."
 	keyWatchdogPrefix  = "watchdog."
 	keyEditorIntPrefix = "editor_integration."
 )
@@ -128,6 +129,8 @@ func (c *Config) SetField(key string, v any) (bool, error) {
 			return true, fmt.Errorf("unknown retry setting %q", key)
 		}
 		return true, nil
+	case strings.HasPrefix(key, keySpeedByProvider):
+		return true, c.setSpeedByProvider(strings.TrimPrefix(key, keySpeedByProvider), v)
 	case strings.HasPrefix(key, keyPerfPrefix):
 		return true, c.setPerformance(strings.TrimPrefix(key, keyPerfPrefix), v)
 	case strings.HasPrefix(key, keyWatchdogPrefix):
@@ -273,6 +276,29 @@ func (c *Config) setSearch(field string, v any) error {
 	return nil
 }
 
+// setSpeedByProvider writes one provider's entry in speed_by_provider. An empty
+// value removes the entry, so the provider uses the global Speed again. "fast"
+// and "standard" are stored as given; "standard" turns fast mode off for this
+// provider only.
+func (c *Config) setSpeedByProvider(provider string, v any) error {
+	if provider == "" {
+		return fmt.Errorf("performance.speed_by_provider needs a provider id")
+	}
+	speed := toString(v)
+	if speed == "" {
+		delete(c.Performance.SpeedByProvider, provider)
+		return nil
+	}
+	if !oneOf(speed, []string{"standard", "fast"}) {
+		return fmt.Errorf("speed for %s %q is not standard or fast", provider, speed)
+	}
+	if c.Performance.SpeedByProvider == nil {
+		c.Performance.SpeedByProvider = map[string]string{}
+	}
+	c.Performance.SpeedByProvider[provider] = speed
+	return nil
+}
+
 func (c *Config) setPerformance(field string, v any) error {
 	str := func(dst *string, allowed []string) error {
 		s := toString(v)
@@ -331,6 +357,9 @@ func (c *Config) ClearField(key string) bool {
 		return true
 	case strings.HasPrefix(key, keyContextWindow):
 		delete(c.ContextWindowOverrides, strings.TrimPrefix(key, keyContextWindow))
+		return true
+	case strings.HasPrefix(key, keySpeedByProvider):
+		delete(c.Performance.SpeedByProvider, strings.TrimPrefix(key, keySpeedByProvider))
 		return true
 	case strings.HasPrefix(key, keyWatchdogPrefix):
 		switch strings.TrimPrefix(key, keyWatchdogPrefix) {

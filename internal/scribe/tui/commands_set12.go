@@ -278,10 +278,10 @@ func effortCommand(m *Model, arg string) tea.Cmd {
 	return choiceCommand(m, "/effort", "Effort", "performance.effort", cur, "off", effortChoices, arg)
 }
 
-// toolStreamCommand is /toolstream [on|off]. An unset value reads as off,
-// because only an explicit on changes what is sent (llm/anthropic/request.go).
+// toolStreamCommand is /toolstream [on|off]. An unset value reads as on, the
+// default (llm/anthropic/request.go).
 func toolStreamCommand(m *Model, arg string) tea.Cmd {
-	cur := config.Bool(fields7(m.cur().be).Performance.ToolStreaming, false)
+	cur := config.Bool(fields7(m.cur().be).Performance.ToolStreaming, true)
 	return toggleCommand(m, "/toolstream", "Tool streaming", "performance.tool_streaming", cur, arg)
 }
 
@@ -318,7 +318,7 @@ func perfLines(p config.Performance) []string {
 		row("effort", orOff(p.Effort), "/effort"),
 		row("speed", orOff(p.Speed), "/speed"),
 		row("cache lifetime", orWord(p.CacheTTL, "default"), "set in /settings"),
-		row("tool streaming", onOff(config.Bool(p.ToolStreaming, false)), "/toolstream"),
+		row("tool streaming", onOff(config.Bool(p.ToolStreaming, true)), "/toolstream"),
 		row("send reasoning", onOff(config.Bool(p.SendReasoning, false)), "/sendreasoning"),
 		row("one tool at a time", onOff(config.Bool(p.DisableParallelToolUse, false)), "/seqtools"),
 	}

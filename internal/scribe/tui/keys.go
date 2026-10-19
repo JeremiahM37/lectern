@@ -223,6 +223,12 @@ func (m *Model) requestCloseTab() {
 	m.closeTab(t)
 }
 
+// BusDisposer is implemented by a backend that can release its newest
+// subagent bus when its tab closes.
+type BusDisposer interface {
+	DisposeLastBus()
+}
+
 // closeTab removes t and activates the neighbour at the same index.
 func (m *Model) closeTab(t *tab) {
 	idx := -1
@@ -239,6 +245,11 @@ func (m *Model) closeTab(t *tab) {
 	}
 	// A closed tab's phone approvals are denied, and it stops taking phone messages.
 	telegram.Default.CloseTab(t.be)
+	// The closed tab's last subagent bus is disposed, so its caches are freed
+	// and nothing can reach it again (the tab is gone from m.tabs below).
+	if d, ok := t.be.(BusDisposer); ok {
+		d.DisposeLastBus()
+	}
 	m.tabs = append(m.tabs[:idx], m.tabs[idx+1:]...)
 	if m.active >= len(m.tabs) {
 		m.active = len(m.tabs) - 1

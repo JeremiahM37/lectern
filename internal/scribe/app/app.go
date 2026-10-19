@@ -46,6 +46,9 @@ type Options struct {
 	MaxSteps  int
 	// Preset names a preset (config.LoadWithPreset) merged over the config.
 	Preset string
+	// TabID is the TUI tab that owns this session. The lead agent's model log
+	// records it on every call, so the log shows which tab made each call.
+	TabID string
 }
 
 // App is one Scribe session.
@@ -572,6 +575,7 @@ func (a *App) agentOptions(model agent.Model, mode string) agent.Options {
 		// The dispatcher is the guard: while subagents run, the shell and git
 		// tools refuse repository changes (agent publishes it to Services).
 		Guard: a.Dispatch,
+		TabID: a.opts.TabID,
 	}
 	o.RequestDump = a.requestDump()
 	applyWatchdog(&o, a.Cfg.WatchdogTimeouts)

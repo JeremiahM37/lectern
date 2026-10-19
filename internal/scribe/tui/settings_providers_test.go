@@ -104,7 +104,6 @@ func TestClaudeRuntimeRowsUseTheExistingKeys(t *testing.T) {
 	s := &settings{}
 	rows := s.claudeRuntimeRows(config.Performance{})
 	want := map[string]string{
-		"Speed":          "performance.speed",
 		"Tool streaming": "performance.tool_streaming",
 		"Send reasoning": "performance.send_reasoning",
 	}
@@ -116,28 +115,12 @@ func TestClaudeRuntimeRowsUseTheExistingKeys(t *testing.T) {
 			t.Fatalf("row %q has key %q, want %q", r.label, r.key, want[r.label])
 		}
 	}
-	if rows[0].value != "off" || rows[1].value != "off" || rows[2].value != "off" {
-		t.Fatalf("defaults should show off, got %q %q %q", rows[0].value, rows[1].value, rows[2].value)
+	if rows[0].value != "on" || rows[1].value != "off" {
+		t.Fatalf("defaults should show tool streaming on, reasoning off; got %q %q", rows[0].value, rows[1].value)
 	}
 	on := true
-	fast := s.claudeRuntimeRows(config.Performance{Speed: "fast", ToolStreaming: &on, SendReasoning: &on})
-	if fast[0].value != "fast" || fast[1].value != "on" || fast[2].value != "on" {
-		t.Fatalf("set values should show, got %q %q %q", fast[0].value, fast[1].value, fast[2].value)
-	}
-}
-
-func TestSpeedRowCyclesAndClearsToDefault(t *testing.T) {
-	be := NewFakeBackend()
-	if err := be.SetField7("performance.speed", "fast", false); err != nil {
-		t.Fatal(err)
-	}
-	s := &settings{be: be}
-	rows := s.claudeRuntimeRows(fields7(be).Performance)
-	if rows[0].value != "fast" {
-		t.Fatalf("seeded speed should show fast, got %q", rows[0].value)
-	}
-	rows[0].act() // fast wraps to off, which is stored as the default
-	if got := fields7(be).Performance.Speed; got != "" {
-		t.Fatalf("speed after cycling from fast = %q, want default", got)
+	set := s.claudeRuntimeRows(config.Performance{ToolStreaming: &on, SendReasoning: &on})
+	if set[0].value != "on" || set[1].value != "on" {
+		t.Fatalf("set values should show, got %q %q", set[0].value, set[1].value)
 	}
 }

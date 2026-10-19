@@ -984,6 +984,7 @@ func (s *settings) reasoningRows() []setRow {
 	case st.err != nil:
 		return append(rows, setRow{label: "Model details unavailable", value: "", note: st.err.Error()})
 	}
+	rows = append(rows, s.providerSpeedRow(provider, fields7(s.be).Performance))
 	rs := s.reasoningEffective()[provider]
 	key := reasoningKeyPrefix + provider + "."
 	if provider == "openrouter" {
