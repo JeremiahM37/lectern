@@ -608,6 +608,26 @@ func convertParts(parts []llm.Part, keepCompaction bool) []block {
 			if p.Result != "" {
 				tr["content"] = p.Result
 			}
+			if len(p.Data) > 0 {
+				// A result with an image (a screenshot) carries the text and the
+				// image as content blocks.
+				mt := p.MediaType
+				if mt == "" {
+					mt = "image/png"
+				}
+				text := p.Result
+				if text == "" {
+					text = "ok"
+				}
+				tr["content"] = []block{
+					{"type": "text", "text": text},
+					{"type": "image", "source": block{
+						"type":       "base64",
+						"media_type": mt,
+						"data":       base64.StdEncoding.EncodeToString(p.Data),
+					}},
+				}
+			}
 			if p.IsError {
 				tr["is_error"] = true
 			}

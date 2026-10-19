@@ -34,6 +34,10 @@ type Result struct {
 	Files []string `json:"files,omitempty"`
 	// Meta is free-form structured data for the UI.
 	Meta map[string]any `json:"meta,omitempty"`
+	// Image is an image the model should see with the result (a screenshot).
+	// ImageType is its media type. Adapters that cannot send images drop it.
+	Image     []byte `json:"-"`
+	ImageType string `json:"-"`
 }
 
 // Errorf builds an error Result.

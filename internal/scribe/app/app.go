@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/computer"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/registry"
@@ -121,6 +122,9 @@ type App struct {
 	// closeHooks run once when the app closes, before the agent is aborted.
 	// They let surfaces such as the Lectern bridge deny what is still waiting.
 	closeHooks []func()
+
+	computer     *computer.Runner
+	computerOnce sync.Once
 }
 
 // FindRoot returns the git repository root containing dir, or dir.
@@ -574,8 +578,9 @@ func (a *App) agentOptions(model agent.Model, mode string) agent.Options {
 		Deferred:        a.deferred,
 		// The dispatcher is the guard: while subagents run, the shell and git
 		// tools refuse repository changes (agent publishes it to Services).
-		Guard: a.Dispatch,
-		TabID: a.opts.TabID,
+		Guard:    a.Dispatch,
+		Computer: a.computerRunner(),
+		TabID:    a.opts.TabID,
 	}
 	o.RequestDump = a.requestDump()
 	applyWatchdog(&o, a.Cfg.WatchdogTimeouts)
@@ -1084,6 +1089,16 @@ func (a *App) Close() error {
 
 // OnClose registers f to run once when the app closes. It runs before the
 // agent is aborted, so approvals still waiting can be denied with a reason.
+// computerRunner returns the session's computer-use runner. It starts no
+// display until the model asks for one, and the display stops with the session.
+func (a *App) computerRunner() agent.ComputerUse {
+	a.computerOnce.Do(func() {
+		a.computer = computer.New()
+		a.OnClose(func() { _ = a.computer.Close(context.Background()) })
+	})
+	return a.computer
+}
+
 func (a *App) OnClose(f func()) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

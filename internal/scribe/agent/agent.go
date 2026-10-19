@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/computer"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
 )
@@ -61,7 +62,16 @@ type Compactor interface {
 }
 
 // Options configures an Agent.
+// ComputerUse runs the calls of the computer-use tool (internal/scribe/computer).
+// Nil leaves the tool unavailable.
+type ComputerUse interface {
+	Run(ctx context.Context, host tools.Host, args json.RawMessage) tools.Result
+}
+
 type Options struct {
+	// Computer runs the computer-use tool's calls. The tool is offered to the
+	// model only when the request asks for it (Anthropic's computer-use tool).
+	Computer ComputerUse
 	Model    Model
 	Fallback []Model // tried in order when Model keeps failing
 	// FallbackFor overrides Fallback for one primary model, keyed by its
@@ -2000,6 +2010,9 @@ func (a *Agent) runTool(ctx context.Context, call llm.Part) llm.Part {
 		a.opts.AfterTool(ctx, call.ToolName, call.Args, &res)
 	}
 	a.addSubagentUsage(res.Meta)
+	if len(res.Image) > 0 {
+		a.dropOldImages()
+	}
 	if a.opts.Redact != nil {
 		res.Output = a.opts.Redact(res.Output)
 	}
@@ -2019,7 +2032,31 @@ func (a *Agent) runTool(ctx context.Context, call llm.Part) llm.Part {
 	if call.ToolName == "dispatch" {
 		out = dispatchResult(out)
 	}
-	return llm.Part{Type: llm.PartToolResult, ToolCallID: call.ToolCallID, ToolName: call.ToolName, Result: out, IsError: res.IsError}
+	return llm.Part{Type: llm.PartToolResult, ToolCallID: call.ToolCallID, ToolName: call.ToolName, Result: out, IsError: res.IsError,
+		Data: res.Image, MediaType: res.ImageType}
+}
+
+// runComputer runs one computer-use call. It is blocked in the read-only modes
+// like any other change, and the approval prompt is the computer package's.
+func (a *Agent) runComputer(ctx context.Context, args json.RawMessage) tools.Result {
+	if mode := a.turnModeNow(); RestrictedModes[mode] {
+		return tools.Errorf("mode_restricted: %s mode is read-only, so the computer tool cannot run. %s", mode, restrictedNext(mode))
+	}
+	return a.opts.Computer.Run(ctx, a.opts.Env.Host, args)
+}
+
+// dropOldImages clears the screenshots in earlier tool results. Only the newest
+// one is sent to the model: old screenshots would be the bulk of every request.
+func (a *Agent) dropOldImages() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for i := range a.msgs {
+		for j := range a.msgs[i].Parts {
+			if p := &a.msgs[i].Parts[j]; p.Type == llm.PartToolResult && len(p.Data) > 0 {
+				p.Data, p.MediaType = nil, ""
+			}
+		}
+	}
 }
 
 // dispatchResult is a dispatch output as the model reads it. The tags set the
@@ -2087,6 +2124,9 @@ func (a *Agent) execToolPosted(ctx context.Context, call llm.Part, posted *bool)
 			res = tools.Errorf("internal error in %s: %v", call.ToolName, r)
 		}
 	}()
+	if call.ToolName == computer.ToolName && a.opts.Computer != nil {
+		return a.runComputer(ctx, call.Args)
+	}
 	t, ok := a.opts.Tools.Get(call.ToolName)
 	offered := a.offeredNames()
 	if !ok || (offered != nil && !offered[call.ToolName]) {
