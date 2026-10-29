@@ -93,7 +93,9 @@ exec sleep 120
 		code, _ = os.ReadFile(filepath.Join(record, "code"))
 		hookURL, _ = os.ReadFile(filepath.Join(record, "url"))
 		view, _ = runLocalCLI(bin, env, "api", "GET", "/sessions/"+id)
-		if bytes.Contains(view, []byte(`"state_source":"hook"`)) {
+		// The agent writes the hook's status code only after Lectern has
+		// answered, so the session can show the hook a moment before it does.
+		if bytes.Contains(view, []byte(`"state_source":"hook"`)) && len(bytes.TrimSpace(code)) > 0 {
 			break
 		}
 		time.Sleep(200 * time.Millisecond)
