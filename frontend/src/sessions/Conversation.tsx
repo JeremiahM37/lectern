@@ -268,7 +268,7 @@ export function Conversation({
     if (kind !== "session") return;
     const controller = new AbortController();
     void api
-      .request<TaskView[]>("/tasks", { signal: controller.signal })
+      .request<TaskView[]>("/tasks?brief=true", { signal: controller.signal })
       .then((rows) => {
         if (controller.signal.aborted || !Array.isArray(rows)) return;
         takeoverTasks.current = rows

@@ -609,7 +609,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST "+a2a.InterfacePath, s.a2aRPC)
 
 	mux.Handle("/", s.staticHandler())
-	return s.withAuth(mux)
+	return withGzip(s.withAuth(mux))
 }
 
 // withAuth gates /api and /term/* behind internal/auth: tailscale identity,

@@ -10,7 +10,9 @@ export function createDeckApi(options: ClientOptions = {}) {
   const request = createClient(options);
   return {
     request,
-    tasks: (signal?: AbortSignal) => request<TaskView[]>('/tasks', { signal }),
+    // brief: clipped prompts and small result values; the task sheet loads the
+    // whole task itself (GET /tasks/{id}).
+    tasks: (signal?: AbortSignal) => request<TaskView[]>('/tasks?brief=true', { signal }),
     task: (id: number, signal?: AbortSignal) => request<TaskView>(`/tasks/${id}`, { signal }),
     projects: (signal?: AbortSignal) => request<Project[]>('/projects', { signal }),
     targets: (signal?: AbortSignal) => request<Target[]>('/targets', { signal }),

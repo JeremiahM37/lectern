@@ -320,33 +320,57 @@ export default function App() {
         counts[row.session_id] = (counts[row.session_id] || 0) + 1;
     return counts;
   }, [media]);
-  const refresh = useCallback(async () => {
-    const generation = ++refreshGeneration.current;
+  const refreshOnce = useCallback(async () => {
+    const generation = refreshGeneration.current;
+    const current = () => generation === refreshGeneration.current;
+    // Each list shows as soon as its own answer lands: a slow one (the board
+    // on a phone) no longer holds back sessions and approvals.
+    const apply = <T,>(load: Promise<T>, set: (value: T) => void) =>
+      load.then((value) => {
+        if (current()) set(value);
+      });
     const results = await Promise.allSettled([
-      api.projects(),
-      api.targets(),
-      api.tasks(),
-      api.request<SessionView[]>("/sessions?include_setup_failures=true"),
-      api.request<Approval[]>("/approvals?status=pending"),
-      api.request<MediaRow[]>("/media?limit=200"),
-      api.request<{ enabled: boolean; views: LiveView[] }>("/live"),
+      apply(api.projects(), setProjects),
+      apply(api.targets(), setTargets),
+      apply(api.tasks(), setTasks),
+      apply(api.request<SessionView[]>("/sessions?include_setup_failures=true"), setSessions),
+      apply(api.request<Approval[]>("/approvals?status=pending"), setApprovals),
+      apply(api.request<MediaRow[]>("/media?limit=200"), setMedia),
+      apply(api.request<{ enabled: boolean; views: LiveView[] }>("/live"), (live) => {
+        setLiveViews(live.views);
+        setLiveEnabled(live.enabled);
+      }),
     ]);
-    if (generation !== refreshGeneration.current) return;
-    const [p, t, j, s, a, m, l] = results;
-    if (p.status === "fulfilled") setProjects(p.value);
-    if (t.status === "fulfilled") setTargets(t.value);
-    if (j.status === "fulfilled") setTasks(j.value);
-    if (s.status === "fulfilled") setSessions(s.value);
-    if (a.status === "fulfilled") setApprovals(a.value);
-    if (m.status === "fulfilled") setMedia(m.value);
-    if (l.status === "fulfilled") {
-      setLiveViews(l.value.views);
-      setLiveEnabled(l.value.enabled);
-    }
+    if (!current()) return;
     setVersion((old) => old + 1);
     const failed = results.find((result) => result.status === "rejected");
     if (failed?.status === "rejected") throw failed.reason;
   }, [api]);
+  const refreshOnceRef = useRef(refreshOnce);
+  refreshOnceRef.current = refreshOnce;
+  // One refresh at a time, plus at most one more queued behind it. Every
+  // stream event asks for a refresh; when each one abandoned the last, a busy
+  // server on a slow phone link never let any finish, and the lists stayed
+  // empty until a reload.
+  const refreshing = useRef<Promise<void> | undefined>(undefined),
+    refreshAgain = useRef(false);
+  const refresh = useCallback((): Promise<void> => {
+    if (refreshing.current) {
+      refreshAgain.current = true;
+      return refreshing.current;
+    }
+    const run = async () => {
+      do {
+        refreshAgain.current = false;
+        await refreshOnceRef.current();
+      } while (refreshAgain.current);
+    };
+    const running = run().finally(() => {
+      refreshing.current = undefined;
+    });
+    refreshing.current = running;
+    return running;
+  }, []);
   // Pull to refresh and the offline banner's Retry (mobile/).
   const retryOffline = useCallback(
     () => void refresh().catch(() => undefined),

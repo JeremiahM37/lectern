@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -91,11 +92,45 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
+	brief := r.URL.Query().Get("brief") == "true"
 	out := make([]*taskView, 0, len(rows))
 	for _, t := range rows {
+		if brief {
+			out = append(out, s.briefView(t))
+			continue
+		}
 		out = append(out, s.view(t))
 	}
 	writeJSON(w, 200, out)
+}
+
+// briefPrompt and briefResultValue bound what ?brief=true sends per task.
+// A board with a few hundred finished tasks carried every full prompt and
+// every agent's final report (19 MB on one install), which a phone took
+// 30-60 s to download before the home screen could show anything.
+const (
+	briefPrompt      = 400
+	briefResultValue = 512
+)
+
+// briefView is the list view the web app's screens build from: the same
+// card fields, with the prompt clipped and the latest attempt's result kept
+// to its small values (cost, tokens, verdict). The task sheet still loads
+// GET /api/tasks/{id} for the whole thing.
+func (s *Server) briefView(task *store.Task) *taskView {
+	clipped := *task
+	clipped.Prompt = clipRunes(clipped.Prompt, briefPrompt)
+	out := s.view(&clipped)
+	if out.Attempt != nil {
+		small := make(map[string]any, len(out.Attempt.Result))
+		for key, value := range out.Attempt.Result {
+			if raw, err := json.Marshal(value); err == nil && len(raw) <= briefResultValue {
+				small[key] = value
+			}
+		}
+		out.Attempt.Result = small
+	}
+	return out
 }
 
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
