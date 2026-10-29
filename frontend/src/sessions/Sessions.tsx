@@ -35,6 +35,19 @@ import { t, useLocale } from "../i18n";
 import { viewerUnavailable } from "../terminal/viewer";
 import "./sessions.css";
 import { fetchesEndedSessions, matchesFavoriteScope, type SessionScope } from "./favorite";
+import { offlineCache } from "../api/offline";
+
+// The last list each scope showed, kept for the life of the page. Coming
+// back to Sessions draws it at once and refreshes underneath, instead of an
+// empty screen for a round trip on a slow phone link. The first visit starts
+// from what this device last saw (api/offline.ts), refreshed the same way.
+const lastRows = new Map<SessionScope, SessionView[]>();
+function remembered(scope: SessionScope): SessionView[] {
+  const seen = lastRows.get(scope);
+  if (seen) return seen;
+  const cached = scope === "active" ? offlineCache.peek("/sessions?include_setup_failures=true") : undefined;
+  return Array.isArray(cached) ? (cached as SessionView[]) : [];
+}
 export interface SessionsApi {
   sessions(options?: {
     archived?: boolean;
@@ -107,7 +120,7 @@ export function Sessions({
   openTerminals,
 }: SessionsProps) {
   useLocale();
-  const [rows, setRows] = useState<SessionView[]>([]),
+  const [rows, setRows] = useState<SessionView[]>(() => remembered("active")),
     [scope, setScope] = useState<SessionScope>("active"),
     [query, setQuery] = useState(""),
     phone = usePhone(),
@@ -160,9 +173,16 @@ export function Sessions({
     });
     if (signal?.aborted || version !== generation.current) return;
     updated.current = Date.now();
+    lastRows.set(currentScope.current, next);
     setRows(next);
   }
+  const shownScope = useRef(scope);
   useEffect(() => {
+    if (shownScope.current !== scope) {
+      shownScope.current = scope;
+      const seen = lastRows.get(scope);
+      if (seen) setRows(seen);
+    }
     const abort = new AbortController();
     void load(abort.signal).catch((error) => {
       if (!abort.signal.aborted) onNotice(String(error), true);

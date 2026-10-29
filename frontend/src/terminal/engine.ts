@@ -67,6 +67,7 @@ import { modified, type Mods } from "./keys";
 import { encodeKey, keyFromBytes, keyInput, KeyboardModes } from "./extended-keys";
 import { hyperlinkTarget, type TerminalLink } from "./links";
 import { haptic } from "../mobile/haptics";
+import { Predictor } from "./predict";
 export class Engine {
   private controlsPrefix = false;
   private androidInput?: ReturnType<typeof installAndroidInput>;
@@ -294,6 +295,10 @@ export class Engine {
   private disposeScroll: () => void;
   private observer: ResizeObserver;
   private disposables: IDisposable[] = [];
+  // Letters typed but not yet echoed, drawn over the screen (predict.ts).
+  private predictor = new Predictor();
+  private ghost = document.createElement("span");
+  private ghostTimer?: number;
   constructor(readonly options: EngineOptions) {
     const prefs = options.prefs();
     this.term = new Terminal({
@@ -328,6 +333,10 @@ export class Engine {
       },
     };
     this.term.open(options.host);
+    this.ghost.className = "predicted-echo";
+    this.ghost.setAttribute("aria-hidden", "true");
+    this.ghost.hidden = true;
+    this.term.element?.querySelector(".xterm-screen")?.append(this.ghost);
     this.installExtendedKeys();
     // OSC 52: a program (tmux, vim, a remote shell) sets the clipboard. Writes
     // are honoured when allowed; a request to read the clipboard ("?") never
@@ -353,10 +362,13 @@ export class Engine {
       this.term.onData((data) => this.input(data)),
       this.term.onBinary((data) => this.sendBinary(data)),
       this.term.onResize(({ cols, rows }) => {
+        this.clearPrediction();
         this.resizePending = true;
         this.send("1" + JSON.stringify({ columns: cols, rows }));
         this.term.scrollToBottom();
       }),
+      // A guess is drawn in screen cells; scrolling moves what is under it.
+      this.term.onScroll(() => this.clearPrediction()),
       this.search.onDidChangeResults((event) =>
         options.matches(event.resultIndex, event.resultCount),
       ),
@@ -724,9 +736,68 @@ export class Engine {
     this.leaveRetainedHistory();
     this.send("0" + text);
     if (text) this.armSilence();
+    this.predict(text);
+  }
+  private predict(text: string) {
+    const buffer = this.term.buffer.active;
+    // Only at the live bottom of the screen, where the cursor is in view.
+    if (buffer.viewportY !== buffer.baseY) this.predictor.clear();
+    else
+      this.predictor.typed(text, { x: buffer.cursorX, y: buffer.cursorY }, this.term.cols);
+    this.drawPrediction();
+  }
+  private clearPrediction() {
+    this.predictor.clear();
+    this.drawPrediction();
+  }
+  private drawPrediction() {
+    clearTimeout(this.ghostTimer);
+    const shown = this.predictor.shown;
+    const screen = this.ghost.parentElement;
+    if (!shown || !screen || this.paused || !this.connected) {
+      this.ghost.hidden = true;
+      if (!shown) return;
+    } else {
+      const width = screen.clientWidth / this.term.cols,
+        height = screen.clientHeight / this.term.rows,
+        theme = this.term.options.theme ?? {};
+      Object.assign(this.ghost.style, {
+        left: `${shown.x * width}px`,
+        top: `${shown.y * height}px`,
+        height: `${height}px`,
+        lineHeight: `${height}px`,
+        fontFamily: this.term.options.fontFamily ?? "",
+        fontSize: `${this.term.options.fontSize}px`,
+        letterSpacing: `${width - this.charWidth()}px`,
+        color: theme.foreground ?? "",
+        background: theme.background ?? "",
+      });
+      this.ghost.textContent = shown.text;
+      this.ghost.hidden = false;
+    }
+    const deadline = this.predictor.deadline;
+    if (deadline !== undefined)
+      this.ghostTimer = window.setTimeout(() => {
+        if (this.predictor.expire()) this.drawPrediction();
+      }, Math.max(0, deadline - Date.now()) + 10);
+  }
+  // The font's own advance at this size, so letter-spacing can stretch the
+  // guess to xterm's cell width.
+  private measuredFont = "";
+  private measuredWidth = 0;
+  private charWidth() {
+    const font = `${this.term.options.fontSize}px ${this.term.options.fontFamily}`;
+    if (font !== this.measuredFont) {
+      const context = document.createElement("canvas").getContext("2d");
+      if (context) context.font = font;
+      this.measuredWidth = context ? context.measureText("W").width : 0;
+      this.measuredFont = font;
+    }
+    return this.measuredWidth;
   }
   private sendBinary(text: string) {
     if (!this.connected || this.paused || !this.ws) return;
+    this.clearPrediction();
     ++this.historyRevision;
     this.leaveRetainedHistory();
     const bytes = new Uint8Array(text.length + 1);
@@ -790,6 +861,7 @@ export class Engine {
     this.ws?.close();
     this.ws = undefined;
     this.connected = false;
+    this.clearPrediction();
     this.status = t("terminalPage.status.connecting");
     this.term.options.disableStdin = true;
     this.changed();
@@ -847,6 +919,9 @@ export class Engine {
         }
         this.term.write(content, () => {
           if (!current()) return;
+          const buffer = this.term.buffer.active;
+          this.predictor.drawn({ x: buffer.cursorX, y: buffer.cursorY });
+          if (!this.ghost.hidden || this.predictor.shown) this.drawPrediction();
           this.pending = Math.max(0, this.pending - content.length);
           if (this.resizePending && this.pending === 0 && !this.paused) {
             this.term.scrollToBottom();
@@ -877,6 +952,7 @@ export class Engine {
   private reconnect(message = t("terminalPage.status.reconnecting")) {
     ++this.generation;
     this.connected = false;
+    this.clearPrediction();
     this.status = this.offline ? t("terminalPage.status.offline") : message;
     this.term.options.disableStdin = true;
     this.changed();
@@ -975,6 +1051,7 @@ export class Engine {
     if (on && this.readingRetainedHistory) snapshot ??= this.frozenText;
     this.leaveRetainedHistory();
     this.paused = on;
+    this.clearPrediction();
     if (on) {
       const lines: string[] = [],
         buffer = this.term.buffer.active;
@@ -1010,6 +1087,7 @@ export class Engine {
     if (this.fitFrame !== undefined) cancelAnimationFrame(this.fitFrame);
     clearTimeout(this.timer);
     clearTimeout(this.silentTimer);
+    clearTimeout(this.ghostTimer);
     this.ws?.close();
     this.disposeScroll();
     this.observer.disconnect();

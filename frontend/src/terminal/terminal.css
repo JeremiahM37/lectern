@@ -1208,3 +1208,13 @@ body.compact-chrome #compact-desktop {
     display: none;
   }
 }
+/* Letters typed on a slow link, shown before their echo arrives (predict.ts).
+   Underlined so a guess is never mistaken for what the program drew. */
+.predicted-echo {
+  position: absolute;
+  z-index: 10;
+  pointer-events: none;
+  white-space: pre;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}

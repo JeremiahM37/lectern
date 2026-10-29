@@ -121,6 +121,11 @@ export class OfflineCache extends EventTarget {
     }
   }
 
+  /** What was last stored for a path, without asking the network. */
+  peek(path: string): unknown {
+    return this.entries[path]?.body;
+  }
+
   clear() {
     this.entries = {};
     try {
