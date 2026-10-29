@@ -9,6 +9,7 @@ speechSynthesis was asked to say, so the real hook (useVoiceMode) runs
 end to end against a real lectern server.
 """
 import json
+import re
 
 from playwright.sync_api import expect
 
@@ -192,7 +193,7 @@ def test_starting_to_talk_barges_in_on_speech(page, server):
 
 def _mock_pending_approval(page, session_id, state):
     page.route(
-        "**/api/tasks",
+        re.compile(r".*/api/tasks(\?.*)?$"),
         lambda route: route.fulfill(
             status=200,
             content_type="application/json",

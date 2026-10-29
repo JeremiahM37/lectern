@@ -285,7 +285,7 @@ def test_foreground_resync_refetches(page, server):
     page.wait_for_timeout(500)
     hits = []
     page.on("request", lambda r: hits.append(r.url)
-            if r.url.rstrip("/").endswith("/api/tasks") else None)
+            if r.url.split("?")[0].rstrip("/").endswith("/api/tasks") else None)
     # faithfully simulate a phone returning to foreground. Headless Chromium
     # reports 'hidden' by default, which the handler correctly ignores — so force
     # 'visible' as a real unlock would.
