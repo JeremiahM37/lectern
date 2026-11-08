@@ -277,13 +277,9 @@ func TestDashboardFormsUseNamesPreserveDraftsAndSubmitRealHTTP(t *testing.T) {
 		t.Fatal("project name absent")
 	}
 	m.Update(rowsMsg{section: "sessions", generation: m.generation, rows: m.rows})
-	if m.form.fields[3].Value != "first message" {
+	if m.form.fields[5].Value != "first message" {
 		t.Fatal("refresh replaced draft")
 	}
-	// The name lives under More options…; a folded field is still sent once
-	// the operator opened and filled it, so open it before submitting.
-	m.form.index = 4
-	m.updateForm(tea.KeyMsg{Type: tea.KeyEnter})
 	cmd := m.updateForm(tea.KeyMsg{Type: tea.KeyCtrlS})
 	msg := cmd()
 	m.Update(msg)
@@ -348,8 +344,9 @@ func TestDashboardProjectPickerFiltersAndPreservesSelection(t *testing.T) {
 	if m.form.fields[projectIndex].Value != "project:99" {
 		t.Fatalf("selected project = %q, want project:99", m.form.fields[projectIndex].Value)
 	}
-	if m.form.index != projectIndex+1 {
-		t.Fatalf("enter advanced to field %d, want %d", m.form.index, projectIndex+1)
+	// The new project's name is skipped while an existing project is picked.
+	if m.form.index != projectIndex+2 {
+		t.Fatalf("enter advanced to field %d, want %d", m.form.index, projectIndex+2)
 	}
 	m.updateForm(tea.KeyMsg{Type: tea.KeyShiftTab})
 	if m.form.index != projectIndex || m.form.fields[projectIndex].Value != "project:99" {
@@ -405,7 +402,7 @@ func TestDashboardProjectFilterCommitsOnTab(t *testing.T) {
 		m.updateForm(key(string(r)))
 	}
 	m.updateForm(tea.KeyMsg{Type: tea.KeyTab})
-	if m.form.fields[0].Value != "project:2" || m.form.index != 1 {
+	if m.form.fields[0].Value != "project:2" || m.form.index != 2 {
 		t.Fatalf("tab did not commit filtered project: value=%q index=%d", m.form.fields[0].Value, m.form.index)
 	}
 }

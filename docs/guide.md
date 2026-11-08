@@ -536,8 +536,11 @@ terminal dashboard, press `S` and select a project or machine from the single
 searchable location picker.
 
 Recently opened projects appear first on each device. **Start an agent** remembers
-your folder choice (including a new empty folder) and starts with just Folder and
-Agent, plus **Ask before risky actions**. Expand **More options** for naming,
+your folder choice (including a new empty folder) and starts with just Folder,
+the session's **Name** and Agent, plus **Ask before risky actions**. Folder can
+also be **A new project…**: give it a name and Lectern makes `~/projects/<name>`
+on the machine as a Git repository, registers it (`POST /api/projects` with
+`create_dir: true`) and starts the session there. Expand **More options** for
 profiles, models, worktrees, resume, sandboxing, and a first message; the launch
 summary keeps the permission choice visible. **Choose…** browses the machine's folders
 (`GET /api/targets/{id}/folders?path=`, names only, starting at home); starting

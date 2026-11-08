@@ -77,6 +77,10 @@ export function NewSession({
     // which may still be loading when the sheet opens (the landing link).
     [projectTouched, setProjectTouched] = useState(false),
     [name, setName] = useState(""),
+    // "A new project": Lectern makes ~/projects/<name> on the machine and
+    // registers it before the session starts in it.
+    [newProject, setNewProject] = useState(false),
+    [newProjectName, setNewProjectName] = useState(""),
     [group, setGroup] = useState(""),
     [agent, setAgent] = useState("claude"),
     // A folder chosen in the picker that is not a project yet.
@@ -218,11 +222,12 @@ export function NewSession({
   }, [targets]);
   const machine = selectedProject?.target_id ?? picked?.targetId ?? defaultMachine(machines);
   // With no machine at all, this computer is the one: add it, once.
-  async function ensureMachine(): Promise<void> {
-    if (machines.length) return;
+  async function ensureMachine(): Promise<number | undefined> {
+    if (machines.length) return machine;
     const created = await api.request<Target>("/targets", { method: "POST", body: { name: "local", kind: "local" } });
     setMachines([created]);
     onCreated();
+    return created.id;
   }
   async function browse() {
     try {
@@ -258,7 +263,12 @@ export function NewSession({
   }, [installed, agents, agentMenu, agentTouched, profileId, agent]);
   // A launch profile can bring its own command, so it is left to the server
   // to judge; only a plain agent choice is checked here.
-  const startBlocked = profileId <= 0 && !usable(agent) ? t("start.sheet.notInstalledWhy", { name: agent }) : "";
+  const startBlocked =
+    profileId <= 0 && !usable(agent)
+      ? t("start.sheet.notInstalledWhy", { name: agent })
+      : newProject && !newProjectName.trim()
+        ? t("sessions.dialogs.newSession.newProjectNameNeeded")
+        : "";
   // The collapsed sheet still has to say what pressing Start will do: the
   // permission mode above all, plus anything else hidden behind Advanced.
   const { recent: recentProjects, rest: otherProjects } = orderProjectsByRecency(
@@ -279,7 +289,23 @@ export function NewSession({
   const launchSummary = launchNotes.join(" · ");
   // A picked folder that is not a project yet becomes one first, so the
   // session is in a project from its first moment (and shows as one).
-  async function folderProject(): Promise<number | null> {
+  async function folderProject(target: number | undefined): Promise<number | null> {
+    if (newProject) {
+      const created = await api.request<Project>("/projects", {
+        method: "POST",
+        body: {
+          name: newProjectName.trim(),
+          target_id: target ?? 0,
+          create_dir: true,
+          ...(profileId > 0 ? {} : { default_agent: agent }),
+        },
+      });
+      // A second press after a failed start reuses the project just made.
+      setNewProject(false);
+      setProject(created.id);
+      onCreated();
+      return created.id;
+    }
     if (!picked) return project;
     if (picked.projectId) return picked.projectId;
     const out = await api.request<{ imported: Project[]; skipped: { project_id?: number }[] }>("/projects/import", {
@@ -294,8 +320,8 @@ export function NewSession({
     if (busy) return;
     setBusy(true);
     try {
-      await ensureMachine();
-      const projectID = await folderProject();
+      const target = await ensureMachine();
+      const projectID = await folderProject(target);
       const s = await api.request<SessionView>("/sessions", {
         method: "POST",
         body: {
@@ -313,7 +339,7 @@ export function NewSession({
                 })),
               }
             : null,
-          name: name.trim(),
+          name: name.trim() || (newProject ? newProjectName.trim() : ""),
           group_path: group.trim(),
           agent,
           model: model.trim(),
@@ -380,13 +406,20 @@ export function NewSession({
             <select
               id="ns-project"
               aria-label={t("start.sheet.folder")}
-              value={picked ? "__folder__" : (project ?? "")}
+              value={picked ? "__folder__" : newProject ? "__new__" : (project ?? "")}
               onChange={(e) => {
                 if (e.target.value === "__browse__") {
                   void browse();
                   return;
                 }
                 if (e.target.value === "__folder__") return;
+                setNewProject(e.target.value === "__new__");
+                if (e.target.value === "__new__") {
+                  setProjectTouched(true);
+                  setPicked(undefined);
+                  setProject(null);
+                  return;
+                }
                 const next = e.target.value ? Number(e.target.value) : null;
                 setProjectTouched(true);
                 setPicked(undefined);
@@ -398,6 +431,7 @@ export function NewSession({
               }}
             >
               <option value="">{t("sessions.dialogs.newSession.blankRoom")}</option>
+              <option value="__new__">{t("sessions.dialogs.newSession.newProject")}</option>
               {picked && <option value="__folder__">{t("start.sheet.pickedFolder", { path: picked.path })}</option>}
               {recentProjects.length > 0 ? (
                 <>
@@ -431,7 +465,11 @@ export function NewSession({
           </div>
         </div>
         <div id="ns-proj-hint">
-          {picked ? (
+          {newProject ? (
+            t("sessions.dialogs.newSession.newProjectHint", {
+              path: `~/projects/${projectDirSlug(newProjectName) || "…"}`,
+            })
+          ) : picked ? (
             <>
               <span className="ns-proj-path">{picked.path}</span>
               {picked.projectId ? "" : ` · ${t("start.sheet.becomesProject")}`}
@@ -451,6 +489,26 @@ export function NewSession({
               ) : null}
             </>
           )}
+        </div>
+        {newProject && (
+          <div className="session-field">
+            <label htmlFor="ns-new-project">{t("sessions.dialogs.newSession.newProjectName")}</label>
+            <input
+              id="ns-new-project"
+              autoFocus
+              value={newProjectName}
+              onChange={(e) => setNewProjectName(e.target.value)}
+            />
+          </div>
+        )}
+        <div className="session-field">
+          <label htmlFor="ns-name">{t("sessions.dialogs.newSession.name")}</label>
+          <input
+            id="ns-name"
+            value={name}
+            placeholder={t("sessions.dialogs.newSession.namePlaceholder")}
+            onChange={(e) => setName(e.target.value)}
+          />
         </div>
         <div className="session-field">
           <label htmlFor="ns-agent">{t("sessions.dialogs.newSession.agent")}</label>
@@ -574,14 +632,6 @@ export function NewSession({
         )}
         <details id="ns-advanced" className="session-advanced">
           <summary>{t("sessions.dialogs.newSession.advanced")}</summary>
-          <div className="session-field">
-            <label htmlFor="ns-name">{t("sessions.dialogs.newSession.name")}</label>
-            <input
-              id="ns-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
           <div className="session-field">
             <label htmlFor="ns-group">{t("sessions.dialogs.newSession.group")}</label>
             <input
@@ -1110,4 +1160,17 @@ export function Handoff({
       </div>
     </Modal>
   );
+}
+
+// projectDirSlug mirrors the server's folder name for a new project
+// (internal/api/projects_create_dir.go), so the hint shows the real path.
+export function projectDirSlug(name: string): string {
+  let slug = "";
+  for (const ch of name.trim().toLowerCase()) {
+    if (/[a-z0-9._-]/.test(ch)) slug += ch;
+    else if (ch === " " || ch === "/" || ch === "\\") slug += "-";
+  }
+  slug = slug.replace(/^[-.]+|[-.]+$/g, "");
+  if (slug.length > 64) slug = slug.slice(0, 64).replace(/^[-.]+|[-.]+$/g, "");
+  return slug;
 }

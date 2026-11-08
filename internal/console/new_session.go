@@ -2,6 +2,7 @@ package console
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -9,8 +10,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// The New session form is one screen with four questions — where, which
-// agent, whether it asks before running commands, and an optional first
+// The New session form is one screen of questions — where (an existing
+// project, a new one, or a scratch folder), which agent, whether it asks
+// before running commands, the session's name and an optional first
 // message — and "More options…" for everything else. It mirrors the simple
 // face of the web dialog and `lectern claude`'s defaults.
 
@@ -159,7 +161,7 @@ func (m *dashboard) whereChoices() []choice {
 	if m.cwd != "" && projectContaining(m.projects, m.cwd) == "" {
 		out = append(out, choice{"This folder — " + m.cwd, "dir:" + m.cwd})
 	}
-	return append(out, choice{"New empty scratch folder", "scratch"})
+	return append(out, choice{"New project…", newProjectWhere}, choice{"New empty scratch folder", "scratch"})
 }
 
 // agentChoices lists the agents that are installed on the machine (or that
@@ -263,14 +265,16 @@ func (m *dashboard) newSessionForm() tea.Cmd {
 	adv := func(f field) field { f.Advanced = true; return f }
 	targets := options(m.targets, "Same as Where")
 	fields := []field{
-		whereField, agentField, approvals,
+		whereField,
+		{Key: "new_project", Label: "New project name (makes ~/projects/<name>)", OnlyWhere: newProjectWhere},
+		agentField, approvals,
+		{Key: "name", Label: "Session name (optional)"},
 		{Key: "prime", Label: "First message (optional)"},
 		more,
-		adv(field{Key: "name", Label: "Session name (blank names it after the folder)"}),
 		adv(optionField("profile_id", "Launch profile", "", m.profileChoices("Agent and project defaults"), false)),
 		adv(field{Key: "model", Label: "Model (blank uses the agent's default)"}),
 		adv(field{Key: "folder", Label: "Folder path instead of Where (optional)"}),
-		adv(optionField("target_id", "Machine (for a folder or scratch)", "", targets, false)),
+		adv(optionField("target_id", "Machine (for a folder, new project or scratch)", "", targets, false)),
 		adv(boolField("isolated", "Work in a separate Git worktree", false)),
 		adv(boolField("multi_repo", "Choose additional repositories after this form", false)),
 		adv(field{Key: "worktree_base", Label: "Worktree base (blank = committed HEAD)"}),
@@ -297,6 +301,9 @@ func (m *dashboard) newSessionForm() tea.Cmd {
 
 const moreKey = "__more"
 
+// newProjectWhere is the "where" value that makes a new project first.
+const newProjectWhere = "new"
+
 // submitNewSession turns the one-screen answers into the session API's
 // fields and keeps every rule the long form enforced.
 func (m *dashboard) submitNewSession(body map[string]any) tea.Cmd {
@@ -306,6 +313,17 @@ func (m *dashboard) submitNewSession(body map[string]any) tea.Cmd {
 		where = "dir:" + folder // A typed path wins over the picked place.
 	}
 	delete(body, "folder")
+	newProject := strings.TrimSpace(str(body["new_project"]))
+	delete(body, "new_project")
+	if where == newProjectWhere {
+		if newProject == "" {
+			m.notice = "Name the new project."
+			return nil
+		}
+		if strings.TrimSpace(str(body["name"])) == "" {
+			body["name"] = m.unusedName(newProject)
+		}
+	}
 	if strings.TrimSpace(str(body["name"])) == "" {
 		if name := m.placeName(where); name != "" {
 			body["name"] = m.unusedName(name)
@@ -322,6 +340,7 @@ func (m *dashboard) submitNewSession(body map[string]any) tea.Cmd {
 		delete(body, "target_id")
 	case strings.HasPrefix(where, "dir:"):
 		body["workdir"] = strings.TrimPrefix(where, "dir:")
+	case where == newProjectWhere:
 	default:
 		body["scratch"] = true
 	}
@@ -346,10 +365,52 @@ func (m *dashboard) submitNewSession(body map[string]any) tea.Cmd {
 	delete(body, "worktree_branch")
 	multi := body["multi_repo"] == true
 	delete(body, "multi_repo")
+	if where == newProjectWhere {
+		if multi {
+			m.notice = "Extra repositories need an existing project."
+			return nil
+		}
+		return m.createProjectThenSession(newProject, body)
+	}
 	if multi {
 		return m.workspaceRepositoryForm(body, m.form)
 	}
 	return m.request("Create session", "POST", "/sessions", body, false)
+}
+
+// createProjectThenSession makes the project (its folder too, on the chosen
+// machine or this one) and starts the session in it. A project that was made
+// but whose session failed to start stays, so the form can be sent again by
+// picking it.
+func (m *dashboard) createProjectThenSession(projectName string, body map[string]any) tea.Cmd {
+	if m.busy {
+		return nil
+	}
+	target, _ := body["target_id"].(int64)
+	delete(body, "target_id")
+	if target == 0 {
+		target, _ = strconv.ParseInt(m.sessionTarget(newProjectWhere), 10, 64)
+	}
+	project := map[string]any{"name": projectName, "target_id": target, "create_dir": true}
+	if agent := str(body["agent"]); agent != "" {
+		project["default_agent"] = agent
+	}
+	m.busy = true
+	c, key := m.client, m.key()
+	return func() tea.Msg {
+		data, err := c.JSON("POST", "/projects", project)
+		if err != nil {
+			return resultMsg{label: "Create project", err: err, key: key}
+		}
+		var created row
+		if err := json.Unmarshal(data, &created); err != nil || id(created) == "" {
+			return resultMsg{label: "Create project", err: fmt.Errorf("the server did not return the new project"), key: key}
+		}
+		n, _ := strconv.ParseInt(id(created), 10, 64)
+		body["project_id"] = n
+		b, e := c.JSON("POST", "/sessions", body)
+		return resultMsg{label: "Create session", data: b, err: e, key: key}
+	}
 }
 
 func (m *dashboard) knownTarget(target string) bool {

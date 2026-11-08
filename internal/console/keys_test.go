@@ -376,7 +376,7 @@ func TestNewSessionOffersOnlyInstalledAgents(t *testing.T) {
 	m.agentMenuOrder = []string{"codex", "claude", "gemini"}
 	m.agentState = map[string]map[string]string{"1": {"codex": "missing", "claude": "available", "gemini": "missing"}}
 	m.newForm()
-	agent := m.form.fields[1]
+	agent := m.form.fields[2]
 	if agent.Key != "agent" || agent.Value != "claude" || len(agent.Options) != 1 {
 		t.Fatalf("agent field: %+v", agent)
 	}
@@ -412,7 +412,7 @@ func TestNewSessionChecksTheMachineOnceThenOpens(t *testing.T) {
 		t.Fatal("the form opened before the machine was checked")
 	}
 	run(m, cmd)
-	if m.form == nil || m.form.fields[1].Value != "claude" || m.form.fields[2].Value != "bypass" {
+	if m.form == nil || m.form.fields[2].Value != "claude" || m.form.fields[3].Value != "bypass" {
 		t.Fatalf("form after check: %+v", m.form)
 	}
 	m.form = nil
@@ -460,11 +460,11 @@ func TestNewSessionEnterStartsOnTheLastQuestion(t *testing.T) {
 			visible++
 		}
 	}
-	if visible != 5 {
-		t.Fatalf("the first screen shows %d fields, want four questions and More options", visible)
+	if visible != 6 {
+		t.Fatalf("the first screen shows %d fields, want five questions and More options", visible)
 	}
 	var cmd tea.Cmd
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		cmd = m.updateForm(tea.KeyMsg{Type: tea.KeyEnter})
 		if cmd != nil && len(rec.requests) > 0 {
 			t.Fatal("submitted before the last question")
@@ -696,5 +696,69 @@ func TestHistorySessionOptionOpensThePicker(t *testing.T) {
 	}
 	if got := m.form.fields[1].Value; got != "resume" {
 		t.Fatalf("default action %q", got)
+	}
+}
+
+// "New project…" asks for its name on the first screen, makes the project
+// (and its folder) and starts the session in it.
+func TestNewSessionCanMakeANewProject(t *testing.T) {
+	var paths []string
+	var bodies []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b map[string]any
+		json.NewDecoder(r.Body).Decode(&b)
+		paths = append(paths, r.Method+" "+r.URL.Path)
+		bodies = append(bodies, b)
+		switch r.URL.Path {
+		case "/api/projects":
+			w.WriteHeader(201)
+			fmt.Fprint(w, `{"id":12,"name":"Notes App","repo_path":"/home/me/projects/notes-app"}`)
+		case "/api/sessions":
+			w.WriteHeader(201)
+			fmt.Fprint(w, `{"id":30,"name":"Notes App","project_id":12}`)
+		}
+	}))
+	defer srv.Close()
+	m := sampleDashboard()
+	m.client = New(srv.URL, "")
+	m.targets = []row{{"id": float64(1), "name": "Here", "kind": "local"}}
+	m.projects = []row{{"id": float64(4), "name": "Site", "repo_path": "/srv/site"}}
+	m.newForm()
+	if !strings.Contains(m.formView(), "New project…") || strings.Contains(m.formView(), "New project name") {
+		t.Fatalf("New project is not offered, or its name shows for an existing project:\n%s", m.formView())
+	}
+	// Pick it by typing in the searchable Where list, then answer the name.
+	m.form.index = 0
+	m.focusField()
+	for _, r := range "new project" {
+		m.updateForm(key(string(r)))
+	}
+	m.updateForm(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.form.fields[0].Value != newProjectWhere || m.form.fields[m.form.index].Key != "new_project" {
+		t.Fatalf("where=%q focus=%q", m.form.fields[0].Value, m.form.fields[m.form.index].Key)
+	}
+	for _, r := range "Notes App" {
+		m.updateForm(key(string(r)))
+	}
+	for i := range m.form.fields {
+		if m.form.fields[i].Key == "prime" {
+			m.form.fields[i].Value = "set it up"
+		}
+	}
+	if !strings.Contains(m.formView(), "New project name") || !strings.Contains(m.formView(), "Session name") {
+		t.Fatalf("new project name or session name missing from the first screen:\n%s", m.formView())
+	}
+	run(m, m.updateForm(tea.KeyMsg{Type: tea.KeyCtrlS}))
+	if len(paths) != 2 || paths[0] != "POST /api/projects" || paths[1] != "POST /api/sessions" {
+		t.Fatalf("requests: %v", paths)
+	}
+	if bodies[0]["name"] != "Notes App" || bodies[0]["create_dir"] != true || bodies[0]["target_id"] != float64(1) {
+		t.Fatalf("project body: %v", bodies[0])
+	}
+	if bodies[1]["project_id"] != float64(12) || bodies[1]["name"] != "Notes App" || bodies[1]["prime"] != "set it up" || bodies[1]["scratch"] != nil {
+		t.Fatalf("session body: %v", bodies[1])
+	}
+	if m.focusSessionID != "30" {
+		t.Fatalf("the new session was not selected: %q", m.focusSessionID)
 	}
 }

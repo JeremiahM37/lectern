@@ -51,6 +51,9 @@ type field struct {
 	Compact             bool
 	Searchable          bool
 	HideWhenProject     bool
+	// OnlyWhere shows the field only while the form's "where" field has
+	// this value (New project's name in the New session form).
+	OnlyWhere string
 	// Advanced fields stay folded under "More options…" until it is opened.
 	Advanced     bool
 	OptionFilter string
@@ -536,6 +539,13 @@ func fieldVisible(fields []field, index int) bool {
 		for _, f := range fields {
 			if f.Key == moreKey && f.Value != "true" {
 				return false
+			}
+		}
+	}
+	if only := fields[index].OnlyWhere; only != "" {
+		for _, f := range fields {
+			if f.Key == "where" {
+				return f.Value == only
 			}
 		}
 	}

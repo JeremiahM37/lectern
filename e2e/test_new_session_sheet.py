@@ -1,7 +1,8 @@
 """The simplified New session sheet and the per-device project memory.
 
-The sheet opens with only Project and Agent; name, group, launch profile,
-model, worktree, start mode, yolo and the first message live behind one
+The sheet opens with Project (an existing one, a new one or an empty
+folder), the session's name and Agent; group, launch profile, model,
+worktree, start mode, yolo and the first message live behind one
 "Advanced options" disclosure. These tests are the browser's account of that
 split: what a person sees first, that the summary still says what Start will
 do, that a setting behind the disclosure really reaches the API, and that the
@@ -27,8 +28,8 @@ def _projects(page, server):
     ids=["small-phone", "phone", "desktop"],
 )
 def test_new_session_leads_with_project_and_agent(page, server, size):
-    """Folder, agent, the ask toggle and one visible Start button; everything
-    else folded."""
+    """Folder, name, agent, the ask toggle and one visible Start button;
+    everything else folded."""
     page.set_viewport_size(size)
     projects = _projects(page, server)
     assert projects, "the mock server seeds projects"
@@ -37,10 +38,10 @@ def test_new_session_leads_with_project_and_agent(page, server, size):
     sheet = page.get_by_role("dialog", name="Start an agent", exact=True)
     expect(sheet).to_be_visible()
 
-    # Only the two choices and the action are visible at first.
-    for sel in ("#ns-project", "#ns-browse", "#ns-agent", "#ns-ask", "#ns-go"):
+    # Only the choices, the name and the action are visible at first.
+    for sel in ("#ns-project", "#ns-browse", "#ns-name", "#ns-agent", "#ns-ask", "#ns-go"):
         expect(sheet.locator(sel)).to_be_visible()
-    for sel in ("#ns-name", "#ns-group", "#ns-profile", "#ns-model", "#ns-prime"):
+    for sel in ("#ns-new-project", "#ns-group", "#ns-profile", "#ns-model", "#ns-prime"):
         expect(sheet.locator(sel)).not_to_be_visible()
 
     # The chosen project's folder and machine are spelled out right there.
@@ -60,7 +61,7 @@ def test_new_session_leads_with_project_and_agent(page, server, size):
 
     # The disclosure reveals the rest without a second dialog.
     open_advanced(sheet)
-    expect(sheet.locator("#ns-name")).to_be_visible()
+    expect(sheet.locator("#ns-group")).to_be_visible()
     expect(sheet.get_by_role("dialog", name="Launch profiles")).to_have_count(0)
 
     sheet.locator("#ns-ask").uncheck()
@@ -90,6 +91,37 @@ def test_advanced_values_are_what_gets_sent(page, server):
     assert body["yolo"] is False, body
     assert str(body["project_id"]) == chosen and body["scratch"] is False, body
     expect(page.locator(".scard", has_text="Simplified launch")).to_be_visible(timeout=15000)
+
+
+@pytest.mark.parametrize("page", [PHONE, DESKTOP], indirect=True, ids=["phone", "desktop"])
+def test_new_project_from_the_sheet(page, server):
+    """"A new project…" asks for its name, makes the project (and its folder)
+    and starts the session in it, named after it unless named otherwise."""
+    page.goto(server + "/#sessions")
+    page.click("#sess-new")
+    sheet = page.get_by_role("dialog", name="Start an agent", exact=True)
+    sheet.locator("#ns-project").select_option("__new__")
+    name = f"Sheet project {page.viewport_size['width']}"
+    expect(sheet.locator("#ns-new-project")).to_be_visible()
+    expect(sheet.locator("#ns-go")).to_be_disabled()
+    sheet.locator("#ns-new-project").fill(name)
+    slug = name.lower().replace(" ", "-")
+    expect(sheet.locator("#ns-proj-hint")).to_contain_text(f"~/projects/{slug}")
+    with page.expect_response(
+        lambda r: r.request.method == "POST" and r.url.endswith("/api/projects")
+    ) as made:
+        with page.expect_response(
+            lambda r: r.request.method == "POST" and r.url.endswith("/api/sessions")
+        ) as started:
+            sheet.locator("#ns-go").click()
+    project = made.value.json()
+    assert made.value.status == 201, project
+    assert made.value.request.post_data_json["create_dir"] is True
+    assert project["repo_path"].endswith(f"/projects/{slug}"), project
+    body = started.value.request.post_data_json
+    assert body["project_id"] == project["id"] and body["scratch"] is False, body
+    assert body["name"] == name, body
+    expect(page.locator(".scard", has_text=name)).to_be_visible(timeout=15000)
 
 
 @pytest.mark.parametrize("page", [PHONE, DESKTOP], indirect=True, ids=["phone", "desktop"])

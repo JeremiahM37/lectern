@@ -101,6 +101,24 @@ func NewMock(delay time.Duration) *Mock {
 // CmdLog returns a copy of every command this executor was asked to run.
 // scratchDirName pulls the slug out of the scratch-creation command, so two
 // scratch sessions get two directories here exactly as they would on a real host.
+var newProjectDirRe = regexp.MustCompile(`\nd=("\$HOME/projects/"|"\$HOME")?([^;]*);`)
+
+// mockNewProjectDir is where a new project's folder lands on the mock target.
+func mockNewProjectDir(cmd string) string {
+	m := newProjectDirRe.FindStringSubmatch(cmd)
+	if m == nil {
+		return "/mock/home/projects/project"
+	}
+	m[2] = strings.Trim(m[2], "'")
+	switch {
+	case m[1] == `"$HOME/projects/"`:
+		return "/mock/home/projects/" + m[2]
+	case m[1] == `"$HOME"`:
+		return "/mock/home" + m[2]
+	}
+	return m[2]
+}
+
 func scratchDirName(cmd string) string {
 	if m := scratchRe.FindStringSubmatch(cmd); len(m) > 1 {
 		return m[1]
@@ -181,6 +199,10 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 		// A test sentinel: the path a project claims does not exist on the
 		// target. A project shell must fail rather than fall back elsewhere.
 		return Result{1, "", ""}, nil
+	case strings.HasPrefix(cmd, "# lectern-new-project\n"):
+		// A new project's folder (api.newProjectDirCommand): the target's shell
+		// creates it and prints where it is.
+		return Result{0, mockNewProjectDir(cmd) + "\n", ""}, nil
 	case strings.HasPrefix(cmd, "git clone"):
 		return Result{0, "", ""}, nil
 	case strings.HasPrefix(cmd, "umask 077; d=") && strings.HasSuffix(cmd, "pwd -P"):

@@ -92,7 +92,7 @@ def test_custom_agent_settings_session_and_native_pty(page, real_terminal, tmp_p
     page.locator("#sess-new").click()
     sheet = page.get_by_role("dialog", name="Start an agent", exact=True)
     open_advanced(sheet)
-    sheet.get_by_label("Name", exact=True).fill("Local proof session")
+    sheet.get_by_label("Session name", exact=True).fill("Local proof session")
     sheet.locator("#ns-project").select_option(str(project["id"]))
     # local-proof is a brand-new custom agent, not a shown-by-default
     # built-in, so it is reached through "More agents…" rather than as a

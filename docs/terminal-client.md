@@ -122,14 +122,18 @@ Approvals; `q` in a review goes back instead of quitting. `U F H O P Q S G A`,
 `7 8 9`, `e h u s f g w z` keep working and are also listed in the palette.
 
 **New session** is one screen: **Where** (the project that contains the folder
-you started `lectern` in, or that folder itself, or a new empty folder),
-**Agent** (only agents installed on that machine; the project's default agent
-when it is installed, otherwise the first installed one), **Approvals** (ask
-before running commands, recommended; the server's default setting is
-respected) and an optional **First message**. Enter moves to the next question
-and starts the session on the last one; Ctrl+S starts it from anywhere. **More
-options…** holds the rest: name, launch profile, model, machine, a separate
-Git worktree, extra repositories, resume, the project brief and a group. The
+you started `lectern` in, or that folder itself, **New project…**, or a new
+empty folder), **Agent** (only agents installed on that machine; the project's
+default agent when it is installed, otherwise the first installed one),
+**Approvals** (ask before running commands, recommended; the server's default
+setting is respected), an optional **Session name** (blank names it after the
+project or folder) and an optional **First message**. **New project…** asks
+for the project's name and makes `~/projects/<name>` on the machine as a Git
+repository with one empty commit, registers it, and starts the session in it.
+Enter moves to the next question and starts the session on the last one;
+Ctrl+S starts it from anywhere. **More options…** holds the rest: launch
+profile, model, machine, a separate Git worktree, extra repositories, resume,
+the project brief and a group. The
 new session is selected and attached, like `lectern claude`.
 
 In **Projects** (key **3**), select a project and press **Enter** to open a

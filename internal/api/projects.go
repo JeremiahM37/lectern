@@ -70,6 +70,10 @@ type projectIn struct {
 	ClaudeTerminalMouse *string `json:"claude_terminal_mouse"`
 	// EffectChecks is "off", "show" (default) or "enforce" (docs/effect-checks.md).
 	EffectChecks *string `json:"effect_checks"`
+	// CreateDir makes the project's folder on the target (a Git repository
+	// with one empty commit) instead of registering one that exists. A blank
+	// repo_path then means ~/projects/<name>. The New session forms use it.
+	CreateDir bool `json:"create_dir"`
 }
 
 // validTerminalMouse accepts the three states of a project's override.
@@ -111,7 +115,8 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 422, "setup_cmd must be at most 16384 bytes without NUL")
 		return
 	}
-	if in.Name == "" || in.RepoPath == "" {
+	in.Name = strings.TrimSpace(in.Name)
+	if in.Name == "" || (in.RepoPath == "" && !in.CreateDir) {
 		httpError(w, 422, "name and repo_path are required")
 		return
 	}
@@ -149,6 +154,24 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.DB.Target(in.TargetID); err != nil {
 		httpError(w, 400, "no such target")
 		return
+	}
+	if in.CreateDir {
+		// A new project from a form is found again by its name, so a second
+		// one with the same name would be ambiguous.
+		if existing, err := s.DB.Projects(); err == nil {
+			for _, p := range existing {
+				if strings.EqualFold(p.Name, in.Name) {
+					httpError(w, 409, "a project named %q already exists", p.Name)
+					return
+				}
+			}
+		}
+		dir, err := s.makeProjectDir(r.Context(), in.TargetID, strings.TrimSpace(in.RepoPath), in.Name)
+		if err != nil {
+			httpError(w, 422, "%s", err)
+			return
+		}
+		in.RepoPath = dir
 	}
 	permJSON := store.J(orEmptyMap(in.Permissions))
 	// reject typo'd permission keys NOW, not as a mystery denial mid-run

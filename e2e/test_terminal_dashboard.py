@@ -98,7 +98,7 @@ def run_command(d, label, query=None):
 
 def new_session(d, where=None, name=None, profile_right=0, folder=None, isolated=False, multi=False, submit=True):
     """Fill the one-screen New session form (docs/design/simple-tui.md):
-    Where, Agent, Approvals, First message, then More options: name,
+    Where, Agent, Approvals, Session name, First message, then More options:
     profile, model, folder, machine, worktree, extra repositories."""
     d.send('n');d.wait('New session')
     if where:
@@ -106,9 +106,9 @@ def new_session(d, where=None, name=None, profile_right=0, folder=None, isolated
     else:
         d.send('\t')
     d.wait('Agent')
-    d.send('\t\t\t');d.send('\r');d.wait('Fewer options')
-    d.send('\t')
+    d.send('\t\t')
     if name:d.send(name)
+    d.send('\t\t');d.send('\r');d.wait('Fewer options')
     d.send('\t'+'\x1b[C'*profile_right+'\t\t')
     if folder:d.send(folder)
     d.send('\t\t'+('\x1b[C' if isolated else '')+'\t'+('\x1b[C' if multi else ''))
@@ -266,7 +266,7 @@ def test_dashboard_project_selection_uses_project_target_and_keeps_blank_target_
 
         # A scratch room still offers a machine, under More options.
         d.send('n');d.wait('New session');d.send('scratch');d.wait('1 matches');d.send('\r')
-        d.send('\t\t\t\r');d.wait('Machine (for a folder or scratch)');d.send('\x1b')
+        d.send('\t\t\t\t\r');d.wait('Machine (for a folder, new project or scratch)');d.send('\x1b')
         d.wait('Real terminal');d.quit()
     finally:d.close()
 
