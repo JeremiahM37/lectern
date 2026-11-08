@@ -192,6 +192,7 @@ const catalog: Record<string, string> = {
   "sessions.card.renameScratchPrompt": "Renommez ce terminal brouillon. Son dossier n’est pas modifié.",
   "sessions.card.renameSessionPrompt": "Renommez cette session. Son terminal continue de tourner.",
   "sessions.card.renamed": "Renommée.",
+  "sessions.card.renameButton": "Renommer la session",
   "sessions.card.pathCopied": "Chemin du dossier brouillon copié.",
   "sessions.card.copyFailed": "Échec de la copie. Sélectionnez le chemin et copiez-le manuellement.",
   "sessions.card.previewCancelling": "Annulation demandée. En attente de l’arrêt de la copie ; les fichiers seront conservés.",

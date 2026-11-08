@@ -192,6 +192,7 @@ const catalog: Record<string, string> = {
   "sessions.card.renameScratchPrompt": "このスクラッチターミナルの名前を変更します。フォルダーはそのままです。",
   "sessions.card.renameSessionPrompt": "このセッションの名前を変更します。ターミナルは動作し続けます。",
   "sessions.card.renamed": "名前を変更しました。",
+  "sessions.card.renameButton": "セッション名を変更",
   "sessions.card.pathCopied": "スクラッチフォルダーのパスをコピーしました。",
   "sessions.card.copyFailed": "コピーに失敗しました。パスを選択して手動でコピーしてください。",
   "sessions.card.previewCancelling": "キャンセルを依頼しました。チェックアウトの停止を待っています。ファイルは保持されます。",

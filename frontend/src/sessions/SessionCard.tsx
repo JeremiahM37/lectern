@@ -333,9 +333,20 @@ export function SessionCard({
             }}
           />
         ) : (
-          <button type="button" className="nm" title={t("sessions.card.renameHint")} onClick={rename}>
-            {cardTitle}
-          </button>
+          <>
+            <button type="button" className="nm" title={t("sessions.card.renameHint")} onClick={rename}>
+              {cardTitle}
+            </button>
+            <button
+              type="button"
+              className="nm-rename"
+              aria-label={t("sessions.card.renameButton")}
+              title={t("sessions.card.renameButton")}
+              onClick={rename}
+            >
+              ✎
+            </button>
+          </>
         )}
         <StatusBadge session={s} pendingApproval={approval ? !!activeApproval : undefined} brief />
         {/* A phone has room for the time alone; the words stay in its title. */}

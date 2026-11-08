@@ -402,6 +402,25 @@
   flex: 1 1 auto;
 }
 
+/* Rename is one visible tap next to the name, not only inside ⋯. */
+.scard > .scard-top .nm-rename {
+  flex: 0 0 auto;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--ink-dim);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.scard > .scard-top .nm-rename:hover,
+.scard > .scard-top .nm-rename:focus-visible {
+  opacity: 1;
+}
+
 /* ---- Desktop list toolbar: search and the two selects share one row. ---- */
 .session-toolbar {
   display: flex;

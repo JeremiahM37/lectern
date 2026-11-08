@@ -235,6 +235,7 @@ const catalog: Record<string, string> = {
   "sessions.card.renameScratchPrompt": "Rename this scratch terminal. Its folder is untouched.",
   "sessions.card.renameSessionPrompt": "Rename this session. Its terminal keeps running.",
   "sessions.card.renamed": "Renamed.",
+  "sessions.card.renameButton": "Rename session",
   "sessions.card.pathCopied": "Scratch folder path copied.",
   "sessions.card.copyFailed": "Copy failed. Select the path and copy it manually.",
   // Session status labels.

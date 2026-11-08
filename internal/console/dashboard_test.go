@@ -902,6 +902,9 @@ func TestDiscoverableFooterAndActionsAtCommonWidths(t *testing.T) {
 		if width >= 80 {
 			want = append(want, "x end", "r restore", ": commands")
 		}
+		if width >= 120 {
+			want = append(want, "e rename")
+		}
 		for _, hint := range want {
 			if !strings.Contains(view, hint) {
 				t.Fatalf("width %d missing %q:\n%s", width, hint, view)

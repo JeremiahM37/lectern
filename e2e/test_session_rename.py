@@ -13,7 +13,7 @@ def test_rename_session_from_conversation_header(page, server):
     # Create a new session through the UI
     page.locator("#sess-new").click()
     open_advanced(page)
-    page.get_by_label("Name").fill("Header Rename Test")
+    page.get_by_label("Session name", exact=True).fill("Header Rename Test")
     page.locator("#ns-go").click()
     
     # Wait for the session to be created
@@ -56,7 +56,7 @@ def test_rename_escape_cancels_inline_edit(page, server):
     # Create a new session through the UI
     page.locator("#sess-new").click()
     open_advanced(page)
-    page.get_by_label("Name").fill("Escape Test")
+    page.get_by_label("Session name", exact=True).fill("Escape Test")
     page.locator("#ns-go").click()
     
     # Wait for the session to be created
@@ -100,7 +100,7 @@ def test_rename_session_from_card_action_menu(page, server):
     # Create a new session through the UI
     page.locator("#sess-new").click()
     open_advanced(page)
-    page.get_by_label("Name").fill("Original Name")
+    page.get_by_label("Session name", exact=True).fill("Original Name")
     page.locator("#ns-go").click()
     
     # Wait for the session to be created
@@ -122,3 +122,26 @@ def test_rename_session_from_card_action_menu(page, server):
     # Verify via API
     updated = page.request.get(f"{server}/api/sessions/{session_id}").json()
     assert updated["name"] == "New Name From Card"
+
+
+def test_rename_session_from_the_visible_card_button(page, server):
+    """The ✎ next to a card's name renames it without opening ⋯."""
+    page.goto(f"{server}/#sessions")
+    page.get_by_text("Live sessions").wait_for()
+    page.locator("#sess-new").click()
+    page.get_by_label("Session name", exact=True).fill("Pencil Rename")
+    page.locator("#ns-go").click()
+    card = page.locator(".scard", has_text="Pencil Rename")
+    card.wait_for()
+    session_id = int(card.get_attribute("data-session-id"))
+    card = page.locator(f'.scard[data-session-id="{session_id}"]')
+    button = card.get_by_role("button", name="Rename session", exact=True)
+    expect(button).to_be_visible()
+    button.click()
+    field = card.locator("input.nm-edit")
+    expect(field).to_be_focused()
+    field.fill("Pencil Renamed")
+    with page.expect_response(lambda r: r.request.method == "PATCH" and r.url.endswith(f"/api/sessions/{session_id}") and r.ok):
+        field.press("Enter")
+    assert page.request.get(f"{server}/api/sessions/{session_id}").json()["name"] == "Pencil Renamed"
+    expect(card.locator(".nm")).to_have_text("Pencil Renamed")

@@ -181,13 +181,13 @@ func (m *dashboard) sessionKeys() []keyHint {
 	case r["setup_state"] == "creating":
 		return []keyHint{{"m", "setup actions"}, {"n", "new session"}, {":", "commands"}}
 	case agentExited(r):
-		return []keyHint{{"r", "start agent again"}, {"Enter", "attach"}, {"x", "end"}, {"n", "new"}, {":", "commands"}}
+		return []keyHint{{"r", "start agent again"}, {"Enter", "attach"}, {"x", "end"}, {"e", "rename"}, {"n", "new"}, {":", "commands"}}
 	case r["ended_at"] != nil:
-		return []keyHint{{"r", "restore"}, {"m", "more"}, {"n", "new"}, {":", "commands"}, {"*", "favorite"}}
+		return []keyHint{{"r", "restore"}, {"e", "rename"}, {"m", "more"}, {"n", "new"}, {":", "commands"}, {"*", "favorite"}}
 	}
 	// The search line above the list already says "/ Search", so the bar
 	// spends its room on keys that are not visible anywhere else.
-	return []keyHint{{"Enter", "attach"}, {"n", "new"}, {"x", "end"}, {"r", "restore"}, {":", "commands"}, {"m", "menu"}, {"*", "favorite"}}
+	return []keyHint{{"Enter", "attach"}, {"n", "new"}, {"x", "end"}, {"r", "restore"}, {":", "commands"}, {"e", "rename"}, {"m", "menu"}, {"*", "favorite"}}
 }
 
 // renderKeyBar fits as many hints as the width allows, in order. A final

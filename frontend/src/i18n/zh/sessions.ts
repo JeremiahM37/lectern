@@ -184,6 +184,7 @@ const catalog: Record<string, string> = {
   "sessions.card.renameScratchPrompt": "重命名此临时终端。其文件夹不受影响。",
   "sessions.card.renameSessionPrompt": "重命名此会话。其终端继续运行。",
   "sessions.card.renamed": "已重命名。",
+  "sessions.card.renameButton": "重命名会话",
   "sessions.card.pathCopied": "已复制临时文件夹路径。",
   "sessions.card.copyFailed": "复制失败。请选中路径后手动复制。",
   "sessions.card.previewCancelling": "已请求取消。正在等待检出停止；文件会保留。",

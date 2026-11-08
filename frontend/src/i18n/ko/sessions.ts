@@ -192,6 +192,7 @@ const catalog: Record<string, string> = {
   "sessions.card.renameScratchPrompt": "이 임시 터미널의 이름을 바꿉니다. 폴더는 변경되지 않습니다.",
   "sessions.card.renameSessionPrompt": "이 세션의 이름을 바꿉니다. 터미널은 계속 실행됩니다.",
   "sessions.card.renamed": "이름을 바꿨습니다.",
+  "sessions.card.renameButton": "세션 이름 바꾸기",
   "sessions.card.pathCopied": "임시 폴더 경로를 복사했습니다.",
   "sessions.card.copyFailed": "복사하지 못했습니다. 경로를 선택해 직접 복사하세요.",
   "sessions.card.previewCancelling": "취소를 요청했습니다. 체크아웃이 멈추기를 기다리는 중이며, 파일은 유지됩니다.",

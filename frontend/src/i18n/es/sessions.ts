@@ -192,6 +192,7 @@ const catalog: Record<string, string> = {
   "sessions.card.renameScratchPrompt": "Cambia el nombre de este terminal temporal. Su carpeta no se toca.",
   "sessions.card.renameSessionPrompt": "Cambia el nombre de esta sesión. Su terminal sigue en marcha.",
   "sessions.card.renamed": "Nombre cambiado.",
+  "sessions.card.renameButton": "Renombrar sesión",
   "sessions.card.pathCopied": "Ruta de la carpeta temporal copiada.",
   "sessions.card.copyFailed": "No se pudo copiar. Selecciona la ruta y cópiala manualmente.",
   "sessions.card.previewCancelling": "Cancelación solicitada. Esperando a que se detenga la copia; los archivos se conservarán.",
