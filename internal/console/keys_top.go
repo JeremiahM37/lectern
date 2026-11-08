@@ -184,6 +184,8 @@ func (m *dashboard) updateTopLevel(v tea.KeyMsg) tea.Cmd {
 		return m.newForm()
 	case "e":
 		return m.renameForm()
+	case "M":
+		return m.moveProjectForm()
 	case "h":
 		return m.readDetail("History")
 	case "v":

@@ -187,7 +187,7 @@ func (m *dashboard) sessionKeys() []keyHint {
 	}
 	// The search line above the list already says "/ Search", so the bar
 	// spends its room on keys that are not visible anywhere else.
-	return []keyHint{{"Enter", "attach"}, {"n", "new"}, {"x", "end"}, {"r", "restore"}, {":", "commands"}, {"e", "rename"}, {"m", "menu"}, {"*", "favorite"}}
+	return []keyHint{{"Enter", "attach"}, {"n", "new"}, {"x", "end"}, {"r", "restore"}, {":", "commands"}, {"e", "rename"}, {"M", "project"}, {"m", "menu"}, {"*", "favorite"}}
 }
 
 // renderKeyBar fits as many hints as the width allows, in order. A final
@@ -323,6 +323,7 @@ func (m *dashboard) helpFor(context string) []keyHint {
 			{"v", "review changes"},
 			{"u", "send a file"},
 			{"e", "rename"},
+			{"M", "move to a project (or out of one)"},
 			{"p, PgUp/PgDn", "focus / scroll the preview"},
 			{"w", "only sessions that need you"},
 			{"g", "group by project, machine, none or named group"},

@@ -54,6 +54,8 @@ interface Props {
   onHandoff: (session: SessionView) => void;
   onSwitch?: (session: SessionView) => void;
   onGroup: (session: SessionView) => void;
+  /** Opens the project picker (re-files the session; its folder stays). */
+  onProject?: (session: SessionView) => void;
   onHistory: (session: SessionView) => void;
   onWorkspace: (session: SessionView) => void;
   onArchive: (session: SessionView) => void;
@@ -92,6 +94,7 @@ export function SessionCard({
   onHandoff,
   onSwitch,
   onGroup,
+  onProject,
   onHistory,
   onWorkspace,
   onArchive,
@@ -646,6 +649,11 @@ export function SessionCard({
           {failed && workspace?.state !== "removed" && (
             <button className="b" onClick={() => void cancel()}>
               {t("sessions.card.cancelCheckout")}
+            </button>
+          )}
+          {onProject && (
+            <button className="b" onClick={() => onProject(s)}>
+              {t("sessions.card.moveToProject")}
             </button>
           )}
           <button className="b" onClick={() => onGroup(s)}>

@@ -894,6 +894,17 @@ currently share their original directory. Interactive worktrees are not yet a
 multi-repository workspace, and setup hooks/profile templates remain separate
 work on the parity roadmap.
 
+## Moving a session to a project
+
+Press `M` on a session (or **m → Move to project…**), type part of a project's
+name and press Enter. **No project** takes it out of its project. On the web it
+is **More → Move to project** on the session card. Either way only the
+session's project changes: the agent keeps working in the folder it is already
+in. To turn a scratch session's folder into a project instead, use **Promote
+conversation**. Both send `PATCH /api/sessions/{id}` with `{"project_id": N}`
+(or `null`). Rename is `e` in the terminal and the ✎ beside a card's name on
+the web.
+
 ## Named session groups
 
 Groups organize sessions across projects and targets. Press `G` or choose

@@ -298,6 +298,8 @@ func (m *dashboard) choose(a dashboardAction) tea.Cmd {
 		return m.workflowsForm()
 	case "rename":
 		return m.renameForm()
+	case "move-project":
+		return m.moveProjectForm()
 	case "edit":
 		return m.editCommonForm()
 	case "advanced":
@@ -396,7 +398,7 @@ func (m *dashboard) rowActions() []dashboardAction {
 		}
 		archive := dashboardAction{Label: "Stop and archive", Method: "POST", Path: path + "/archive", Body: map[string]any{"stop": true}, Warning: "Stop this terminal process and move its record to Archive? Captured output, saved conversations and worktree files are retained. Unarchiving will not restart it."}
 		if r["ended_at"] != nil {
-			actions = []dashboardAction{op("Saved conversations", "saved-history"), op("Rename", "rename"), op("Move to group", "group"), read("Handoff summaries", "/wraps"), {Label: "Archive stopped record", Method: "POST", Path: path + "/archive", Body: map[string]any{"stop": false}}}
+			actions = []dashboardAction{op("Saved conversations", "saved-history"), op("Rename", "rename"), op("Move to project…", "move-project"), op("Move to group", "group"), read("Handoff summaries", "/wraps"), {Label: "Archive stopped record", Method: "POST", Path: path + "/archive", Body: map[string]any{"stop": false}}}
 			if r["can_restore"] == true {
 				track := post("Track again", "/restore")
 				track.Key = "r"
@@ -411,7 +413,7 @@ func (m *dashboard) rowActions() []dashboardAction {
 			}
 			actions = append(actions, dashboardAction{Label: "Deny", Operation: "deny", Keywords: "reject approval no"}, dashboardAction{Label: "Deny with a reason…", Operation: "deny-reason", Keywords: "reject approval note"})
 		}
-		actions = append(actions, op("Attach", "attach"), op("Open in a new window", "new-terminal"), op("Companion shell", "shell"), op("Send message", "send"), op("Upload context file", "upload"), op("Review changes", "review"), op("Read history", "history"), op("Saved conversations", "saved-history"), op("Browse files", "files"), op("Rename", "rename"), op("Move / edit session", "edit"), op("Move to group", "group"), op("Request handoff", "handoff"), read("Handoff summaries", "/wraps"))
+		actions = append(actions, op("Attach", "attach"), op("Open in a new window", "new-terminal"), op("Companion shell", "shell"), op("Send message", "send"), op("Upload context file", "upload"), op("Review changes", "review"), op("Read history", "history"), op("Saved conversations", "saved-history"), op("Browse files", "files"), op("Rename", "rename"), op("Move to project…", "move-project"), op("Move to group", "group"), op("Edit fields (JSON)", "edit"), op("Request handoff", "handoff"), read("Handoff summaries", "/wraps"))
 		if r["project_id"] == nil && (str(r["agent"]) == "shell" || str(r["agent"]) == "claude" || str(r["agent"]) == "codex") {
 			actions = append(actions, op("Promote conversation", "promote-conversation"))
 		}
@@ -1102,6 +1104,50 @@ func (m *dashboard) renameForm() tea.Cmd {
 	path := "/" + kind + "/" + id(r)
 	return m.openForm("Rename", []field{{Key: key, Label: "Name", Value: name(r), Required: true}}, func(body map[string]any) tea.Cmd { return m.request("Rename", "PATCH", path, body, false) })
 }
+
+// moveProjectForm files the selected session under a project, or under none.
+// Only which project it belongs to changes: the agent keeps working in the
+// folder it is already in (Promote conversation is what makes that folder a
+// project).
+func (m *dashboard) moveProjectForm() tea.Cmd {
+	r := m.current()
+	if r == nil || sections[m.section] != "sessions" {
+		return nil
+	}
+	current := "none"
+	if p := str(r["project_id"]); p != "" {
+		current = p
+	}
+	choices := []choice{{"No project", "none"}}
+	for _, p := range orderProjects(m.projects, m.recentProjects) {
+		label := str(p["name"])
+		if path := str(p["repo_path"]); path != "" {
+			label += " — " + path
+		}
+		choices = append(choices, choice{oneLine(label), id(p)})
+	}
+	project := optionField("project", "Project", current, choices, true)
+	project.Searchable = true
+	path := "/sessions/" + id(r)
+	cmd := m.openForm("Move "+strconv.Quote(oneLine(name(r)))+" to a project", []field{project}, func(body map[string]any) tea.Cmd {
+		var to any // JSON null takes the session out of its project.
+		if v := str(body["project"]); v != "none" {
+			n, err := strconv.ParseInt(v, 10, 64)
+			if err != nil || n <= 0 {
+				m.notice = "Choose a project."
+				return nil
+			}
+			to = n
+		}
+		return m.request("Move to project", "PATCH", path, map[string]any{"project_id": to}, false)
+	})
+	if m.form != nil {
+		m.form.submitVerb = "move"
+		m.notice = "Type to find a project. The agent keeps working in its current folder."
+	}
+	return cmd
+}
+
 func (m *dashboard) messageAction(label, path, key string) tea.Cmd {
 	return m.openForm(label, []field{{Key: key, Label: label, Multiline: true, Required: true}}, func(body map[string]any) tea.Cmd { return m.request(label, "POST", path, body, false) })
 }

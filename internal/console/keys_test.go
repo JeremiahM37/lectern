@@ -762,3 +762,35 @@ func TestNewSessionCanMakeANewProject(t *testing.T) {
 		t.Fatalf("the new session was not selected: %q", m.focusSessionID)
 	}
 }
+
+// M on a session opens a searchable project picker; choosing one re-files the
+// session, and "No project" takes it out (an explicit null).
+func TestMoveSessionToProjectPicker(t *testing.T) {
+	srv, rec := recordingServer(t, 200, `{"id":1}`)
+	m := sampleDashboard()
+	m.client = New(srv.URL, "")
+	m.projects = []row{{"id": float64(4), "name": "Site", "repo_path": "/srv/site"}, {"id": float64(7), "name": "Notes App", "repo_path": "/home/me/projects/notes-app"}}
+	selectID(m, "1")
+	m.Update(key("M"))
+	if m.form == nil || !strings.Contains(m.formView(), "Notes App") || !strings.Contains(m.formView(), "No project") {
+		t.Fatalf("M did not open the project picker:\n%v", m.form)
+	}
+	for _, r := range "notes" {
+		m.updateForm(key(string(r)))
+	}
+	run(m, m.updateForm(tea.KeyMsg{Type: tea.KeyEnter}))
+	if len(rec.requests) != 1 || rec.requests[0] != "PATCH /api/sessions/1" || rec.bodies[0]["project_id"] != float64(7) {
+		t.Fatalf("sent %v %v", rec.requests, rec.bodies)
+	}
+	m.Update(key("M"))
+	for _, r := range "no project" {
+		m.updateForm(key(string(r)))
+	}
+	run(m, m.updateForm(tea.KeyMsg{Type: tea.KeyEnter}))
+	if len(rec.requests) != 2 {
+		t.Fatalf("second move not sent: %v", rec.requests)
+	}
+	if v, ok := rec.bodies[1]["project_id"]; !ok || v != nil {
+		t.Fatalf("No project must send an explicit null: %v", rec.bodies[1])
+	}
+}

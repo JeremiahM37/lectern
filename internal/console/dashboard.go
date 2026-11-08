@@ -635,6 +635,8 @@ func (m *dashboard) controlAction(name string) tea.Cmd {
 		return m.openReview()
 	case "rename":
 		return m.renameForm()
+	case "move-project":
+		return m.moveProjectForm()
 	case "history":
 		return m.readDetail("History")
 	case "":

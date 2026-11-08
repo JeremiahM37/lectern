@@ -145,3 +145,37 @@ def test_rename_session_from_the_visible_card_button(page, server):
         field.press("Enter")
     assert page.request.get(f"{server}/api/sessions/{session_id}").json()["name"] == "Pencil Renamed"
     expect(card.locator(".nm")).to_have_text("Pencil Renamed")
+
+
+def test_move_session_to_project_from_the_card_menu(page, server):
+    """⋯ → Move to project picks a project by name, and No project takes it out."""
+    projects = page.request.get(f"{server}/api/projects").json()
+    target = projects[-1]
+    page.goto(f"{server}/#sessions")
+    page.get_by_text("Live sessions").wait_for()
+    page.locator("#sess-new").click()
+    page.locator("#ns-project").select_option("")
+    page.get_by_label("Session name", exact=True).fill("Project Mover")
+    page.locator("#ns-go").click()
+    card = page.locator(".scard", has_text="Project Mover")
+    card.wait_for()
+    session_id = int(card.get_attribute("data-session-id"))
+    card = page.locator(f'.scard[data-session-id="{session_id}"]')
+    card.locator(".action-menu > summary").first.click()
+    card.get_by_role("button", name="Move to project", exact=True).click()
+    sheet = page.get_by_role("dialog", name="Move to project", exact=True)
+    expect(sheet).to_be_visible()
+    sheet.locator("#sp-project").select_option(str(target["id"]))
+    with page.expect_response(lambda r: r.request.method == "PATCH" and r.url.endswith(f"/api/sessions/{session_id}") and r.ok):
+        sheet.locator("#sp-save").click()
+    expect(sheet).not_to_be_visible()
+    assert page.request.get(f"{server}/api/sessions/{session_id}").json()["project_id"] == target["id"]
+
+    card.locator(".action-menu > summary").first.click()
+    card.get_by_role("button", name="Move to project", exact=True).click()
+    sheet = page.get_by_role("dialog", name="Move to project", exact=True)
+    expect(sheet.locator("#sp-project")).to_have_value(str(target["id"]))
+    sheet.locator("#sp-project").select_option("")
+    with page.expect_response(lambda r: r.request.method == "PATCH" and r.url.endswith(f"/api/sessions/{session_id}") and r.ok):
+        sheet.locator("#sp-save").click()
+    assert page.request.get(f"{server}/api/sessions/{session_id}").json()["project_id"] is None
