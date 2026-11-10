@@ -14,6 +14,7 @@ import { TrackerSettings } from "../trackers/TrackerSettings";
 import { Delegation } from "./Delegation";
 import { ConnectTools } from "./ConnectTools";
 import { Devices } from "./Devices";
+import { Backups } from "./Backups";
 import { Modal } from "../sessions/Modal";
 import { AgentCommands } from "./AgentCommands";
 import { UsagePanel } from "./UsagePanel";
@@ -273,6 +274,7 @@ export function Settings({
       {tab === "devices" && <AppUpdate />}
       {tab === "devices" && <AppHosts />}
       {tab === "devices" && <Devices api={api} onNotice={onNotice} />}{" "}
+      {tab === "backups" && <Backups api={api} onNotice={onNotice} />}
       {tab === "about" && (
         <section>
           <h3 data-setting="about.spend">{t("settings.about.spend")}</h3>

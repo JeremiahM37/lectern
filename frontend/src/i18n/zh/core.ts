@@ -131,6 +131,7 @@ const catalog: Record<string, string> = {
   "settings.section.about": "用量与关于",
   "settings.section.budgets": "预算",
   "settings.section.accounts": "账户",
+  "settings.section.backups": "备份",
   "settings.section.agents": "智能体",
   "settings.section.plugins": "插件",
   "quick.fromPlugins": "来自插件",

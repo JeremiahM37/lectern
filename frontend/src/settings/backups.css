@@ -1,0 +1,50 @@
+/* Settings → Backups. Shared .subhint/.b tokens come from web/static/style.css. */
+.backup-panel .backup-status {
+  margin: 10px 0;
+  font-weight: 600;
+}
+.backup-warn {
+  border: 1px solid var(--amber);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--amber);
+  overflow-wrap: anywhere;
+}
+.backup-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0 0;
+}
+.backup-field input {
+  max-width: 100%;
+}
+.backup-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.backup-row .backup-field input {
+  width: 7em;
+}
+.backup-passphrase {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 14px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--amber);
+  border-radius: 10px;
+}
+.backup-passphrase code {
+  font-size: 1.1em;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 8px;
+}

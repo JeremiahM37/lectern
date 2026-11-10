@@ -57,6 +57,7 @@ var reservedVerbs = map[string]bool{
 	"autonomy-overlay": true, "autonomy-overlay-inspect": true,
 	"local": true, "up": true, "doctor": true, "serve": true, "attach": true, "split": true,
 	"mcp": true, "version": true, "--version": true, "-v": true, "relay": true, "update": true,
+	"backup": true,
 	// Scribe, Lectern's coding agent (code.go).
 	"code": true, "scribe": true,
 	// localCommand's own subcommands (cmd/lectern/local_cli.go), a different
@@ -153,6 +154,13 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--hosted-attach" {
 		if err := hostedAttach(cfg, os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "backup" {
+		if err := backupCommand(cfg, os.Args[2:], os.Stdout, os.Stderr); err != nil {
+			fmt.Fprintln(os.Stderr, "lectern backup: "+err.Error())
 			os.Exit(1)
 		}
 		return

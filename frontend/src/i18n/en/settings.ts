@@ -379,6 +379,33 @@ const catalog: Record<string, string> = {
   // Example account label
   "settings.accounts.labelPlaceholder": "work",
   "settings.accounts.addButton": "Add account",
+
+  // Settings → Backups
+  "settings.backup.intro": "Everything Lectern knows — sessions and their chats, tasks, projects, workflows, settings, media and plugins — encrypted with your passphrase and uploaded to a private GitHub repository. Only the changes since the weekly full backup are uploaded in between.",
+  "settings.backup.noGitHub": "This server has no GitHub login. Run gh auth login on it (or set LECTERN_BACKUP_GITHUB_TOKEN), then come back.",
+  "settings.backup.running": "Backing up…",
+  "settings.backup.last": "Last backup {ago} · {size} · {sessions} sessions",
+  "settings.backup.never": "No backup yet.",
+  "settings.backup.lastFailed": "The backup {ago} failed: {error}",
+  "settings.backup.repo": "Private GitHub repository (owner/name)",
+  "settings.backup.every": "Back up every (hours)",
+  "settings.backup.keep": "Backups to keep",
+  "settings.backup.scheduleHint": "0 hours means only when you press Back up now. The repository is created private if it does not exist; a public one is refused.",
+  "settings.backup.saveThis": "Your backup passphrase. Save it in your password manager now: it is shown only this once, and nothing can open your backups without it.",
+  "settings.backup.copy": "Copy",
+  "settings.backup.copied": "Passphrase copied",
+  "settings.backup.needPassphrase": "Set up creates a passphrase that encrypts every backup before it leaves this machine.",
+  "settings.backup.save": "Save",
+  "settings.backup.setUp": "Set up backups",
+  "settings.backup.now": "Back up now",
+  "settings.backup.download": "Download a backup",
+  "settings.backup.restoreBefore": "On a new machine, install Lectern, sign in with gh auth login, then run",
+  "settings.backup.restoreAfter": " with the server stopped.",
+  "settings.backup.failed": "Backup failed: {error}",
+  "settings.backup.done": "Backup uploaded",
+  "settings.backup.invalid": "Hours must be 0 or more and backups to keep at least 1.",
+  "settings.backup.created": "Created the private repository {repo}",
+  "settings.backup.saved": "Backup settings saved",
 };
 
 export default catalog;

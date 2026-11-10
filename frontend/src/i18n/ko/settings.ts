@@ -335,6 +335,33 @@ const catalog: Record<string, string> = {
   "settings.accounts.labelAria": "계정 레이블",
   "settings.accounts.labelPlaceholder": "업무",
   "settings.accounts.addButton": "계정 추가",
+
+  // Settings → Backups
+  "settings.backup.intro": "Lectern이 아는 모든 것(세션과 채팅, 작업, 프로젝트, 워크플로, 설정, 미디어, 플러그인)을 암호 문구로 암호화해 비공개 GitHub 저장소에 올립니다. 매주 전체 백업 사이에는 바뀐 부분만 올립니다.",
+  "settings.backup.noGitHub": "이 서버는 GitHub에 로그인되어 있지 않습니다. 서버에서 gh auth login을 실행하거나 LECTERN_BACKUP_GITHUB_TOKEN을 설정한 뒤 다시 오세요.",
+  "settings.backup.running": "백업하는 중…",
+  "settings.backup.last": "마지막 백업 {ago} · {size} · 세션 {sessions}개",
+  "settings.backup.never": "아직 백업이 없습니다.",
+  "settings.backup.lastFailed": "{ago} 백업이 실패했습니다: {error}",
+  "settings.backup.repo": "비공개 GitHub 저장소 (owner/name)",
+  "settings.backup.every": "백업 간격 (시간)",
+  "settings.backup.keep": "보관할 백업 수",
+  "settings.backup.scheduleHint": "0시간이면 지금 백업을 누를 때만 실행합니다. 저장소가 없으면 비공개로 만들고, 공개 저장소는 거부합니다.",
+  "settings.backup.saveThis": "백업 암호 문구입니다. 지금 비밀번호 관리자에 저장하세요. 이번 한 번만 표시되며, 이것 없이는 백업을 열 수 없습니다.",
+  "settings.backup.copy": "복사",
+  "settings.backup.copied": "암호 문구를 복사했습니다",
+  "settings.backup.needPassphrase": "설정하면 각 백업이 이 컴퓨터를 떠나기 전에 암호화하는 암호 문구가 만들어집니다.",
+  "settings.backup.save": "저장",
+  "settings.backup.setUp": "백업 설정",
+  "settings.backup.now": "지금 백업",
+  "settings.backup.download": "백업 다운로드",
+  "settings.backup.restoreBefore": "새 컴퓨터에서는 Lectern을 설치하고 gh auth login으로 로그인한 다음, 서버를 멈춘 상태에서 다음을 실행하세요:",
+  "settings.backup.restoreAfter": "",
+  "settings.backup.failed": "백업 실패: {error}",
+  "settings.backup.done": "백업을 올렸습니다",
+  "settings.backup.invalid": "시간은 0 이상, 보관 수는 1 이상이어야 합니다.",
+  "settings.backup.created": "비공개 저장소 {repo}를 만들었습니다",
+  "settings.backup.saved": "백업 설정을 저장했습니다",
 };
 
 export default catalog;

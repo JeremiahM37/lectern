@@ -19,6 +19,7 @@ import "./shell/shell.css";
 import "./settings/connect-tools.css";
 import "./settings/agent-catalog.css";
 import "./settings/devices.css";
+import "./settings/backups.css";
 import "./settings/model-prices.css";
 import "./settings/accounts.css";
 import "./settings/plugins.css";

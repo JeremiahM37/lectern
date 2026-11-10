@@ -150,6 +150,7 @@ const en: Record<string, string> = {
   "settings.section.about": "Usage & about",
   "settings.section.budgets": "Budgets",
   "settings.section.accounts": "Accounts",
+  "settings.section.backups": "Backups",
   "settings.section.agents": "Agents",
   "settings.section.plugins": "Plugins",
   "quick.fromPlugins": "From plugins",

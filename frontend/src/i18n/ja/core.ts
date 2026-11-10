@@ -138,6 +138,7 @@ const catalog: Record<string, string> = {
   "settings.section.about": "使用状況と情報",
   "settings.section.budgets": "予算",
   "settings.section.accounts": "アカウント",
+  "settings.section.backups": "バックアップ",
   "settings.section.agents": "エージェント",
   "settings.section.plugins": "プラグイン",
   "quick.fromPlugins": "プラグインから",

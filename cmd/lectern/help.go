@@ -296,6 +296,44 @@ on a free port on 127.0.0.1 that only you can use. Its data lives in
 	{Name: "local stop", Summary: "Stop your private Lectern", Usage: []string{"lectern local stop"},
 		About: "Refused while tasks are running. Sessions keep running and are picked up again at the next start."},
 	{
+		Name: "backup", Group: groupProjects, Synopsis: "backup [setup|export|list|restore]",
+		Summary: "Back up everything to a private GitHub repository, and restore it",
+		Usage: []string{
+			"lectern backup setup OWNER/REPO [--every HOURS] [--keep N]",
+			"lectern backup",
+			"lectern backup export FILE",
+			"lectern backup list",
+			"lectern backup restore [latest|TAG|FILE] [--repo OWNER/REPO] [--force]",
+		},
+		About: `A backup holds everything this server knows: the database (sessions,
+tasks, projects, workflows, approvals, settings), posted media, ~/.lectern
+(plugins, hooks, Scribe chats), the Claude and Codex chat transcripts of every
+session, local and on SSH machines, and the server's LECTERN_* settings.
+
+It is encrypted with a passphrase (age, scrypt) before it leaves this machine,
+then uploaded as a release of a private GitHub repository; old ones beyond
+--keep are deleted. Each backup is opened and read through before it is
+uploaded. setup creates the repository (private) and prints a new passphrase
+once: keep it in your password manager, since nothing can open the backups
+without it. The server then backs up on its own every --every hours; Settings
+→ Backups shows how the last one went.
+
+On a new machine: install Lectern, run gh auth login, then
+lectern backup restore --repo OWNER/REPO with the server stopped. The current
+database, if any, is moved aside, and files already present are kept unless
+you pass --force. Any backup also opens without Lectern:
+age -d FILE | tar -xz.
+
+GitHub sign-in comes from LECTERN_BACKUP_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN
+or the GitHub CLI. LECTERN_BACKUP_REPO and LECTERN_BACKUP_PASSPHRASE override
+the saved settings.`,
+		Examples: []string{
+			"lectern backup setup me/lectern-backups",
+			"lectern backup",
+			"lectern backup restore --repo me/lectern-backups",
+		},
+	},
+	{
 		Name: "serve", Group: groupProjects, Synopsis: "serve",
 		Summary: "Run Lectern as a server for other devices",
 		Usage:   []string{"lectern serve [--insecure-listen]"},

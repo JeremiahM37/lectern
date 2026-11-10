@@ -335,6 +335,33 @@ const catalog: Record<string, string> = {
   "settings.accounts.labelAria": "アカウントのラベル",
   "settings.accounts.labelPlaceholder": "仕事用",
   "settings.accounts.addButton": "アカウントを追加",
+
+  // Settings → Backups
+  "settings.backup.intro": "Lectern が持つすべて（セッションとそのチャット、タスク、プロジェクト、ワークフロー、設定、メディア、プラグイン）をパスフレーズで暗号化し、非公開の GitHub リポジトリにアップロードします。週 1 回のフルバックアップの間は変更分だけを送ります。",
+  "settings.backup.noGitHub": "このサーバーは GitHub にログインしていません。サーバーで gh auth login を実行する（または LECTERN_BACKUP_GITHUB_TOKEN を設定する）と使えます。",
+  "settings.backup.running": "バックアップ中…",
+  "settings.backup.last": "前回のバックアップ {ago} · {size} · {sessions} セッション",
+  "settings.backup.never": "まだバックアップはありません。",
+  "settings.backup.lastFailed": "{ago} のバックアップは失敗しました: {error}",
+  "settings.backup.repo": "非公開の GitHub リポジトリ（owner/name）",
+  "settings.backup.every": "バックアップの間隔（時間）",
+  "settings.backup.keep": "保持するバックアップ数",
+  "settings.backup.scheduleHint": "0 時間にすると「今すぐバックアップ」を押したときだけ実行します。リポジトリがなければ非公開で作成し、公開リポジトリは使いません。",
+  "settings.backup.saveThis": "バックアップのパスフレーズです。今すぐパスワードマネージャーに保存してください。表示されるのはこの一度だけで、これがないとバックアップは開けません。",
+  "settings.backup.copy": "コピー",
+  "settings.backup.copied": "パスフレーズをコピーしました",
+  "settings.backup.needPassphrase": "設定すると、各バックアップをこのマシンから出す前に暗号化するパスフレーズが作られます。",
+  "settings.backup.save": "保存",
+  "settings.backup.setUp": "バックアップを設定",
+  "settings.backup.now": "今すぐバックアップ",
+  "settings.backup.download": "バックアップをダウンロード",
+  "settings.backup.restoreBefore": "新しいマシンでは Lectern をインストールし、gh auth login でサインインしてから、サーバーを止めた状態で次を実行します:",
+  "settings.backup.restoreAfter": "",
+  "settings.backup.failed": "バックアップに失敗しました: {error}",
+  "settings.backup.done": "バックアップをアップロードしました",
+  "settings.backup.invalid": "時間は 0 以上、保持数は 1 以上にしてください。",
+  "settings.backup.created": "非公開リポジトリ {repo} を作成しました",
+  "settings.backup.saved": "バックアップ設定を保存しました",
 };
 
 export default catalog;

@@ -348,6 +348,33 @@ const catalog: Record<string, string> = {
   "settings.accounts.labelAria": "Etiqueta de la cuenta",
   "settings.accounts.labelPlaceholder": "trabajo",
   "settings.accounts.addButton": "Añadir cuenta",
+
+  // Settings → Backups
+  "settings.backup.intro": "Todo lo que Lectern sabe — sesiones y sus chats, tareas, proyectos, flujos de trabajo, ajustes, multimedia y plugins — cifrado con tu frase de contraseña y subido a un repositorio privado de GitHub. Entre las copias completas semanales solo se suben los cambios.",
+  "settings.backup.noGitHub": "Este servidor no tiene sesión de GitHub. Ejecuta gh auth login en él (o define LECTERN_BACKUP_GITHUB_TOKEN) y vuelve.",
+  "settings.backup.running": "Haciendo copia de seguridad…",
+  "settings.backup.last": "Última copia {ago} · {size} · {sessions} sesiones",
+  "settings.backup.never": "Todavía no hay ninguna copia.",
+  "settings.backup.lastFailed": "La copia de {ago} falló: {error}",
+  "settings.backup.repo": "Repositorio privado de GitHub (propietario/nombre)",
+  "settings.backup.every": "Hacer copia cada (horas)",
+  "settings.backup.keep": "Copias que conservar",
+  "settings.backup.scheduleHint": "0 horas significa solo cuando pulses Hacer copia ahora. El repositorio se crea privado si no existe; uno público se rechaza.",
+  "settings.backup.saveThis": "Tu frase de contraseña de las copias. Guárdala ahora en tu gestor de contraseñas: solo se muestra esta vez y sin ella nada puede abrir tus copias.",
+  "settings.backup.copy": "Copiar",
+  "settings.backup.copied": "Frase de contraseña copiada",
+  "settings.backup.needPassphrase": "La configuración crea una frase de contraseña que cifra cada copia antes de salir de esta máquina.",
+  "settings.backup.save": "Guardar",
+  "settings.backup.setUp": "Configurar copias",
+  "settings.backup.now": "Hacer copia ahora",
+  "settings.backup.download": "Descargar una copia",
+  "settings.backup.restoreBefore": "En una máquina nueva, instala Lectern, inicia sesión con gh auth login y ejecuta",
+  "settings.backup.restoreAfter": " con el servidor detenido.",
+  "settings.backup.failed": "La copia falló: {error}",
+  "settings.backup.done": "Copia subida",
+  "settings.backup.invalid": "Las horas deben ser 0 o más y las copias que conservar al menos 1.",
+  "settings.backup.created": "Se creó el repositorio privado {repo}",
+  "settings.backup.saved": "Ajustes de copia guardados",
 };
 
 export default catalog;

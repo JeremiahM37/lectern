@@ -131,6 +131,7 @@ const catalog: Record<string, string> = {
   "settings.section.about": "Utilisation et à propos",
   "settings.section.budgets": "Budgets",
   "settings.section.accounts": "Comptes",
+  "settings.section.backups": "Sauvegardes",
   "settings.section.agents": "Agents",
   "settings.section.plugins": "Plugins",
   "quick.fromPlugins": "Des plugins",

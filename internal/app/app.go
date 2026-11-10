@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/backup"
+
 	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/alerts"
@@ -51,6 +53,8 @@ import (
 type App struct {
 	// stopPlugins ends the plugin hook dispatcher.
 	stopPlugins context.CancelFunc
+	// stopBackups ends the backup schedule.
+	stopBackups context.CancelFunc
 	Cfg         *config.Config
 	DB          *store.DB
 	Bus         *bus.Bus
@@ -308,6 +312,16 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		Plugins: pluginMgr, ClipboardBin: sessMgr.ClipboardBin,
 		Decisions: decisions,
 	}
+	srv.Backups = &backup.Runner{Store: db, Log: log, TempDir: filepath.Dir(cfg.DBPath),
+		Source: func(context.Context) (backup.Source, error) {
+			src, err := backup.FromLectern(db, cfg.DBPath, cfg.MediaPath, reg)
+			src.Version = version.Version
+			return src, err
+		}}
+	backupCtx, stopBackups := context.WithCancel(context.Background())
+	if !cfg.Mock && cfg.DBPath != ":memory:" {
+		go srv.Backups.Loop(backupCtx)
+	}
 	if cfg.Mock {
 		// The real terminals a mock server opens (project shells) run on
 		// this machine, with the backend configured for it, decided once as
@@ -356,7 +370,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		}
 	}
 
-	app := &App{stopPlugins: stopPlugins, Cfg: cfg, DB: db, Bus: b, Notifier: notifier, Broker: br, Reg: reg,
+	app := &App{stopPlugins: stopPlugins, stopBackups: stopBackups, Cfg: cfg, DB: db, Bus: b, Notifier: notifier, Broker: br, Reg: reg,
 		Sched: sched, Sessions: sessMgr, Memory: mem, Terminals: terms,
 		Triggers: triggersMgr, Server: srv, Log: log}
 
@@ -443,6 +457,9 @@ func (a *App) StartRelay() {
 func (a *App) Close() {
 	if a.stopPlugins != nil {
 		a.stopPlugins()
+	}
+	if a.stopBackups != nil {
+		a.stopBackups()
 	}
 	if a.Server.Relay != nil {
 		a.Server.Relay.Close()

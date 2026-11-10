@@ -29,6 +29,7 @@ export const SECTIONS: [string, string][] = [
   ["connections", "settings.section.connections"],
   ["plugins", "settings.section.plugins"],
   ["accounts", "settings.section.accounts"],
+  ["backups", "settings.section.backups"],
   ["budgets", "settings.section.budgets"],
   ["about", "settings.section.about"],
 ];
@@ -36,6 +37,8 @@ export const sectionLabel = (name: string) => t(SECTIONS.find(([key]) => key ===
 
 // [section, id, label key, keywords]
 const rows: [string, string, string, string][] = [
+  ["backups", "backup.repo", "settings.backup.repo", "backup export restore github private repository disaster recovery copy save data"],
+  ["backups", "backup.schedule", "settings.backup.every", "automatic daily backup schedule interval keep"],
   ["basics", "basics.ask", "start.sheet.ask", "permission mode approvals ask bypass yolo risky safety"],
   ["basics", "basics.phone", "phone.title", "pair qr code phone mobile tailscale relay connect"],
   ["basics", "basics.alerts", "basics.alerts", "push notifications phone alerts"],

@@ -335,6 +335,33 @@ const catalog: Record<string, string> = {
   "settings.accounts.labelAria": "账户标签",
   "settings.accounts.labelPlaceholder": "工作",
   "settings.accounts.addButton": "添加账户",
+
+  // Settings → Backups
+  "settings.backup.intro": "Lectern 掌握的一切——会话及其聊天、任务、项目、工作流、设置、媒体和插件——用你的口令加密后上传到私有 GitHub 仓库。每周完整备份之间只上传变化的部分。",
+  "settings.backup.noGitHub": "这台服务器没有登录 GitHub。请在服务器上运行 gh auth login（或设置 LECTERN_BACKUP_GITHUB_TOKEN），然后再回来。",
+  "settings.backup.running": "正在备份…",
+  "settings.backup.last": "上次备份 {ago} · {size} · {sessions} 个会话",
+  "settings.backup.never": "还没有备份。",
+  "settings.backup.lastFailed": "{ago} 的备份失败：{error}",
+  "settings.backup.repo": "私有 GitHub 仓库（owner/name）",
+  "settings.backup.every": "备份间隔（小时）",
+  "settings.backup.keep": "保留的备份数",
+  "settings.backup.scheduleHint": "0 小时表示只在你点击“立即备份”时备份。仓库不存在时会以私有方式创建；公开仓库会被拒绝。",
+  "settings.backup.saveThis": "这是你的备份口令。请现在保存到密码管理器：它只显示这一次，没有它任何人都打不开你的备份。",
+  "settings.backup.copy": "复制",
+  "settings.backup.copied": "口令已复制",
+  "settings.backup.needPassphrase": "设置时会生成一个口令，每份备份离开这台机器前都会用它加密。",
+  "settings.backup.save": "保存",
+  "settings.backup.setUp": "设置备份",
+  "settings.backup.now": "立即备份",
+  "settings.backup.download": "下载一份备份",
+  "settings.backup.restoreBefore": "在新机器上安装 Lectern，用 gh auth login 登录，然后在服务器停止时运行",
+  "settings.backup.restoreAfter": "。",
+  "settings.backup.failed": "备份失败：{error}",
+  "settings.backup.done": "备份已上传",
+  "settings.backup.invalid": "小时数须为 0 或以上，保留数至少为 1。",
+  "settings.backup.created": "已创建私有仓库 {repo}",
+  "settings.backup.saved": "备份设置已保存",
 };
 
 export default catalog;

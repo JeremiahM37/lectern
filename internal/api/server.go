@@ -18,6 +18,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/backup"
+
 	"github.com/JeremiahM37/lectern/v2/internal/a2a"
 	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
 	"github.com/JeremiahM37/lectern/v2/internal/alerts"
@@ -133,6 +135,9 @@ type Server struct {
 	// Plugins holds installed plugins and their consent (internal/plugins,
 	// docs/plugins.md). Nil is safe: only the bundled contributions apply.
 	Plugins *plugins.Manager
+	// Backups makes and uploads backups (internal/backup); nil turns the
+	// Settings → Backups API off.
+	Backups *backup.Runner
 	// Relay is the end-to-end encrypted relay connection (internal/relay/
 	// host, relay.go in this package); nil unless LECTERN_RELAY_URL is set.
 	// RelayStore holds the relay keys and devices and is set either way.
@@ -533,6 +538,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/model-prices", s.getModelPrices)
 	mux.HandleFunc("PUT /api/model-prices", s.putModelPrices)
 	mux.HandleFunc("POST /api/admin/janitor", s.runJanitor)
+	mux.HandleFunc("GET /api/backup", s.getBackup)
+	mux.HandleFunc("PUT /api/backup", s.putBackup)
+	mux.HandleFunc("POST /api/backup/run", s.runBackup)
+	mux.HandleFunc("GET /api/backup/list", s.listBackups)
+	mux.HandleFunc("GET /api/backup/download", s.downloadBackup)
 	mux.HandleFunc("GET /api/scratch", s.scratchReport)
 	mux.HandleFunc("POST /api/scratch/sweep", s.scratchSweep)
 	mux.HandleFunc("POST /api/scratch/discard", s.scratchDiscard)

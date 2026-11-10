@@ -323,6 +323,33 @@ const catalog: Record<string, string> = {
   "settings.accounts.labelAria": "Libellé du compte",
   "settings.accounts.labelPlaceholder": "travail",
   "settings.accounts.addButton": "Ajouter le compte",
+
+  // Settings → Backups
+  "settings.backup.intro": "Tout ce que Lectern sait — sessions et leurs discussions, tâches, projets, workflows, réglages, médias et plugins — chiffré avec votre phrase secrète et envoyé dans un dépôt GitHub privé. Entre deux sauvegardes complètes hebdomadaires, seules les modifications sont envoyées.",
+  "settings.backup.noGitHub": "Ce serveur n'est connecté à aucun compte GitHub. Lancez gh auth login dessus (ou définissez LECTERN_BACKUP_GITHUB_TOKEN), puis revenez.",
+  "settings.backup.running": "Sauvegarde en cours…",
+  "settings.backup.last": "Dernière sauvegarde {ago} · {size} · {sessions} sessions",
+  "settings.backup.never": "Aucune sauvegarde pour l'instant.",
+  "settings.backup.lastFailed": "La sauvegarde de {ago} a échoué : {error}",
+  "settings.backup.repo": "Dépôt GitHub privé (propriétaire/nom)",
+  "settings.backup.every": "Sauvegarder toutes les (heures)",
+  "settings.backup.keep": "Sauvegardes à conserver",
+  "settings.backup.scheduleHint": "0 heure signifie uniquement quand vous appuyez sur Sauvegarder maintenant. Le dépôt est créé en privé s'il n'existe pas ; un dépôt public est refusé.",
+  "settings.backup.saveThis": "Votre phrase secrète de sauvegarde. Enregistrez-la maintenant dans votre gestionnaire de mots de passe : elle n'est affichée qu'une fois, et rien ne peut ouvrir vos sauvegardes sans elle.",
+  "settings.backup.copy": "Copier",
+  "settings.backup.copied": "Phrase secrète copiée",
+  "settings.backup.needPassphrase": "La configuration crée une phrase secrète qui chiffre chaque sauvegarde avant qu'elle ne quitte cette machine.",
+  "settings.backup.save": "Enregistrer",
+  "settings.backup.setUp": "Configurer les sauvegardes",
+  "settings.backup.now": "Sauvegarder maintenant",
+  "settings.backup.download": "Télécharger une sauvegarde",
+  "settings.backup.restoreBefore": "Sur une nouvelle machine, installez Lectern, connectez-vous avec gh auth login, puis lancez",
+  "settings.backup.restoreAfter": " avec le serveur arrêté.",
+  "settings.backup.failed": "La sauvegarde a échoué : {error}",
+  "settings.backup.done": "Sauvegarde envoyée",
+  "settings.backup.invalid": "Les heures doivent être 0 ou plus, et les sauvegardes à conserver au moins 1.",
+  "settings.backup.created": "Dépôt privé {repo} créé",
+  "settings.backup.saved": "Réglages de sauvegarde enregistrés",
 };
 
 export default catalog;
