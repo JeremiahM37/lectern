@@ -67,6 +67,13 @@ func (m *Manager) EnableRemoteControlAll(ctx context.Context) ([]RemoteControlOu
 			out = append(out, row)
 			continue
 		}
+		if sess.Agent != "claude" {
+			// A shell or another agent; its launch settings may not even
+			// resolve as an agent's.
+			row.Status, row.Reason = RemoteControlSkipped, "Remote Control is only available for the built-in claude agent"
+			out = append(out, row)
+			continue
+		}
 		if config, err := m.SessionLaunchConfiguration(sess); err != nil {
 			row.Status, row.Reason = RemoteControlFailed, err.Error()
 			out = append(out, row)

@@ -160,6 +160,7 @@ func TestRemoteControlForEveryRunningSession(t *testing.T) {
 	idle := h.session(obj{"project_id": pid, "name": "idle one", "agent": "claude"})
 	busy := h.session(obj{"project_id": pid, "name": "busy one", "agent": "claude"})
 	codex := h.session(obj{"project_id": pid, "agent": "codex"})
+	shell := h.post("/api/shells", obj{"target_id": h.firstTargetID()}, 201)
 	h.waitSessionStatus(idle.id(), "waiting", "idle")
 	h.waitSessionStatus(busy.id(), "waiting", "idle")
 	if err := h.App.DB.Update("sessions", busy.id(), map[string]any{"status": sessions.StatusRunning, "updated_at": store.Now()}); err != nil {
@@ -174,7 +175,7 @@ func TestRemoteControlForEveryRunningSession(t *testing.T) {
 			t.Fatalf("a skipped session needs its reason: %v", r)
 		}
 	}
-	if got[idle.id()] != "on" || got[busy.id()] != "pending" || got[codex.id()] != "skipped" {
+	if got[idle.id()] != "on" || got[busy.id()] != "pending" || got[codex.id()] != "skipped" || got[shell.id()] != "skipped" {
 		t.Fatalf("outcomes: %v", got)
 	}
 	if err := h.App.DB.Update("sessions", busy.id(), map[string]any{"status": "waiting", "updated_at": store.Now()}); err != nil {
