@@ -49,7 +49,7 @@ picks up agents you have installed since, and signs in another browser.
 	{
 		Name: "claude", Aliases: []string{"codex", "gemini"}, Group: groupStart, Synopsis: "claude | codex | gemini",
 		Summary: "Start an agent in this folder and talk to it right here",
-		Usage:   []string{"lectern claude [--new | --attach] [--model NAME] [--resume] [--remote-control]", "lectern codex  [--new | --attach] [--model NAME] [--resume]"},
+		Usage:   []string{"lectern claude [--new | --attach] [--model NAME] [--resume] [--remote-control | --no-remote-control]", "lectern codex  [--new | --attach] [--model NAME] [--resume]"},
 		About: `Starts a session for this folder (or reuses the one already running) and
 connects this terminal to it. A git folder becomes a project the first time.
 The session keeps running when you leave; it is on the web page and your
@@ -60,7 +60,10 @@ phone too. Leave with Ctrl+] d, come back with the same command.
   --model NAME   Pick the model, for example opus or sonnet
   --resume       Continue the agent's last conversation in this folder
   --remote-control  claude only: also open it in claude.ai/code and the
-                 Claude app (Remote Control); turns it on for a reused one
+                 Claude app (Remote Control); turns it on for a reused one.
+                 New claude sessions get it anyway unless the default is off
+                 (lectern remote-control --default off)
+  --no-remote-control  Start this one without it
 
 Any agent added under Settings → Agents works the same way: lectern NAME.`,
 		Examples: []string{"cd ~/myapp && lectern claude", "lectern codex --resume", "lectern claude --model opus --new"},
@@ -295,6 +298,18 @@ on a free port on 127.0.0.1 that only you can use. Its data lives in
 	{Name: "local status", Summary: "Is your private Lectern running, where, which version", Usage: []string{"lectern local status [--json]"}},
 	{Name: "local stop", Summary: "Stop your private Lectern", Usage: []string{"lectern local stop"},
 		About: "Refused while tasks are running. Sessions keep running and are picked up again at the next start."},
+	{
+		Name: "remote-control", Aliases: []string{"rc"}, Group: groupStart, Synopsis: "remote-control --all",
+		Summary: "Open every claude session in the Claude app and claude.ai/code",
+		Usage:   []string{"lectern remote-control --all", "lectern remote-control --default on|off", "lectern remote-control --status"},
+		About: `New claude sessions open in the Claude app (Remote Control) unless
+--default off. --all turns it on in every running claude session that can use
+it: a busy one is turned on as soon as it waits for you, and one that cannot
+(another agent, an API key, a sandbox) is listed with the reason. The first
+time in a running session Claude Code asks once, per login, before it agrees;
+answer it in that session's terminal (/remote-control) and run --all again.`,
+		Examples: []string{"lectern remote-control --all"},
+	},
 	{
 		Name: "backup", Group: groupProjects, Synopsis: "backup [setup|export|list|restore]",
 		Summary: "Back up everything to a private GitHub repository, and restore it",

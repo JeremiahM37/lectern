@@ -46,6 +46,7 @@ var clientVerbs = map[string]bool{
 	"upload": true, "files": true, "download": true, "post": true, "live": true,
 	"expose": true, "skill": true, "clipboard": true, "promote": true, "controls": true, "restore": true, "account": true,
 	"browser": true, "computer": true, "plugin": true, "phone": true, "demo": true,
+	"remote-control": true, "rc": true,
 	"help": true, "--help": true, "-h": true,
 }
 

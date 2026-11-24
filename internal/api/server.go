@@ -438,6 +438,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/sessions/{id}", s.patchSession)
 	mux.HandleFunc("PUT /api/sessions/{id}/favorite", s.setSessionFavorite)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-control", s.enableRemoteControl)
+	mux.HandleFunc("POST /api/remote-control/all", s.enableRemoteControlAll)
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.deleteSession)
 	mux.HandleFunc("POST /api/sessions/{id}/restore", s.restoreSession)
 	mux.HandleFunc("POST /api/sessions/{id}/reopen", s.reopenSession)

@@ -320,6 +320,18 @@ func (s *Server) enableRemoteControl(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.sessionView(fresh))
 }
 
+// enableRemoteControlAll is POST /api/remote-control/all: turn Remote Control
+// on in every live session that can use it (docs/remote-control.md "Every
+// session"). Busy sessions are turned on later, once each waits for you.
+func (s *Server) enableRemoteControlAll(w http.ResponseWriter, r *http.Request) {
+	outcomes, err := s.Sessions.EnableRemoteControlAll(r.Context())
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"sessions": outcomes})
+}
+
 // setSessionFavorite is PUT /api/sessions/{id}/favorite with {"favorite":
 // true|false}. It is the same kind of session edit as PATCH, so it takes the
 // same route-level auth; the star lives on the row, so it survives the
@@ -443,9 +455,11 @@ type sessionIn struct {
 	// the project's default is not.
 	Isolation *isolation.Config `json:"isolation"`
 	// RemoteControl also connects the session to claude.ai/code and the
-	// Claude app (docs/remote-control.md). Claude only; refused with the
-	// reason when the agent or its environment cannot use it.
-	RemoteControl bool `json:"remote_control"`
+	// Claude app (docs/remote-control.md). Claude only; true is refused with
+	// the reason when the agent or its environment cannot use it. Absent
+	// follows the remote_control_default setting, which skips a session that
+	// cannot use it; false opts this session out.
+	RemoteControl *bool `json:"remote_control"`
 }
 
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
@@ -555,8 +569,9 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		Agent: in.Agent, Model: in.Model, Workdir: in.Workdir,
 		Resume: in.Resume, Prime: prime, Scratch: in.Scratch, Yolo: yolo, PermissionMode: mode,
 		// The manager layers project defaults before the selected launch profile.
-		Isolation:     in.Isolation,
-		RemoteControl: in.RemoteControl,
+		Isolation:       in.Isolation,
+		RemoteControl:   in.RemoteControl != nil && *in.RemoteControl,
+		NoRemoteControl: in.RemoteControl != nil && !*in.RemoteControl,
 	})
 	var missing *sessions.AgentNotInstalled
 	if errors.As(err, &missing) {

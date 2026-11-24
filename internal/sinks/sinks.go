@@ -48,6 +48,10 @@ var Keys = []string{
 	// (internal/sessions/terminal_mouse.go): same registry, same "default ON,
 	// off only when explicitly '0'" convention.
 	"claude_terminal_mouse",
+	// New claude sessions open in the Claude app (Remote Control): same
+	// "default ON, off only when explicitly '0'" convention
+	// (internal/sessions/remote_control_all.go).
+	"remote_control_default",
 }
 
 // Payload is one outbound notification, already addressed and rendered.

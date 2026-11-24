@@ -193,6 +193,8 @@ const catalog: Record<string, string> = {
   "sessions.card.renameSessionPrompt": "このセッションの名前を変更します。ターミナルは動作し続けます。",
   "sessions.card.renamed": "名前を変更しました。",
   "sessions.card.moveToProject": "プロジェクトへ移動",
+  "sessions.conversation.project": "プロジェクト",
+  "sessions.conversation.noProject": "プロジェクトなし",
   "sessions.projectEditor.title": "プロジェクトへ移動",
   "sessions.projectEditor.close": "プロジェクト選択を閉じる",
   "sessions.projectEditor.project": "プロジェクト",

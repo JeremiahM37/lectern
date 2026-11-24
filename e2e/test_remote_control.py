@@ -21,15 +21,17 @@ def test_new_session_dialog_offers_remote_control_for_claude_only(page, server):
     page.select_option("#ns-agent", "claude")
     box = page.locator("#ns-remote-control")
     expect(box).to_be_visible()
-    expect(box).not_to_be_checked()
-    box.check()
+    # New claude sessions open in the Claude app unless the setting is off.
+    expect(box).to_be_checked()
     expect(page.locator("#ns-remote-control-hint")).to_contain_text("claude.ai/code")
+    box.uncheck()
+    expect(page.locator("#ns-remote-control-hint")).to_have_count(0)
     page.select_option("#ns-agent", "codex")
     expect(box).to_have_count(0)
 
 
 def test_enable_from_the_card_menu_then_mark_and_link(page, server):
-    _session(page, server, "Phone later")
+    _session(page, server, "Phone later", remote_control=False)
     page.set_viewport_size(PHONE_412)
     page.goto(server + "/#sessions")
     card = page.locator("#sesslist .scard", has_text="Phone later")
@@ -76,3 +78,17 @@ def test_codex_card_has_no_remote_control_entry(page, server):
     expect(card).to_be_visible(timeout=30000)
     card.locator(".action-menu > summary").click()
     expect(card.get_by_role("button", name="Enable Remote Control")).to_have_count(0)
+
+
+def test_turn_on_in_all_running_sessions_from_settings(page, server):
+    _session(page, server, "Everywhere one", remote_control=False)
+    _session(page, server, "Everywhere two", remote_control=False)
+    page.goto(server + "/#settings")
+    button = page.locator("#basics-remote-control-all")
+    expect(button).to_be_visible(timeout=15000)
+    expect(page.locator("#basics-remote-control")).to_be_checked()
+    button.click()
+    outcomes = page.locator("#basics-remote-control-outcomes")
+    expect(outcomes).to_contain_text("Everywhere one", timeout=30000)
+    expect(outcomes.locator("li", has_text="Everywhere two")).to_have_attribute(
+        "data-status", __import__("re").compile("on|already|pending"))

@@ -185,6 +185,8 @@ const catalog: Record<string, string> = {
   "sessions.card.renameSessionPrompt": "重命名此会话。其终端继续运行。",
   "sessions.card.renamed": "已重命名。",
   "sessions.card.moveToProject": "移到项目",
+  "sessions.conversation.project": "项目",
+  "sessions.conversation.noProject": "无项目",
   "sessions.projectEditor.title": "移到项目",
   "sessions.projectEditor.close": "关闭项目选择",
   "sessions.projectEditor.project": "项目",

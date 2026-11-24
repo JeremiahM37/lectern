@@ -236,6 +236,8 @@ const catalog: Record<string, string> = {
   "sessions.card.renameSessionPrompt": "Rename this session. Its terminal keeps running.",
   "sessions.card.renamed": "Renamed.",
   "sessions.card.moveToProject": "Move to project",
+  "sessions.conversation.project": "Project",
+  "sessions.conversation.noProject": "No project",
   "sessions.projectEditor.title": "Move to project",
   "sessions.projectEditor.close": "Close project picker",
   "sessions.projectEditor.project": "Project",

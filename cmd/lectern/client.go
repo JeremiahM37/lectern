@@ -268,6 +268,8 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 		return demoCommand(cfg, args, base, token, local, os.Stdout)
 	case "controls":
 		return controlsCommand(c, args)
+	case "remote-control", "rc":
+		return remoteControlCommand(c, args, os.Stdout)
 	case "console", "tui":
 		if len(args) > 0 && (len(args) != 1 || args[0] != "--plain") {
 			return fmt.Errorf("usage: lectern console [--plain]")

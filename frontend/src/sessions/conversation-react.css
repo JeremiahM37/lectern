@@ -53,3 +53,6 @@ dialog.conversation::backdrop {
   .conversation-details { padding: 8px 12px; max-height: 45vh; overflow-y: auto; }
   .conversation-text-size { margin-left: 0; }
 }
+/* The project picker under the session's name (ProjectEditor). */
+.conversation-head .conversation-project { background: none; border: 0; padding: 0; margin: 2px 0 0; font: inherit; font-size: 13px; color: var(--accent-soft); cursor: pointer; text-align: left; }
+.conversation-head .conversation-project:hover { text-decoration: underline; }

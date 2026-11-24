@@ -179,3 +179,31 @@ def test_move_session_to_project_from_the_card_menu(page, server):
     with page.expect_response(lambda r: r.request.method == "PATCH" and r.url.endswith(f"/api/sessions/{session_id}") and r.ok):
         sheet.locator("#sp-save").click()
     assert page.request.get(f"{server}/api/sessions/{session_id}").json()["project_id"] is None
+
+
+def test_move_session_to_project_from_the_conversation_header(page, server):
+    """The project sits under the name in an open chat and changes there too."""
+    projects = page.request.get(f"{server}/api/projects").json()
+    target = projects[-1]
+    page.goto(f"{server}/#sessions")
+    page.get_by_text("Live sessions").wait_for()
+    page.locator("#sess-new").click()
+    page.locator("#ns-project").select_option("")
+    page.get_by_label("Session name", exact=True).fill("Header Mover")
+    page.locator("#ns-go").click()
+    card = page.locator(".scard", has_text="Header Mover")
+    card.wait_for()
+    session_id = int(card.get_attribute("data-session-id"))
+    card.get_by_text("Chat").click()
+    page.get_by_text("Live output").wait_for()
+    chip = page.locator("#conversation-project")
+    expect(chip).to_contain_text("No project")
+    chip.click()
+    sheet = page.get_by_role("dialog", name="Move to project", exact=True)
+    expect(sheet).to_be_visible()
+    sheet.locator("#sp-project").select_option(str(target["id"]))
+    with page.expect_response(lambda r: r.request.method == "PATCH" and r.url.endswith(f"/api/sessions/{session_id}") and r.ok):
+        sheet.locator("#sp-save").click()
+    expect(sheet).not_to_be_visible()
+    assert page.request.get(f"{server}/api/sessions/{session_id}").json()["project_id"] == target["id"]
+    expect(chip).to_contain_text(target["name"], timeout=15000)

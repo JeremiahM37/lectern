@@ -722,7 +722,7 @@ var tools = []tool{
 			"model":                    str("model ID or alias to run, e.g. one named by the user; passed to the agent verbatim, never substituted (see list_agents for known IDs; an unlisted one is still passed, and a bad one shows as the agent CLI's own error in read_session)"),
 			"yolo":                     flag("run without approval prompts (default true, matching the UI default)"),
 			"brief":                    flag("prepend the project's Grimoire memory briefing (default true)"),
-			"remote_control":           flag("claude only: also open the session in claude.ai/code and the Claude mobile app (Remote Control; default false)"),
+			"remote_control":           flag("claude only: open the session in claude.ai/code and the Claude mobile app (Remote Control). Omit to follow the server's default (on unless turned off in Settings); false opts this session out"),
 		}, "prompt"),
 		Run: func(s *Server, args map[string]any) (any, error) {
 			prompt := strings.TrimSpace(argStr(args, "prompt"))
@@ -752,8 +752,8 @@ var tools = []tool{
 				"yolo":  argBool(args, "yolo", true),
 				"brief": argBool(args, "brief", true),
 			}
-			if argBool(args, "remote_control", false) {
-				body["remote_control"] = true
+			if v, ok := args["remote_control"].(bool); ok {
+				body["remote_control"] = v
 			}
 			switch {
 			case projectName != "":

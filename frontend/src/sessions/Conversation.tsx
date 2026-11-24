@@ -17,9 +17,11 @@ import {
 import type {
   Approval,
   Event as AgentEvent,
+  Project,
   SessionView,
   TaskView,
 } from "../types";
+import { ProjectEditor } from "./ProjectEditor";
 import type { SessionsApi } from "./Sessions";
 import { SessionReview } from "../review/SessionReview";
 import { CompactionWarning, ContextBadge, CostBadge, LinesBadge } from "./UsageBadges";
@@ -184,6 +186,10 @@ export function Conversation({
       height: visualViewport?.height || innerHeight,
       top: visualViewport?.offsetTop || 0,
     }),
+    // The project picker beside the name: the session's project can change
+    // where its name can (ProjectEditor, the card's Move to project).
+    [projects, setProjects] = useState<Project[]>(),
+    [showProject, setShowProject] = useState(false),
     [isRenaming, setIsRenaming] = useState(false),
     [renamingValue, setRenamingValue] = useState(name),
     [currentName, setCurrentName] = useState(name),
@@ -491,6 +497,15 @@ export function Conversation({
       busy.current = false;
     }
   }
+  useEffect(() => {
+    if (kind !== "session") return;
+    void api
+      .request<Project[]>("/projects")
+      .then(setProjects)
+      .catch(() => setProjects([]));
+  }, [kind]);
+  const projectName =
+    session?.project_id != null ? projects?.find((p) => p.id === session.project_id)?.name : undefined;
   // The name can change underneath an open chat (a session named from its
   // first prompt); follow it unless a rename is being typed here.
   useEffect(() => {
@@ -870,6 +885,18 @@ export function Conversation({
                   ✎
                 </button>
               </h2>
+              {kind === "session" && session && projects && (
+                <button
+                  type="button"
+                  className="linkish conversation-project"
+                  id="conversation-project"
+                  title={t("sessions.card.moveToProject")}
+                  aria-label={t("sessions.card.moveToProject")}
+                  onClick={() => setShowProject(true)}
+                >
+                  {t("sessions.conversation.project")}: {projectName || t("sessions.conversation.noProject")} ▾
+                </button>
+              )}
             </>
           )}
           <p id="conversation-status" role="status" data-connection={connection}>
@@ -901,6 +928,16 @@ export function Conversation({
         >
           ✕
         </button>
+      {showProject && session && projects && (
+          <ProjectEditor
+            api={api}
+            session={session}
+            projects={projects}
+            onClose={() => setShowProject(false)}
+            onSaved={() => {}}
+            onNotice={onNotice}
+          />
+        )}
       </header>
       {showDetails && (
         <div className="conversation-details" id="conversation-details">

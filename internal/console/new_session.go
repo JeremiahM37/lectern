@@ -20,8 +20,10 @@ type agentStateMsg struct {
 	target     string
 	states     map[string]string
 	permission string
-	err        error
-	then       string
+	// remoteControl is the server's remote_control_default setting ("0" is off).
+	remoteControl string
+	err           error
+	then          string
 }
 
 // probeAgents asks one machine which agent commands are installed, once per
@@ -39,6 +41,10 @@ func (m *dashboard) probeAgents(target, then string) tea.Cmd {
 			var values map[string]string
 			if json.Unmarshal(settings, &values) == nil {
 				out.permission = strings.TrimSpace(values["session_permission_mode"])
+				out.remoteControl = "1"
+				if strings.TrimSpace(values["remote_control_default"]) == "0" {
+					out.remoteControl = "0"
+				}
 			}
 		}
 		if target == "" {
@@ -69,6 +75,9 @@ func (m *dashboard) receiveAgentState(v agentStateMsg) tea.Cmd {
 	m.agentState[v.target] = v.states
 	if v.permission != "" {
 		m.permissionDefault = v.permission
+	}
+	if v.remoteControl != "" {
+		m.remoteControlOff = v.remoteControl == "0"
 	}
 	if v.then == "session" && m.form == nil {
 		return m.newSessionForm()
@@ -281,7 +290,7 @@ func (m *dashboard) newSessionForm() tea.Cmd {
 		adv(field{Key: "worktree_branch", Label: "New branch (blank = unique name)"}),
 		adv(boolField("resume", "Resume the latest conversation", false)),
 		adv(boolField("brief", "Include the project brief", true)),
-		adv(boolField("remote_control", "Also open in the Claude app (Remote Control, claude only)", false)),
+		adv(boolField("remote_control", "Also open in the Claude app (Remote Control, claude only)", !m.remoteControlOff)),
 		adv(field{Key: "group_path", Label: "Group path (optional, e.g. Work/Client)"}),
 	}
 	cmd := m.openForm("New session", fields, func(body map[string]any) tea.Cmd {
@@ -357,7 +366,9 @@ func (m *dashboard) submitNewSession(body map[string]any) tea.Cmd {
 		body["background"] = true
 		body["worktree"] = map[string]any{"base": body["worktree_base"], "branch": body["worktree_branch"]}
 	}
-	if body["remote_control"] != true {
+	// Left as the server's default, the server decides (and skips a session
+	// that cannot use Remote Control); changed, it is this session's choice.
+	if on, _ := body["remote_control"].(bool); on == !m.remoteControlOff {
 		delete(body, "remote_control")
 	}
 	delete(body, "isolated")

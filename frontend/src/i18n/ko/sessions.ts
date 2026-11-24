@@ -193,6 +193,8 @@ const catalog: Record<string, string> = {
   "sessions.card.renameSessionPrompt": "이 세션의 이름을 바꿉니다. 터미널은 계속 실행됩니다.",
   "sessions.card.renamed": "이름을 바꿨습니다.",
   "sessions.card.moveToProject": "프로젝트로 이동",
+  "sessions.conversation.project": "프로젝트",
+  "sessions.conversation.noProject": "프로젝트 없음",
   "sessions.projectEditor.title": "프로젝트로 이동",
   "sessions.projectEditor.close": "프로젝트 선택 닫기",
   "sessions.projectEditor.project": "프로젝트",

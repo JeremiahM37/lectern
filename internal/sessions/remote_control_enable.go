@@ -51,6 +51,9 @@ func (m *Manager) EnableRemoteControl(ctx context.Context, id int64) (*store.Ses
 	if why := RemoteControlUnavailable(config.Spec, config.Spec.Env, config.Isolation); why != "" {
 		return nil, errors.New(why)
 	}
+	if !m.claudeHasRemoteControl(ctx, ex, sess.TargetID, config.Spec) {
+		return nil, ErrRemoteControlTooOld
+	}
 	if remoteControlBusy(sess, store.Now()) {
 		return nil, ErrRemoteControlBusy
 	}

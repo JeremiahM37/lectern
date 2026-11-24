@@ -253,6 +253,10 @@ func (s *Scheduler) Tick(ctx context.Context) {
 	if s.Sessions != nil && store.Now()-s.lastSessionPoll >= s.Cfg.SessionPoll.Seconds() {
 		s.lastSessionPoll = store.Now()
 		s.Sessions.Poll(ctx)
+		// Sessions "turn Remote Control on for every session" found busy.
+		if rc, ok := s.Sessions.(interface{ RetryRemoteControl(context.Context) }); ok {
+			go rc.RetryRemoteControl(ctx)
+		}
 		if s.Broker != nil {
 			s.Broker.ExpireForGoneSessions()
 		}

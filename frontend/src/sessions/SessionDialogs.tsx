@@ -101,8 +101,11 @@ export function NewSession({
     // the setting loads (a new install asks; an unset one runs freely).
     [yolo, setYolo] = useState(false),
     // Claude Remote Control (docs/remote-control.md): also open the session
-    // in claude.ai/code and the Claude app. Off unless asked for.
-    [remoteControl, setRemoteControl] = useState(false),
+    // in claude.ai/code and the Claude app. Opens set to the server's
+    // remote_control_default (on unless "0"); untouched, the request sends null
+    // so the server decides and skips a launch that cannot use it.
+    [remoteControl, setRemoteControl] = useState(true),
+    [remoteControlTouched, setRemoteControlTouched] = useState(false),
     [prime, setPrime] = useState(""),
     [isolated, setIsolated] = useState(false),
     // Sandbox isolation (internal/isolation, docs/isolation.md) — distinct
@@ -137,7 +140,10 @@ export function NewSession({
     // always sends a concrete `yolo` boolean, never omits it.
     void api
       .request<Record<string, string>>("/settings")
-      .then((settings) => setYolo(settings.session_permission_mode !== "ask"))
+      .then((settings) => {
+        setYolo(settings.session_permission_mode !== "ask");
+        setRemoteControl(settings.remote_control_default !== "0");
+      })
       .catch(() => {});
     void fetchAgentMenu(api).then(setAgentMenu);
   }, []);
@@ -346,7 +352,7 @@ export function NewSession({
           resume: mode === "resume",
           brief: mode === "brief",
           yolo,
-          remote_control: remoteControlSupported && remoteControl,
+          remote_control: !remoteControlSupported ? false : remoteControlTouched ? remoteControl : null,
           prime: prime.trim(),
           // null means "use the project's (or built-in) default"; "none" is
           // an explicit opt-out even when that default is sandboxed.
@@ -619,7 +625,10 @@ export function NewSession({
                 id="ns-remote-control"
                 type="checkbox"
                 checked={remoteControl}
-                onChange={(e) => setRemoteControl(e.target.checked)}
+                onChange={(e) => {
+                  setRemoteControl(e.target.checked);
+                  setRemoteControlTouched(true);
+                }}
               />{" "}
               {t("sessions.dialogs.newSession.remoteControl")}
             </label>

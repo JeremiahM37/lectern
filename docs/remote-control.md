@@ -9,10 +9,20 @@ restore and Grimoire priming keep working exactly as before.
 
 ## Turning it on
 
-- **New session:** tick *Also open in the Claude app (Remote Control)* in the
-  New session dialog. From the terminal, use `lectern claude --remote-control`
-  (or `--rc`) or the *Remote Control* option under *More options…*. Over MCP,
-  pass `remote_control: true` to `start_session`.
+- **Every new session (the default):** new claude sessions open in the Claude
+  app without being asked: Settings → Basics → *Open new claude sessions in
+  the Claude app*, `lectern remote-control --default on|off`, the
+  `remote_control_default` setting (`"0"` is off) or
+  `LECTERN_REMOTE_CONTROL_DEFAULT=0|1`, which wins over the setting. A
+  session that cannot use it (see below) starts without it rather than
+  failing. One session opts out by unticking the box in the New session
+  dialog, `lectern claude --no-remote-control`, or `remote_control: false` to
+  the API and MCP `start_session`.
+- **New session, explicitly:** tick *Also open in the Claude app (Remote
+  Control)* in the New session dialog. From the terminal, use `lectern claude
+  --remote-control` (or `--rc`) or the *Remote Control* option under *More
+  options…*. Over MCP, pass `remote_control: true` to `start_session`. Asked
+  for this way, a session that cannot use it is refused with the reason.
 - **A running session:** use *Enable Remote Control* in the card's ⋯ menu, the
   session menu in the terminal client, `lectern claude --remote-control` in a
   folder whose session is already running, or the MCP tool
@@ -20,6 +30,36 @@ restore and Grimoire priming keep working exactly as before.
   session, so it only does this while the agent is waiting for you. While it
   is working or asking a question, the call is refused and asks you to try
   again.
+
+## Every running session
+
+Settings → Basics → *Turn on in all running sessions*, `lectern
+remote-control --all`, or `POST /api/remote-control/all` turns it on in every
+live claude session and reports each one:
+
+| Status | Meaning |
+|---|---|
+| `on` / `already` | reachable from the Claude app now |
+| `pending` | the agent was busy; Lectern turns it on after a poll finds it waiting for you |
+| `consent` | Claude Code's one-time question (below); answer it, then run it again |
+| `skipped` | cannot use it: another agent, an API key, a sandbox, or a Claude Code too old for it, with the reason |
+
+A session restored or reopened later picks the default up again, so a
+session from before this default gets it on its next start too.
+
+Claude Duet and other claude.ai apps reach Lectern through its claude.ai
+connector ([web-connector.md](web-connector.md)); Remote Control is what puts
+each session itself in the Claude app.
+
+## SSH and container machines
+
+Remote Control runs in the claude process, so a session on an SSH or `pct`
+machine gets it exactly like a local one, as long as claude there is signed
+in with a claude.ai subscription and new enough to have it. Before using it,
+Lectern asks the machine whether its `claude --help` lists `--remote-control`
+(the answer is kept for ten minutes). An older one would refuse the flag and
+the session would not start, so the default leaves it off there and an
+explicit request is refused: run `claude update` on that machine.
 
 The session's title on claude.ai is its Lectern name. Cards with Remote Control
 show a small ⌁ mark by the name. Once Lectern has seen the session link on the
@@ -77,4 +117,5 @@ its own consent.
   [Trusted Devices](https://code.claude.com/docs/en/remote-control) in mind, or
   start the session with *Ask before running commands*. Claude forwards its own
   permission prompts to the phone.
-- Lectern does not use `remoteControlAtStartup`: it is a per-session choice.
+- Lectern does not use `remoteControlAtStartup`: Lectern's own default and
+  per-session opt-out decide, so a claude you start yourself is unaffected.

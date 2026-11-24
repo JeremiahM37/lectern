@@ -40,6 +40,8 @@ const rows: [string, string, string, string][] = [
   ["backups", "backup.repo", "settings.backup.repo", "backup export restore github private repository disaster recovery copy save data"],
   ["backups", "backup.schedule", "settings.backup.every", "automatic daily backup schedule interval keep"],
   ["basics", "basics.ask", "start.sheet.ask", "permission mode approvals ask bypass yolo risky safety"],
+  ["basics", "basics.remoteControl", "basics.remoteControl", "remote control claude app duet phone claude.ai code rc mobile"],
+  ["basics", "basics.remoteControlAll", "basics.remoteControlAllButton", "remote control all running sessions claude app duet rc"],
   ["basics", "basics.phone", "phone.title", "pair qr code phone mobile tailscale relay connect"],
   ["basics", "basics.alerts", "basics.alerts", "push notifications phone alerts"],
   ["basics", "basics.agents", "basics.agents", "installed agents claude codex gemini"],

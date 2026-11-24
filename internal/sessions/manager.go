@@ -123,6 +123,12 @@ type Manager struct {
 	checkpointWG         sync.WaitGroup
 	checkpointClosed     bool
 	contextDelivered     map[int64]contextDelivery
+	// rcPending are sessions "turn Remote Control on for every session" found
+	// busy; RetryRemoteControl turns it on once each is waiting for you.
+	rcPending  map[int64]bool
+	rcRetrying bool
+	// rcProbes are machines' answers to claudeHasRemoteControl.
+	rcProbes map[string]remoteControlProbe
 }
 
 // New builds a session manager.
@@ -217,6 +223,10 @@ type LaunchOpts struct {
 	// environment cannot use it. A continuation instead inherits it through
 	// Configuration, and drops it quietly when it no longer applies.
 	RemoteControl bool
+	// NoRemoteControl opts this launch out of the remote_control_default
+	// setting (RemoteControlByDefault). Without it, a claude launch that can
+	// use Remote Control gets it, and one that cannot starts without it.
+	NoRemoteControl bool
 	// Isolation overrides the project's (or the built-in) default sandbox
 	// tier for this one launch — nil defers to that default entirely. See
 	// internal/isolation. Ignored for a continuation (o.Configuration != nil
@@ -503,6 +513,9 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		return nil, err
 	}
 	remoteControl := o.RemoteControl || config.RemoteControl
+	if !remoteControl && !o.NoRemoteControl && config.Spec.SupportsRemoteControl() && m.RemoteControlByDefault() {
+		remoteControl = true
+	}
 	if remoteControl {
 		rcEnv := map[string]string{}
 		for k, v := range config.Spec.Env {
@@ -516,6 +529,12 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 				return nil, fmt.Errorf("%s", why)
 			}
 			m.Log.Info("remote control not carried over", "agent", agent, "reason", why)
+			remoteControl = false
+		} else if !m.claudeHasRemoteControl(ctx, ex, target.ID, config.Spec) {
+			if o.RemoteControl {
+				return nil, ErrRemoteControlTooOld
+			}
+			m.Log.Info("remote control not carried over", "agent", agent, "reason", ErrRemoteControlTooOld)
 			remoteControl = false
 		}
 	}

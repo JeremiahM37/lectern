@@ -97,6 +97,7 @@ export function Basics({
         </span>
         <input type="checkbox" role="switch" id="basics-ask" checked={ask} onChange={(e) => void saveAsk(e.target.checked)} />
       </label>
+      <RemoteControlRows api={api} values={values} onNotice={onNotice} onChanged={onChanged} />
       <div className="basics-row" data-setting="basics.phone">
         <span className="basics-label">
           {t("basics.phone")}
@@ -157,5 +158,94 @@ export function Basics({
       <p className="subhint basics-more">{t("basics.more")}</p>
       {phone && <PhoneWizard api={api} onNotice={onNotice} onClose={() => setPhone(false)} />}
     </article>
+  );
+}
+
+interface RemoteControlOutcome {
+  id: number;
+  name: string;
+  status: "on" | "already" | "pending" | "skipped" | "consent" | "failed";
+  reason?: string;
+}
+
+// Claude Remote Control for every session (docs/remote-control.md "Every
+// session"): the default for new claude sessions, and a button that turns it
+// on in the ones already running.
+function RemoteControlRows({
+  api,
+  values,
+  onNotice,
+  onChanged,
+}: {
+  api: SettingsApi;
+  values: Record<string, JsonValue>;
+  onNotice(text: string, error?: boolean): void;
+  onChanged(): void;
+}) {
+  const [on, setOn] = useState(String(values.remote_control_default ?? "") !== "0");
+  const [busy, setBusy] = useState(false);
+  const [outcomes, setOutcomes] = useState<RemoteControlOutcome[]>();
+  useEffect(() => setOn(String(values.remote_control_default ?? "") !== "0"), [values.remote_control_default]);
+  async function save(next: boolean) {
+    setOn(next);
+    try {
+      await api.request("/settings", { method: "PUT", body: { remote_control_default: next ? "1" : "0" } });
+      onNotice(next ? t("basics.remoteControlOn") : t("basics.remoteControlOff"));
+      onChanged();
+    } catch (error) {
+      setOn(!next);
+      onNotice(String(error), true);
+    }
+  }
+  async function all() {
+    setBusy(true);
+    try {
+      const res = await api.request<{ sessions: RemoteControlOutcome[] }>("/remote-control/all", { method: "POST", body: {} });
+      // Sessions of other agents are not claude sessions to report on.
+      const rows = res.sessions.filter((row) => row.status !== "skipped" || !row.reason?.includes("built-in claude"));
+      setOutcomes(rows);
+      const count = (status: string) => rows.filter((row) => row.status === status).length;
+      onNotice(
+        t("basics.remoteControlAllDone", {
+          on: count("on") + count("already"),
+          pending: count("pending"),
+          skipped: count("skipped") + count("consent") + count("failed"),
+        }),
+      );
+    } catch (error) {
+      onNotice(String(error), true);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <label className="basics-row" data-setting="basics.remoteControl">
+        <span className="basics-label">
+          {t("basics.remoteControl")}
+          <span className="basics-hint">{t("basics.remoteControlHint")}</span>
+        </span>
+        <input type="checkbox" role="switch" id="basics-remote-control" checked={on} onChange={(e) => void save(e.target.checked)} />
+      </label>
+      <div className="basics-row" data-setting="basics.remoteControlAll">
+        <span className="basics-label">
+          {t("basics.remoteControlAll")}
+          <span className="basics-hint">{t("basics.remoteControlAllHint")}</span>
+          {outcomes && (
+            <ul className="basics-hint" id="basics-remote-control-outcomes">
+              {outcomes.map((row) => (
+                <li key={row.id} data-status={row.status}>
+                  {row.name || `#${row.id}`}: {t(`basics.remoteControlStatus.${row.status}`)}
+                  {row.reason && row.status !== "pending" && row.status !== "consent" ? ` (${row.reason})` : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+        </span>
+        <button type="button" className="b" id="basics-remote-control-all" disabled={busy} onClick={() => void all()}>
+          {busy ? "…" : t("basics.remoteControlAllButton")}
+        </button>
+      </div>
+    </>
   );
 }

@@ -222,7 +222,10 @@ type dashboard struct {
 	// and email when the server says it has none.
 	commitRetry *commitRequest
 	// permissionDefault is the server's session_permission_mode setting.
-	permissionDefault                   string
+	permissionDefault string
+	// remoteControlOff is the server's remote_control_default setting being
+	// "0"; until the settings are read, new sessions follow the server's default.
+	remoteControlOff                    bool
 	form                                *dashboardForm
 	pending                             *dashboardAction
 	busy                                bool
