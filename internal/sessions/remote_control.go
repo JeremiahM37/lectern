@@ -120,18 +120,37 @@ func remoteControlPanelOpen(pane string) bool {
 	return strings.Contains(pane, "Disconnect this session")
 }
 
+// dimText is a dimmed run in a screen captured with its styles: claude draws
+// its suggested next prompt in the empty input that way.
+var (
+	dimText  = regexp.MustCompile("\x1b\\[2m[^\x1b]*")
+	ansiCode = regexp.MustCompile("\x1b\\[[0-9;?]*[A-Za-z]")
+)
+
 // remoteControlPromptText is what is typed at claude's prompt: the text after
 // the last "❯" that starts a line (a menu's ❯ is indented). ok is false when
-// no prompt is on screen or a subagent's view has it ("Message @…").
+// no prompt is on screen or a subagent's view has it ("Message @…"). A screen
+// captured with styles (promptScreen) drops dimmed text first, so claude's
+// own suggestion does not read as a draft.
 func remoteControlPromptText(pane string) (typed string, ok bool) {
+	shown := promptLine(ansiCode.ReplaceAllString(pane, ""))
+	if shown == nil || strings.HasPrefix(*shown, "Message @") {
+		return "", false
+	}
+	typed = *promptLine(ansiCode.ReplaceAllString(dimText.ReplaceAllString(pane, ""), ""))
+	return typed, true
+}
+
+// promptLine is the text after the last "❯" that starts a line, or nil.
+func promptLine(pane string) *string {
 	lines := strings.Split(pane, "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
 		if rest, found := strings.CutPrefix(lines[i], "❯"); found {
-			typed = strings.TrimSpace(strings.ReplaceAll(rest, "\u00a0", " "))
-			return typed, !strings.HasPrefix(typed, "Message @")
+			text := strings.TrimSpace(strings.ReplaceAll(rest, "\u00a0", " "))
+			return &text
 		}
 	}
-	return "", false
+	return nil
 }
 
 func remoteControlName(on bool, name string) string {

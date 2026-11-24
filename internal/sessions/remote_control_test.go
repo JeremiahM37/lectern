@@ -158,3 +158,16 @@ func TestRemoteControlReadsOnlyItsOwnScreen(t *testing.T) {
 		t.Fatal("the already-on panel")
 	}
 }
+
+// Claude draws its suggested next prompt dimmed in an empty input; captured
+// with styles, that is an empty prompt, and a typed draft is not.
+func TestRemoteControlPromptIgnoresClaudesSuggestion(t *testing.T) {
+	suggestion := "──────\n\x1b[39m❯ \x1b[2mwhat's next for robowright\x1b[0m\n──────"
+	if typed, ok := remoteControlPromptText(suggestion); !ok || typed != "" {
+		t.Fatalf("a dimmed suggestion read as a draft: %q %v", typed, ok)
+	}
+	draft := "──────\n\x1b[39m❯ half a thought\x1b[0m\n──────"
+	if typed, _ := remoteControlPromptText(draft); typed != "half a thought" {
+		t.Fatalf("a styled draft: %q", typed)
+	}
+}

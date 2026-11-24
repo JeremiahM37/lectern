@@ -74,7 +74,7 @@ func (m *Manager) restartBusy(ctx context.Context, sess *store.Session) bool {
 	if err != nil {
 		return true
 	}
-	typed, ok := remoteControlPromptText(m.screen(ctx, ex, sess))
+	typed, ok := remoteControlPromptText(m.promptScreen(ctx, ex, sess))
 	return !ok || typed != ""
 }
 

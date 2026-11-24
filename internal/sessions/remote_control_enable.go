@@ -67,7 +67,7 @@ func (m *Manager) EnableRemoteControl(ctx context.Context, id int64) (*store.Ses
 	}
 	// The command is typed into claude's prompt: text the person left there
 	// would be sent with it, and a subagent's view would take it as a message.
-	if typed, ok := remoteControlPromptText(m.screen(ctx, ex, sess)); !ok || typed != "" {
+	if typed, ok := remoteControlPromptText(m.promptScreen(ctx, ex, sess)); !ok || typed != "" {
 		return nil, ErrRemoteControlNotAtPrompt
 	}
 	if err := m.SendNudge(ctx, id, "/remote-control "+RemoteControlName(sess.Name)); err != nil {
@@ -160,6 +160,20 @@ func (m *Manager) screen(ctx context.Context, ex executor.Executor, sess *store.
 		return ""
 	}
 	return ParsePoll(r.Stdout)[sess.TmuxSession]
+}
+
+// promptScreen is the visible pane with its styles, for telling text typed
+// at the prompt from a dimmed suggestion; the plain screen when the backend
+// cannot capture styles.
+func (m *Manager) promptScreen(ctx context.Context, ex executor.Executor, sess *store.Session) string {
+	cmd := fmt.Sprintf("printf '%%s' %s; %s -e", shellq.Quote(PollDelimiter+sess.TmuxSession+"\n"),
+		sessionBackend(ex, sess).CapturePane(backend.Pane(sess.TmuxSession), 0, false))
+	if r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 15}); err == nil && r.OK() {
+		if pane, ok := ParsePoll(r.Stdout)[sess.TmuxSession]; ok {
+			return pane
+		}
+	}
+	return m.screen(ctx, ex, sess)
 }
 
 // noteRemoteControlURL records the claude.ai link the first time it shows on
