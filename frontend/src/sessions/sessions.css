@@ -473,3 +473,5 @@
   color: var(--accent, var(--fg));
   line-height: 1;
 }
+/* Restart all sessions (RestartAll.tsx): one line per session. */
+.restart-all-list { margin: 8px 0; padding-left: 18px; max-height: 40vh; overflow: auto; font-size: 14px; }

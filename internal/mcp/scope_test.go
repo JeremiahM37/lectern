@@ -46,7 +46,9 @@ func TestFilterWebExcluded(t *testing.T) {
 		name := tl["name"].(string)
 		if webExcluded[name] {
 			excluded++
-			if name != "decide_approval" && !strings.HasPrefix(name, "browser_") && !strings.HasPrefix(name, "computer_") {
+			// restart_all_sessions: restarting the whole board is the
+			// operator's own maintenance (docs/sessions-restart.md).
+			if name != "decide_approval" && name != "restart_all_sessions" && !strings.HasPrefix(name, "browser_") && !strings.HasPrefix(name, "computer_") {
 				t.Errorf("%s is web-excluded without a reason recorded here", name)
 			}
 		}

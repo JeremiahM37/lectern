@@ -121,6 +121,7 @@ const catalog: Record<string, string> = {
   "basics.notInstalledList": "未安装：{names}",
   "basics.manageAgents": "管理代理",
   "basics.askHint": "代理在运行命令或编辑文件前先问你。适用于每个新会话。",
+  "basics.restartAllHint": "以同一对话重启所有代理，例如在更新 Claude Code 之后。",
   "basics.remoteControl": "新的 claude 会话也在 Claude 应用中打开",
   "basics.remoteControlHint": "每个新的 claude 会话也可以从 claude.ai/code、Claude 应用和 Claude Duet 操作（Remote Control）。需要 claude.ai 登录；无法使用的会话照常启动。",
   "basics.remoteControlOn": "新的 claude 会话会在 Claude 应用中打开。",

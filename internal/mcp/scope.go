@@ -59,6 +59,9 @@ var toolScope = map[string]string{
 // for — has to be refused before any scope is even consulted.
 var webExcluded = map[string]bool{
 	"decide_approval": true,
+	// Stopping and resuming every agent at once is the operator's own
+	// maintenance, not something a remote chat does to the whole board.
+	"restart_all_sessions": true,
 }
 
 // scopeFor reports the scope a tool needs, and whether it is classified at

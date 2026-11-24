@@ -181,7 +181,7 @@ func TestRemoteControlForEveryRunningSession(t *testing.T) {
 	if err := h.App.DB.Update("sessions", busy.id(), map[string]any{"status": "waiting", "updated_at": store.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	h.App.Sessions.RetryRemoteControl(t.Context())
+	h.App.Sessions.RetryPending(t.Context())
 	if h.sessionByID(busy.id())["remote_control"] != true {
 		t.Fatal("the busy session was not turned on once it was waiting")
 	}

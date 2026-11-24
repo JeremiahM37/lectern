@@ -121,6 +121,7 @@ const catalog: Record<string, string> = {
   "basics.notInstalledList": "Not installed: {names}",
   "basics.manageAgents": "Manage agents",
   "basics.askHint": "Agents ask you before running commands or editing files. Used for every new session.",
+  "basics.restartAllHint": "Restart every agent with the same conversation, for example after updating Claude Code.",
   "basics.remoteControl": "Open new claude sessions in the Claude app",
   "basics.remoteControlHint": "Every new claude session can also be driven from claude.ai/code, the Claude app and Claude Duet (Remote Control). Needs a claude.ai login; sessions that cannot use it start without it.",
   "basics.remoteControlOn": "New claude sessions open in the Claude app.",

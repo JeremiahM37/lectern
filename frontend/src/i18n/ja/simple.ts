@@ -121,6 +121,7 @@ const catalog: Record<string, string> = {
   "basics.notInstalledList": "未インストール: {names}",
   "basics.manageAgents": "エージェントを管理",
   "basics.askHint": "エージェントはコマンドを実行したりファイルを編集したりする前に確認します。新しいセッションすべてに適用されます。",
+  "basics.restartAllHint": "すべてのエージェントを同じ会話のまま再起動します。Claude Code の更新後などに。",
   "basics.remoteControl": "新しい claude セッションを Claude アプリでも開く",
   "basics.remoteControlHint": "新しい claude セッションはすべて claude.ai/code、Claude アプリ、Claude Duet からも操作できます（Remote Control）。claude.ai のログインが必要です。使えないセッションはそのまま始まります。",
   "basics.remoteControlOn": "新しい claude セッションは Claude アプリでも開きます。",

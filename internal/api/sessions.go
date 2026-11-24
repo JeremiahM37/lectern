@@ -332,6 +332,30 @@ func (s *Server) enableRemoteControlAll(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, 200, map[string]any{"sessions": outcomes})
 }
 
+// restartAllPlan is GET /api/restart-all: what "restart all sessions" would
+// do now (the confirm dialog's counts) and how the last run went.
+func (s *Server) restartAllPlan(w http.ResponseWriter, r *http.Request) {
+	plan, err := s.Sessions.RestartPlan(r.Context())
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"plan": plan, "last": s.Sessions.RestartStatus()})
+}
+
+// restartAll is POST /api/restart-all: restart every session in place with
+// the same conversation (docs/sessions-restart.md). It returns at once; idle
+// sessions restart one at a time, busy ones once each waits for you, and GET
+// shows the progress.
+func (s *Server) restartAll(w http.ResponseWriter, r *http.Request) {
+	out, err := s.Sessions.RestartAll(r.Context())
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	writeJSON(w, 202, map[string]any{"sessions": out})
+}
+
 // setSessionFavorite is PUT /api/sessions/{id}/favorite with {"favorite":
 // true|false}. It is the same kind of session edit as PATCH, so it takes the
 // same route-level auth; the star lives on the row, so it survives the

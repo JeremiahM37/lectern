@@ -121,6 +121,7 @@ const catalog: Record<string, string> = {
   "basics.notInstalledList": "설치되지 않음: {names}",
   "basics.manageAgents": "에이전트 관리",
   "basics.askHint": "에이전트가 명령을 실행하거나 파일을 편집하기 전에 묻습니다. 모든 새 세션에 적용됩니다.",
+  "basics.restartAllHint": "모든 에이전트를 같은 대화로 다시 시작합니다. 예를 들어 Claude Code를 업데이트한 뒤에.",
   "basics.remoteControl": "새 claude 세션을 Claude 앱에서도 열기",
   "basics.remoteControlHint": "새 claude 세션은 모두 claude.ai/code, Claude 앱, Claude Duet에서도 조작할 수 있습니다 (Remote Control). claude.ai 로그인이 필요하며, 쓸 수 없는 세션은 그냥 시작됩니다.",
   "basics.remoteControlOn": "새 claude 세션이 Claude 앱에서도 열립니다.",

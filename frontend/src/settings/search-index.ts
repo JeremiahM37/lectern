@@ -42,6 +42,7 @@ const rows: [string, string, string, string][] = [
   ["basics", "basics.ask", "start.sheet.ask", "permission mode approvals ask bypass yolo risky safety"],
   ["basics", "basics.remoteControl", "basics.remoteControl", "remote control claude app duet phone claude.ai code rc mobile"],
   ["basics", "basics.remoteControlAll", "basics.remoteControlAllButton", "remote control all running sessions claude app duet rc"],
+  ["basics", "basics.restartAll", "sessions.restartAll.title", "restart all sessions agents resume reboot update relaunch"],
   ["basics", "basics.phone", "phone.title", "pair qr code phone mobile tailscale relay connect"],
   ["basics", "basics.alerts", "basics.alerts", "push notifications phone alerts"],
   ["basics", "basics.agents", "basics.agents", "installed agents claude codex gemini"],

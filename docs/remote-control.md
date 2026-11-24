@@ -45,7 +45,17 @@ live claude session and reports each one:
 | `skipped` | cannot use it: another agent, an API key, a sandbox, or a Claude Code too old for it, with the reason |
 
 A session restored or reopened later picks the default up again, so a
-session from before this default gets it on its next start too.
+session from before this default gets it on its next start too. [Restart all
+sessions](sessions-restart.md) does that for every session at once without
+typing anything into them, which is the cleaner way to bring existing
+sessions in.
+
+`/remote-control` is typed only when the session's own prompt is empty: text
+someone left there, a subagent's view or an open menu makes it wait like a
+busy session. Only what claude prints after the command answers it, and a
+claude.ai link counts as the session's own only after claude's
+"/remote-control is active" line or its status panel (which Lectern closes
+again), never a link the agent wrote in a reply.
 
 Claude Duet and other claude.ai apps reach Lectern through its claude.ai
 connector ([web-connector.md](web-connector.md)); Remote Control is what puts

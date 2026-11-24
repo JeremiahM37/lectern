@@ -6,6 +6,7 @@ import { saveAppearance, useAppearance } from "../theme/appearance";
 import { usePref } from "../prefs/store";
 import { ENTER_PREF, type EnterMode } from "../sessions/enter";
 import { LANGUAGES, t, useLocale } from "../i18n";
+import { RestartAllDialog } from "../sessions/RestartAll";
 
 interface AgentCheck {
   name: string;
@@ -185,6 +186,7 @@ function RemoteControlRows({
   const [on, setOn] = useState(String(values.remote_control_default ?? "") !== "0");
   const [busy, setBusy] = useState(false);
   const [outcomes, setOutcomes] = useState<RemoteControlOutcome[]>();
+  const [restart, setRestart] = useState(false);
   useEffect(() => setOn(String(values.remote_control_default ?? "") !== "0"), [values.remote_control_default]);
   async function save(next: boolean) {
     setOn(next);
@@ -246,6 +248,16 @@ function RemoteControlRows({
           {busy ? "…" : t("basics.remoteControlAllButton")}
         </button>
       </div>
+      <div className="basics-row" data-setting="basics.restartAll">
+        <span className="basics-label">
+          {t("sessions.restartAll.title")}
+          <span className="basics-hint">{t("basics.restartAllHint")}</span>
+        </span>
+        <button type="button" className="b" id="basics-restart-all" onClick={() => setRestart(true)}>
+          {t("sessions.restartAll.button")}
+        </button>
+      </div>
+      {restart && <RestartAllDialog api={api} onClose={() => setRestart(false)} onNotice={onNotice} />}
     </>
   );
 }

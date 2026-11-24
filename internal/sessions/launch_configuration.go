@@ -43,6 +43,9 @@ type LaunchConfiguration struct {
 	// (docs/remote-control.md). A continuation that cannot use it (another
 	// agent, a non-Anthropic endpoint) drops it without failing.
 	RemoteControl bool `json:"remote_control,omitempty"`
+	// NoRemoteControl keeps a session that opted out of the
+	// remote_control_default setting out of it on every continuation too.
+	NoRemoteControl bool `json:"no_remote_control,omitempty"`
 }
 
 // profileBriefing renders a captured profile's instructions as a labelled,

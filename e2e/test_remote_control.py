@@ -92,3 +92,16 @@ def test_turn_on_in_all_running_sessions_from_settings(page, server):
     expect(outcomes).to_contain_text("Everywhere one", timeout=30000)
     expect(outcomes.locator("li", has_text="Everywhere two")).to_have_attribute(
         "data-status", __import__("re").compile("on|already|pending"))
+
+
+def test_restart_all_sessions_confirm_dialog_shows_the_plan(page, server):
+    _session(page, server, "Restart me", remote_control=False)
+    page.goto(server + "/#sessions")
+    page.locator("#sess-more > summary").click()
+    page.locator("#sess-restart-all").click()
+    dialog = page.locator("#restart-all")
+    expect(dialog).to_be_visible()
+    expect(dialog.locator("#restart-all-list")).to_contain_text("Restart me", timeout=15000)
+    expect(dialog.locator("#restart-all-counts")).to_contain_text("restart now")
+    dialog.locator("[data-close]").click()
+    expect(dialog).to_have_count(0)

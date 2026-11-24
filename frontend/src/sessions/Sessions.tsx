@@ -17,6 +17,7 @@ import { Conversation } from "./Conversation";
 import { NativeHistory, NativeSearch } from "./SavedConversations";
 import { Modal } from "./Modal";
 import { ProjectEditor } from "./ProjectEditor";
+import { RestartAllDialog } from "./RestartAll";
 import { WorkspaceExtension } from "./WorkspaceExtension";
 import { SessionCard } from "./SessionCard";
 import { SessionGroups, type GroupMode } from "./SessionGroups";
@@ -137,6 +138,7 @@ export function Sessions({
     [workspaceSession, setWorkspaceSession] = useState<SessionView>(),
     [groupSession, setGroupSession] = useState<SessionView>(),
     [projectSession, setProjectSession] = useState<SessionView>(),
+    [restartAll, setRestartAll] = useState(false),
     [archiveText, setArchiveText] = useState<{
       name: string;
       text: string;
@@ -714,6 +716,7 @@ export function Sessions({
       <div className="sess-sheet-group">
         {sheetItem("sess-recent", "restore", t("sessions.list.restoreClosedLabel"), () => setRecentOpen((open) => !open), recentOpen)}
         {sheetItem("sess-scratch", "cleanup", t("sessions.scratchReview.summary"), () => setScratchShown(true))}
+        {sheetItem("sess-restart-all", "restore", t("sessions.restartAll.title"), () => setRestartAll(true))}
       </div>
     </div>
   );
@@ -770,6 +773,16 @@ export function Sessions({
               }}
             >
               {t("sessions.scratchReview.summary")}
+            </button>
+            <button
+              className="b"
+              id="sess-restart-all"
+              onClick={(event) => {
+                setRestartAll(true);
+                event.currentTarget.closest("details")?.removeAttribute("open");
+              }}
+            >
+              {t("sessions.restartAll.title")}
             </button>
           </div>
           )}
@@ -955,6 +968,7 @@ export function Sessions({
           onNotice={onNotice}
         />
       )}{" "}
+      {restartAll && <RestartAllDialog api={api} onClose={() => { setRestartAll(false); void load(); }} onNotice={onNotice} />}{" "}
       {projectSession && (
         <ProjectEditor
           api={api}

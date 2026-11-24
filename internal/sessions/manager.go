@@ -124,9 +124,12 @@ type Manager struct {
 	checkpointClosed     bool
 	contextDelivered     map[int64]contextDelivery
 	// rcPending are sessions "turn Remote Control on for every session" found
-	// busy; RetryRemoteControl turns it on once each is waiting for you.
+	// busy; RetryPending turns it on once each is waiting for you.
 	rcPending  map[int64]bool
 	rcRetrying bool
+	// restartPending are sessions "restart all" found busy (restart_all.go).
+	restartPending map[int64]bool
+	restartResults map[int64]RestartOutcome
 	// rcProbes are machines' answers to claudeHasRemoteControl.
 	rcProbes map[string]remoteControlProbe
 }
@@ -513,7 +516,8 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		return nil, err
 	}
 	remoteControl := o.RemoteControl || config.RemoteControl
-	if !remoteControl && !o.NoRemoteControl && config.Spec.SupportsRemoteControl() && m.RemoteControlByDefault() {
+	optedOut := o.NoRemoteControl || (config.NoRemoteControl && !o.RemoteControl)
+	if !remoteControl && !optedOut && config.Spec.SupportsRemoteControl() && m.RemoteControlByDefault() {
 		remoteControl = true
 	}
 	if remoteControl {
@@ -763,6 +767,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		}
 	}
 	config.Spec, config.Yolo, config.RemoteControl = spec, o.Yolo, remoteControl
+	config.NoRemoteControl = optedOut && !remoteControl
 	if askPermission {
 		config.PermissionMode = "ask"
 	} else {

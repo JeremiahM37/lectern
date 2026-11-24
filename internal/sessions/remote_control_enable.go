@@ -77,7 +77,7 @@ func (m *Manager) EnableRemoteControl(ctx context.Context, id int64) (*store.Ses
 	if err != nil {
 		return nil, err
 	}
-	config.RemoteControl = true
+	config.RemoteControl, config.NoRemoteControl = true, false
 	if err := m.DB.Update("sessions", id, map[string]any{"launch_config_json": store.J(config)}); err != nil {
 		return nil, err
 	}

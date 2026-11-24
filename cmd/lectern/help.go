@@ -311,6 +311,19 @@ answer it in that session's terminal (/remote-control) and run --all again.`,
 		Examples: []string{"lectern remote-control --all"},
 	},
 	{
+		Name: "restart", Group: groupStart, Synopsis: "restart --all",
+		Summary: "Restart every session, each resuming its own conversation",
+		Usage:   []string{"lectern restart --all [--dry-run] [--no-wait]"},
+		About: `Stops each session's agent and starts it again in the same session, resuming
+the same conversation with the same name, project, worktree and settings.
+claude sessions come back with Remote Control on when they can use it. Idle
+sessions restart one at a time; one that is working, asking a question or
+has text typed at its prompt waits until it is idle, and is never stopped
+mid-turn. Shells, and sessions whose conversation cannot be resumed, are
+skipped with the reason. --dry-run only says what would happen.`,
+		Examples: []string{"lectern restart --all --dry-run", "lectern restart --all"},
+	},
+	{
 		Name: "backup", Group: groupProjects, Synopsis: "backup [setup|export|list|restore]",
 		Summary: "Back up everything to a private GitHub repository, and restore it",
 		Usage: []string{

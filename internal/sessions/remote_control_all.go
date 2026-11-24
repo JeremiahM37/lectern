@@ -53,7 +53,7 @@ type RemoteControlOutcome struct {
 
 // EnableRemoteControlAll turns Remote Control on in every live session that
 // can use it. A session that is busy is remembered and turned on by
-// RetryRemoteControl once it is waiting for you.
+// RetryPending once it is waiting for you.
 func (m *Manager) EnableRemoteControlAll(ctx context.Context) ([]RemoteControlOutcome, error) {
 	live, err := m.DB.LiveSessions()
 	if err != nil {
@@ -132,13 +132,14 @@ func (m *Manager) RemoteControlPendingIDs() []int64 {
 	return ids
 }
 
-// RetryRemoteControl turns Remote Control on in each pending session that is
-// now waiting for you, and forgets those that ended or got it another way.
-// The scheduler calls it after every poll; a call while one is still running
-// returns at once, since each enable can watch a screen for a few seconds.
-func (m *Manager) RetryRemoteControl(ctx context.Context) {
+// RetryPending does the deferred work of "turn Remote Control on everywhere"
+// and "restart all sessions" in each session that is now waiting for you, and
+// forgets those that ended. The scheduler calls it after every poll; a call
+// while one is still running returns at once, since each step can watch a
+// screen for a while.
+func (m *Manager) RetryPending(ctx context.Context) {
 	m.mu.Lock()
-	if m.rcRetrying || len(m.rcPending) == 0 {
+	if m.rcRetrying || len(m.rcPending)+len(m.restartPending) == 0 {
 		m.mu.Unlock()
 		return
 	}
@@ -149,6 +150,7 @@ func (m *Manager) RetryRemoteControl(ctx context.Context) {
 		m.rcRetrying = false
 		m.mu.Unlock()
 	}()
+	m.retryRestarts(ctx)
 	for _, id := range m.RemoteControlPendingIDs() {
 		sess, err := m.DB.Session(id)
 		if err != nil || sess.RemoteControl || sess.EndedAt != nil || sess.Status == StatusDead || sess.AgentExitedAt != nil {
