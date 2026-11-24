@@ -19,6 +19,14 @@ import (
 // the prompt instead of running.
 var ErrRemoteControlBusy = errors.New("the agent is busy: turn Remote Control on once it is waiting for you")
 
+// ErrRemoteControlNotAtPrompt refuses typing /remote-control while the prompt
+// is not empty and free (see remoteControlPromptText).
+var ErrRemoteControlNotAtPrompt = errors.New("text is typed in its prompt, or a menu or subagent view is open: turn Remote Control on once its prompt is empty")
+
+// ErrRemoteControlUnconfirmed is a /remote-control that claude did not show
+// running as a command; the session is not marked.
+var ErrRemoteControlUnconfirmed = errors.New("claude did not take /remote-control as a command; open the session and run /remote-control there")
+
 // ErrRemoteControlConsent is Claude Code's one-time "Enable Remote Control"
 // question. Lectern does not answer it for the person: it closes the question
 // and says where to accept it.
@@ -56,6 +64,11 @@ func (m *Manager) EnableRemoteControl(ctx context.Context, id int64) (*store.Ses
 	}
 	if remoteControlBusy(sess, store.Now()) {
 		return nil, ErrRemoteControlBusy
+	}
+	// The command is typed into claude's prompt: text the person left there
+	// would be sent with it, and a subagent's view would take it as a message.
+	if typed, ok := remoteControlPromptText(m.screen(ctx, ex, sess)); !ok || typed != "" {
+		return nil, ErrRemoteControlNotAtPrompt
 	}
 	if err := m.SendNudge(ctx, id, "/remote-control "+RemoteControlName(sess.Name)); err != nil {
 		return nil, err
@@ -101,16 +114,31 @@ func (m *Manager) awaitRemoteControl(ctx context.Context, ex executor.Executor, 
 	deadline := time.Now().Add(remoteControlWait)
 	for {
 		pane := m.screen(ctx, ex, sess)
-		if remoteControlConsentShown(pane) {
+		// Only what follows the typed command answers it.
+		at := strings.LastIndex(pane, "❯ /remote-control")
+		after := ""
+		if at >= 0 {
+			after = pane[at:]
+		}
+		if remoteControlConsentShown(after) {
 			if err := m.SendKey(ctx, sess.ID, "escape"); err != nil {
 				m.Log.Warn("could not close the Remote Control question", "session", sess.ID, "err", err)
 			}
 			return "", ErrRemoteControlConsent
 		}
-		if remoteControlActive(pane) {
-			return RemoteControlURL(pane), nil
+		if remoteControlActive(after) {
+			if remoteControlPanelOpen(after) {
+				// It was on already; the status panel waits for a key.
+				if err := m.SendKey(ctx, sess.ID, "escape"); err != nil {
+					m.Log.Warn("could not close the Remote Control panel", "session", sess.ID, "err", err)
+				}
+			}
+			return remoteControlOwnURL(after), nil
 		}
 		if time.Now().After(deadline) {
+			if at < 0 {
+				return "", ErrRemoteControlUnconfirmed
+			}
 			m.Log.Info("remote control: no confirmation on screen yet", "session", sess.ID)
 			return "", nil
 		}
@@ -140,7 +168,7 @@ func (m *Manager) noteRemoteControlURL(s *store.Session, pane string, fields map
 	if !s.RemoteControl {
 		return
 	}
-	if url := RemoteControlURL(pane); url != "" && url != s.RemoteControlURL && strings.HasPrefix(url, "https://claude.ai/") {
+	if url := remoteControlOwnURL(pane); url != "" && url != s.RemoteControlURL && strings.HasPrefix(url, "https://claude.ai/") {
 		fields["remote_control_url"] = url
 	}
 }

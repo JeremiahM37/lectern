@@ -79,6 +79,15 @@ func (m *Mock) SetPaneLimit(sess, message string) bool {
 	return true
 }
 
+// AppendPaneText adds lines to a scripted pane, as if they were on screen.
+func (m *Mock) AppendPaneText(sess, text string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if pane, ok := m.panes[sess]; ok {
+		pane.lines = append(pane.lines, strings.Split(text, "\n")...)
+	}
+}
+
 // PaneText is the current text of a scripted pane.
 func (m *Mock) PaneText(sess string) string {
 	text, _ := m.capture(sess)

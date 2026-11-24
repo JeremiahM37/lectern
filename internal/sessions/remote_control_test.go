@@ -131,3 +131,30 @@ func TestRemoteControlBusyTrustsAFreshHook(t *testing.T) {
 		}
 	}
 }
+
+// Real screens from the first live run: a draft left in the prompt, a
+// subagent's view, the already-on status panel, and an agent's reply that
+// quotes another session's link.
+func TestRemoteControlReadsOnlyItsOwnScreen(t *testing.T) {
+	draft := "──────\n❯ in librarr respond to existing\n──────\n  Opus 5.5 · 10% ctx"
+	if typed, ok := remoteControlPromptText(draft); !ok || typed != "in librarr respond to existing" {
+		t.Fatalf("draft: %q %v", typed, ok)
+	}
+	if _, ok := remoteControlPromptText("─── Read batch C4 ─\n❯ Message @general-purpose…\n───"); ok {
+		t.Fatal("a subagent's view is not the session's prompt")
+	}
+	if typed, ok := remoteControlPromptText("❯ nv\n● Okay.\n▔▔▔\n   Remote Control\n   ❯ Continue\n   Enter to select · Esc to continue"); !ok || typed == "" {
+		t.Fatalf("an open panel must not read as an empty prompt: %q %v", typed, ok)
+	}
+	if typed, ok := remoteControlPromptText("──────\n❯ \n──────"); !ok || typed != "" {
+		t.Fatalf("empty prompt: %q %v", typed, ok)
+	}
+	reply := "● I turned on Remote Control for #203:\n  https://claude.ai/code/session_0153RyKhJnBVPjcDmiWL74GG\n❯ "
+	if remoteControlActive(reply) || remoteControlOwnURL(reply) != "" {
+		t.Fatal("an agent's reply about another session is not this session's link")
+	}
+	panel := "❯ /remote-control x\n   Remote Control\n   This session is available in the Claude mobile app and at https://claude.ai/code/session_01Ci9u1AUgbmsRWuHXGtBfwS.\n     Disconnect this session"
+	if !remoteControlActive(panel) || !remoteControlPanelOpen(panel) || remoteControlOwnURL(panel) != "https://claude.ai/code/session_01Ci9u1AUgbmsRWuHXGtBfwS" {
+		t.Fatal("the already-on panel")
+	}
+}

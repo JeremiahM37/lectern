@@ -193,3 +193,24 @@ func TestRemoteControlForEveryRunningSession(t *testing.T) {
 		}
 	}
 }
+
+// Text left in the prompt is never sent along with /remote-control: the
+// session waits until its prompt is empty.
+func TestRemoteControlLeavesADraftAlone(t *testing.T) {
+	h := newHarness(t)
+	pid := h.seededProjectID()
+	row := h.session(obj{"project_id": pid, "name": "drafting", "agent": "claude", "remote_control": false})
+	h.waitSessionStatus(row.id(), "waiting", "idle")
+	h.mock().AppendPaneText(fmt.Sprintf("lec-s%d", row.id()), "──────\n❯ half a thought\n──────")
+	var out obj
+	h.decode("POST", fmt.Sprintf("/api/sessions/%d/remote-control", row.id()), obj{}, 409, &out)
+	if strings.Contains(h.mock().PaneText(fmt.Sprintf("lec-s%d", row.id())), "/remote-control") {
+		t.Fatal("the command was typed after the draft")
+	}
+	res := h.post("/api/remote-control/all", obj{}, 200)
+	for _, r := range res["sessions"].([]any) {
+		if rr := obj(r.(map[string]any)); rr.id() == row.id() && rr.str("status") != "pending" {
+			t.Fatalf("a session with a draft waits: %v", rr)
+		}
+	}
+}

@@ -99,6 +99,12 @@ func (m *Manager) enableRemoteControlOne(ctx context.Context, row RemoteControlO
 		}
 		m.rcPending[row.ID] = true
 		row.Status, row.Reason = RemoteControlPending, "busy: it is turned on once the agent is waiting for you"
+	case errors.Is(err, ErrRemoteControlNotAtPrompt):
+		if m.rcPending == nil {
+			m.rcPending = map[int64]bool{}
+		}
+		m.rcPending[row.ID] = true
+		row.Status, row.Reason = RemoteControlPending, err.Error()
 	case errors.Is(err, ErrRemoteControlTooOld):
 		delete(m.rcPending, row.ID)
 		row.Status, row.Reason = RemoteControlSkipped, err.Error()

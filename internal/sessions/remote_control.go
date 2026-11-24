@@ -83,9 +83,55 @@ func remoteControlConsentShown(pane string) bool {
 	return strings.Contains(pane, "Enable Remote Control") && strings.Contains(pane, "Never mind")
 }
 
-// remoteControlActive recognises the line claude prints once it is connected.
+// remoteControlMarkers are what claude itself prints about its own Remote
+// Control: the line once it connects, and the status panel /remote-control
+// opens in a session that already has it.
+var remoteControlMarkers = []string{"/remote-control is active", "This session is available in the Claude"}
+
+// remoteControlActive recognises claude saying it is connected.
 func remoteControlActive(pane string) bool {
-	return strings.Contains(pane, "/remote-control is active") || RemoteControlURL(pane) != ""
+	for _, marker := range remoteControlMarkers {
+		if strings.Contains(pane, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// remoteControlOwnURL is the session link claude printed about itself, or "".
+// Any other claude.ai link on the screen (one the agent wrote in a reply,
+// say, about another session) is not this session's.
+func remoteControlOwnURL(pane string) string {
+	at := -1
+	for _, marker := range remoteControlMarkers {
+		if i := strings.LastIndex(pane, marker); i > at {
+			at = i
+		}
+	}
+	if at < 0 {
+		return ""
+	}
+	return remoteControlURLPattern.FindString(pane[at:])
+}
+
+// remoteControlPanelOpen is the status panel /remote-control opens in a
+// session that already has it; it waits for a key.
+func remoteControlPanelOpen(pane string) bool {
+	return strings.Contains(pane, "Disconnect this session")
+}
+
+// remoteControlPromptText is what is typed at claude's prompt: the text after
+// the last "❯" that starts a line (a menu's ❯ is indented). ok is false when
+// no prompt is on screen or a subagent's view has it ("Message @…").
+func remoteControlPromptText(pane string) (typed string, ok bool) {
+	lines := strings.Split(pane, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if rest, found := strings.CutPrefix(lines[i], "❯"); found {
+			typed = strings.TrimSpace(strings.ReplaceAll(rest, "\u00a0", " "))
+			return typed, !strings.HasPrefix(typed, "Message @")
+		}
+	}
+	return "", false
 }
 
 func remoteControlName(on bool, name string) string {
