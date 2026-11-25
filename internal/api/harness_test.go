@@ -99,6 +99,25 @@ func (h *harness) mock() *executor.Mock {
 	return m
 }
 
+// mockFor is one target's executor. h.mock picks any cached one, which is
+// only right while a test has used a single target.
+func (h *harness) mockFor(targetID int64) *executor.Mock {
+	h.t.Helper()
+	target, err := h.App.DB.Target(targetID)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	ex, err := h.App.Reg.For(target)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	m, ok := ex.(*executor.Mock)
+	if !ok {
+		h.t.Fatalf("expected a mock executor, got %T", ex)
+	}
+	return m
+}
+
 // ---- HTTP ---------------------------------------------------------------
 
 func (h *harness) request(method, path string, body any, headers map[string]string) (int, []byte) {

@@ -19,7 +19,7 @@ start=$(sed 's/.*) //' /proc/$$/stat | cut -d' ' -f20)
 mkdir -p "$CLAUDE_CONFIG_DIR/sessions"
 printf '{"pid":%d,"procStart":"%s","kind":"interactive","entrypoint":"cli","cwd":"%s","sessionId":"%s"}' $$ "$start" "$PWD" "$FAKE_CID" > "$CLAUDE_CONFIG_DIR/sessions/$$.json.tmp"
 mv "$CLAUDE_CONFIG_DIR/sessions/$$.json.tmp" "$CLAUDE_CONFIG_DIR/sessions/$$.json"
-exec "$FAKE_BIN" 600
+exec "$FAKE_BIN" -c 'while :; do sleep 600; done'
 `
 
 func tmuxSession(t *testing.T, name, dir, command string) {
@@ -70,13 +70,15 @@ func TestNativeIdentityRealPaneParity(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("CODEX_HOME", "")
 
-	// Copies of sleep stand in for the CLIs, so each process's executable
-	// has the agent's name.
-	sleep, err := exec.LookPath("sleep")
+	// Copies of bash stand in for the CLIs (each waits in a sleep child), so
+	// each process's executable and argv[0] have the agent's name. Not
+	// sleep: a multi-call coreutils (uutils, Ubuntu 26.04's default) picks
+	// the tool from argv[0] and will not run as "claude".
+	standIn, err := exec.LookPath("bash")
 	if err != nil {
-		t.Skip("sleep unavailable")
+		t.Skip("bash unavailable")
 	}
-	data, err := os.ReadFile(sleep)
+	data, err := os.ReadFile(standIn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +98,7 @@ func TestNativeIdentityRealPaneParity(t *testing.T) {
 	codexCID := "22222222-2222-4222-8222-222222222222"
 	transcript := filepath.Join(codexHome, "sessions", "rollout-"+codexCID+".jsonl")
 	writeFile(t, transcript, lines(`{"type":"session_meta","payload":{"id":"`+codexCID+`","cwd":`+jsonStr(work)+`,"source":"vscode"}}`), time.Time{})
-	tmuxSession(t, "lec-codex", work, "exec 3<"+shq(transcript)+"; CODEX_HOME="+shq(codexHome)+" exec "+shq(filepath.Join(bin, "codex"))+" 600")
+	tmuxSession(t, "lec-codex", work, "exec 3<"+shq(transcript)+"; CODEX_HOME="+shq(codexHome)+" exec "+shq(filepath.Join(bin, "codex"))+" -c 'while :; do sleep 600; done'")
 
 	waitFor(t, "the fake claude session file", func() bool {
 		entries, _ := os.ReadDir(filepath.Join(claudeHome, "sessions"))

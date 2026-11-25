@@ -149,7 +149,17 @@ for s in json.loads(sys.argv[1]): print(json.dumps(seconds(s)))`
 		t.Fatalf("python failed: %s", out)
 	}
 	want := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	// The Go port follows fromisoformat as of Python 3.11-3.13. Python 3.14
+	// changed these shapes (24:00 and fractional hours or minutes, among
+	// others), so on 3.14 and later they are left out of the comparison.
+	changedIn314 := map[string]bool{"2026-09-27T09:20:06:07": true, "2026-09-27T24:00": true, "2026-09-27T09.5": true,
+		"2026-09-27T09:20.5": true, "2026-09-27T09:20:06+05.5": true}
+	verOut, _ := runPython(t, "import sys; print(sys.version_info >= (3, 14))")
+	py314 := strings.TrimSpace(verOut) == "True"
 	for i, s := range inputs {
+		if py314 && changedIn314[s] {
+			continue
+		}
 		v, err := seconds(s)
 		if err != nil {
 			t.Fatal(err)

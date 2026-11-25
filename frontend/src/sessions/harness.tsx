@@ -80,6 +80,7 @@ const api: SessionsApi = {
     calls.push([p, o]);
     if (p === "/agents") return [{ name: "claude", builtin: true }];
     if (p === "/launch-profiles") return [];
+    if (p === "/projects") return [project];
     if (p.startsWith("/sessions/restorable")) return [];
     if (p === "/targets/1/agents") return [{name:"claude", state:"available"}];
     if (p === "/approvals?status=pending") return [];

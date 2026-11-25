@@ -21,12 +21,20 @@ from conftest import _binary, CHORD_GAP, TMUX_PREFIXES
 from test_terminal_workspace import real_terminal
 
 
+class _Screen(pyte.Screen):
+    # tmux 3.6 asks the outer terminal for its cursor with DECXCPR
+    # (CSI ? 6 n); pyte 0.8.2 passes private=True, which its own
+    # report_device_status does not accept, and the whole stream dies.
+    def report_device_status(self, mode, *args, private=False, **kwargs):
+        return super().report_device_status(mode)
+
+
 class Dashboard:
     def __init__(self,t,args=(),outer_tmux=False):
         self.master,self.slave=pty.openpty()
         self.original=termios.tcgetattr(self.slave)
         fcntl.ioctl(self.slave,termios.TIOCSWINSZ,struct.pack('HHHH',35,120,0,0))
-        self.screen=pyte.Screen(120,35);self.stream=pyte.Stream(self.screen)
+        self.screen=_Screen(120,35);self.stream=pyte.Stream(self.screen)
         self.decoder=codecs.getincrementaldecoder('utf-8')('replace')
         def controlling_terminal():
             os.setsid();fcntl.ioctl(0,termios.TIOCSCTTY,0)
