@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/backup"
@@ -53,6 +54,14 @@ import (
 
 // Server wires every dependency the handlers need.
 type Server struct {
+	// Updater and Restart let the server update itself from its UI
+	// (self_update.go); both are set by the command that runs it. Restart
+	// re-execs the server in place, with sessions restarted afterwards when
+	// asked.
+	Updater                  SelfUpdater
+	Restart                  func(restartSessions bool)
+	update                   updateState
+	sessionsRestartScheduled atomic.Bool
 	// PhoneURL is the tailnet HTTPS origin (real certificate) once that
 	// listener is up — the address to hand a phone. Empty otherwise.
 	PhoneURL string
@@ -441,6 +450,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/remote-control/all", s.enableRemoteControlAll)
 	mux.HandleFunc("GET /api/restart-all", s.restartAllPlan)
 	mux.HandleFunc("POST /api/restart-all", s.restartAll)
+	// updating this Lectern from its UI, then restarting every session (self_update.go)
+	mux.HandleFunc("GET /api/update", s.getUpdate)
+	mux.HandleFunc("POST /api/update", s.postUpdate)
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.deleteSession)
 	mux.HandleFunc("POST /api/sessions/{id}/restore", s.restoreSession)
 	mux.HandleFunc("POST /api/sessions/{id}/reopen", s.reopenSession)

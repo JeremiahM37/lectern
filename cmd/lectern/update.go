@@ -144,8 +144,19 @@ func (u *updater) run(ctx context.Context, current, want string, checkOnly bool)
 		fmt.Fprintf(u.out, "lectern %s is available (this is %s). Run: lectern update\n", tag, current)
 		return false, nil
 	}
+	if err := u.install(ctx, tag); err != nil {
+		return false, err
+	}
+	fmt.Fprintf(u.out, "Updated %s from %s to %s.\n", u.exe, current, tag)
+	u.installed = tag
+	return true, nil
+}
+
+// install downloads tag's archive for this platform, checks it against the
+// release's checksums, and swaps it in for u.exe.
+func (u *updater) install(ctx context.Context, tag string) error {
 	if tool, command := managedBy(u.exe); tool != "" {
-		return false, fmt.Errorf("this lectern was installed with %s; update it with: %s", tool, command)
+		return fmt.Errorf("this lectern was installed with %s; update it with: %s", tool, command)
 	}
 	archive := fmt.Sprintf("lectern_%s_%s.tar.gz", u.goos, u.arch)
 	if u.goos == "windows" {
@@ -158,29 +169,27 @@ func (u *updater) run(ctx context.Context, current, want string, checkOnly bool)
 	fmt.Fprintf(u.out, "Downloading lectern %s (%s)…\n", tag, archive)
 	data, err := u.get(ctx, base+"/"+archive)
 	if err != nil {
-		return false, err
+		return err
 	}
 	sums, err := u.get(ctx, base+"/checksums.txt")
 	if err != nil {
-		return false, err
+		return err
 	}
 	if err := verifyChecksum(data, sums, archive); err != nil {
-		return false, err
+		return err
 	}
 	binary, err := extractLectern(data, u.goos)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if err := replaceExecutable(u.exe, binary, u.goos); err != nil {
 		var perm *os.PathError
 		if errors.As(err, &perm) && errors.Is(err, os.ErrPermission) {
-			return false, fmt.Errorf("cannot write %s: %w. Run it with the rights to that folder (for example: sudo lectern update)", u.exe, err)
+			return fmt.Errorf("cannot write %s: %w. Run it with the rights to that folder (for example: sudo lectern update)", u.exe, err)
 		}
-		return false, err
+		return err
 	}
-	fmt.Fprintf(u.out, "Updated %s from %s to %s.\n", u.exe, current, tag)
-	u.installed = tag
-	return true, nil
+	return nil
 }
 
 func (u *updater) latest(ctx context.Context) (string, error) {

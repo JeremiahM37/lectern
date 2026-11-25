@@ -388,6 +388,24 @@ func main() {
 	}
 	defer a.Close()
 
+	// Update and restart from the UI (server_update.go).
+	restart := make(chan bool, 1)
+	selfUpdater, updaterErr := newServerUpdater()
+	if updaterErr == nil {
+		a.Server.Updater = selfUpdater
+		a.Server.Restart = func(restartSessions bool) {
+			select {
+			case restart <- restartSessions:
+			default:
+			}
+		}
+	}
+	if os.Getenv(restartSessionsEnv) == "1" {
+		_ = os.Unsetenv(restartSessionsEnv)
+		log.Info("started by an update; restarting every session with its own conversation shortly")
+		a.Server.RestartSessionsAfterUpdate(8 * time.Second)
+	}
+
 	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
 	srv := &http.Server{
 		Addr:    addr,
@@ -415,8 +433,13 @@ func main() {
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	<-stop
-	log.Info("shutting down")
+	restarting, restartSessions := false, false
+	select {
+	case <-stop:
+	case restartSessions = <-restart:
+		restarting = true
+	}
+	log.Info("shutting down", "restart", restarting)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if tlsSrv != nil {
@@ -424,6 +447,10 @@ func main() {
 	}
 	a.Server.DrainStreams()
 	_ = srv.Shutdown(ctx)
+	if restarting {
+		a.Close()
+		restartInPlace(selfUpdater.u.exe, restartSessions, log)
+	}
 }
 
 // startTLSListener brings up the tailnet-bound HTTPS listener (see

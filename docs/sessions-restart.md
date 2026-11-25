@@ -33,3 +33,35 @@ restart forgets them, and running it again picks them up.
 The MCP tool is not offered over the claude.ai connector
 ([web-connector.md](web-connector.md)): restarting the whole board is the
 operator's own maintenance.
+
+## Update and restart
+
+When a newer Lectern release is out, the same dialog (Settings → Basics, or
+the sessions list's ⋯ menu → *Restart all sessions*) says so and offers
+**Update and restart all**. `GET /api/update` reports `current`, `latest`,
+`available`, and whether this server can update itself (`can_update`,
+`reason`). `POST /api/update` (optionally `{"version": "v2.10.6"}` or
+`{"restart_sessions": false}`) then:
+
+1. downloads the release archive for this platform, checks it against the
+   release's `checksums.txt`, and runs the new program once before swapping
+   it in, the same steps as `lectern update`; nothing changes if any of
+   these fail;
+2. answers, then restarts the server **in place** (same process ID, arguments
+   and environment, so a service manager sees no exit). Sessions run in their
+   own tmux or PTY host and keep running through it;
+3. the new server restarts every session, as above: idle ones one at a
+   time, busy ones once they wait for you, each into its own conversation.
+
+The dialog follows each step and then the sessions' progress. Like editing
+files, it needs a signed-in person (a token or tailnet identity), not a
+process on the server.
+
+The server can only replace a program it is allowed to write. It cannot
+update itself when a package manager owns it (Homebrew, Scoop, .deb, .rpm),
+when its folder belongs to another user (for example a root-owned
+`/usr/local/bin/lectern` run by a service user), or on Windows. The dialog
+then names the command to use instead.
+
+This updates the server. Update the `lectern` program on each computer you
+attach from with `lectern update`.

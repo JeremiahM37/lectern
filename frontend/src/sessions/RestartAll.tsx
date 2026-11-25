@@ -10,9 +10,27 @@ interface RestartRow {
   reason?: string;
 }
 
+interface UpdateView {
+  current: string;
+  latest?: string;
+  available: boolean;
+  can_update: boolean;
+  reason?: string;
+  phase?: string;
+  target?: string;
+  error?: string;
+  sessions_restart?: string;
+}
+
+type UpdatePhase = "idle" | "installing" | "restarting" | "sessions" | "failed";
+
+const bare = (v: string) => v.replace(/^v/, "");
+
 // "Restart all sessions" (docs/sessions-restart.md): the confirm dialog shows
 // what will happen to each session before anything is stopped, then follows
-// the run, since idle sessions restart one at a time.
+// the run, since idle sessions restart one at a time. When a newer Lectern
+// is out, the same dialog updates the server first: it installs the release,
+// restarts in place, and the new server restarts every session.
 export function RestartAllDialog({
   api,
   onClose,
@@ -26,6 +44,46 @@ export function RestartAllDialog({
   const [rows, setRows] = useState<RestartRow[]>();
   const [started, setStarted] = useState(false);
   const [error, setError] = useState("");
+  const [update, setUpdate] = useState<UpdateView>();
+  const [phase, setPhase] = useState<UpdatePhase>("idle");
+  const [target, setTarget] = useState("");
+  const [updateError, setUpdateError] = useState("");
+  useEffect(() => {
+    void api
+      .request<UpdateView>("/update")
+      .then(setUpdate)
+      .catch(() => {});
+  }, []);
+  // While the server restarts on the new release, wait for it to answer.
+  useEffect(() => {
+    if (phase !== "restarting") return;
+    const timer = window.setInterval(() => {
+      void api
+        .request<UpdateView>("/update")
+        .then((res) => {
+          if (bare(res.current) === bare(target)) {
+            setUpdate(res);
+            setPhase("sessions");
+            setStarted(true);
+          }
+        })
+        .catch(() => {});
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [phase, target]);
+  async function runUpdate() {
+    setPhase("installing");
+    setUpdateError("");
+    setTarget(update?.latest || "");
+    try {
+      const res = await api.request<{ to: string }>("/update", { method: "POST", body: { restart_sessions: true } });
+      setTarget(res.to);
+      setPhase("restarting");
+    } catch (err) {
+      setUpdateError(String(err));
+      setPhase("failed");
+    }
+  }
   useEffect(() => {
     void api
       .request<{ plan: RestartRow[] }>("/restart-all")
@@ -62,6 +120,35 @@ export function RestartAllDialog({
           ✕
         </button>
       </div>
+      <section id="update-lectern" data-phase={phase}>
+        {!update && <p className="subhint">{t("sessions.update.checking")}</p>}
+        {update && phase === "idle" && !update.available && <p id="update-status">{t("sessions.update.current", { current: update.current })}</p>}
+        {update && phase === "idle" && update.available && (
+          <>
+            <p id="update-status">{t("sessions.update.available", { latest: update.latest || "", current: update.current })}</p>
+            {update.can_update ? (
+              <>
+                <p className="subhint">{t("sessions.update.hint")}</p>
+                <button className="b ok" id="update-go" onClick={() => void runUpdate()}>
+                  {t("sessions.update.go")}
+                </button>
+              </>
+            ) : (
+              <p className="subhint" id="update-blocked">
+                {t("sessions.update.cannot", { reason: update.reason || "" })}
+              </p>
+            )}
+          </>
+        )}
+        {phase === "installing" && <p id="update-status" role="status">{t("sessions.update.installing", { target: target || update?.latest || "" })}</p>}
+        {phase === "restarting" && <p id="update-status" role="status">{t("sessions.update.restarting", { target })}</p>}
+        {phase === "sessions" && <p id="update-status" role="status">{t("sessions.update.done", { current: update?.current || target })}</p>}
+        {phase === "failed" && (
+          <p id="update-status" role="alert">
+            {t("sessions.update.failed", { error: updateError })}
+          </p>
+        )}
+      </section>
       <p className="subhint">{t("sessions.restartAll.hint")}</p>
       {!rows && !error && <p>…</p>}
       {rows && (
@@ -85,7 +172,12 @@ export function RestartAllDialog({
         {error}
       </p>
       {!started ? (
-        <button className="b ok" id="restart-all-go" disabled={!rows || count("restarting", "pending") === 0} onClick={() => void start()}>
+        <button
+          className={update?.available && update.can_update ? "b" : "b ok"}
+          id="restart-all-go"
+          disabled={!rows || count("restarting", "pending") === 0 || phase === "installing" || phase === "restarting"}
+          onClick={() => void start()}
+        >
           {t("sessions.restartAll.confirm")}
         </button>
       ) : (
