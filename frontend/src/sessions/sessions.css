@@ -470,7 +470,8 @@
    a button, so the title row keeps its height and actions. */
 .session-rc {
   flex: none;
-  color: var(--accent, var(--fg));
+  /* The text-safe accent: the plain one is too faint on the dark card. */
+  color: var(--accent-soft, var(--accent, var(--fg)));
   line-height: 1;
 }
 /* Restart all sessions (RestartAll.tsx): one line per session. */

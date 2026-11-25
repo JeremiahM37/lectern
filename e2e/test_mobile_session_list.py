@@ -104,7 +104,8 @@ def test_the_phone_more_sheet_is_grouped_and_aligned(page, server):
     expect(sheet).to_be_visible()
     expect(sheet.locator(".sess-sheet-group")).to_have_count(3)
     items = sheet.locator(".sess-sheet-item")
-    expect(items).to_have_count(4)
+    # Restore, search, group, show, and Restart all sessions.
+    expect(items).to_have_count(5)
     lefts = set()
     for i in range(items.count()):
         icon = items.nth(i).locator(".sheet-ic").bounding_box()
