@@ -501,7 +501,7 @@ export function Conversation({
     if (kind !== "session") return;
     void api
       .request<Project[]>("/projects")
-      .then(setProjects)
+      .then((list) => setProjects(Array.isArray(list) ? list : []))
       .catch(() => setProjects([]));
   }, [kind]);
   const projectName =

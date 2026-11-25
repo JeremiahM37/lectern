@@ -146,8 +146,9 @@ type filesModel struct {
 	rows        []fileRow
 	cursor      int
 	offset      int
-	want        string // the path to keep selected across a rebuild
-	revealing   string // a found file to select once its folder is listed
+	want        string       // the path to keep selected across a rebuild
+	revealing   string       // a found file to select once its folder is listed
+	early       []tea.KeyMsg // keys typed before the first listing arrived
 
 	finding    bool
 	input      textinput.Model
@@ -363,6 +364,7 @@ func (m *filesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.BlurMsg:
 		m.focused = false
 	case filesListMsg:
+		var replay []tea.KeyMsg
 		if msg.err != nil {
 			m.failed[msg.dir] = plainError(msg.err)
 			if msg.dir == "." {
@@ -371,6 +373,9 @@ func (m *filesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			delete(m.failed, msg.dir)
 			m.listings[msg.dir] = msg.entries
+			if msg.dir == "." {
+				replay, m.early = m.early, nil
+			}
 			for _, e := range msg.entries {
 				// git rewrites its own folder on every status; that is not the agent.
 				if e.Mtime > m.opened && e.Path != ".git" && !strings.HasPrefix(e.Path, ".git/") {
@@ -379,7 +384,12 @@ func (m *filesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.rebuild()
-		return m, m.schedulePreview()
+		cmds := []tea.Cmd{m.schedulePreview()}
+		for _, k := range replay {
+			_, cmd := m.Update(k)
+			cmds = append(cmds, cmd)
+		}
+		return m, tea.Batch(cmds...)
 	case filesGitMsg:
 		if msg.err == nil {
 			m.repo = msg.repo
@@ -454,6 +464,15 @@ func (m *filesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		return m, m.mouse(msg)
 	case tea.KeyMsg:
+		// Until the first listing arrives there is nothing to move over;
+		// keep what was typed (a quick "jjl" on opening) and replay it then.
+		// Quitting, help and find work at once.
+		if _, listed := m.listings["."]; !listed && m.failed["."] == "" && !m.finding && !earlyKeyNow(msg) {
+			if len(m.early) < 64 {
+				m.early = append(m.early, msg)
+			}
+			return m, nil
+		}
 		var cmd tea.Cmd
 		if m.finding {
 			cmd = m.findKey(msg)
@@ -618,6 +637,15 @@ func (m *filesModel) expand(dir string, open bool) tea.Cmd {
 	return nil
 }
 
+// earlyKeyNow is a key that does not wait for the first listing.
+func earlyKeyNow(msg tea.KeyMsg) bool {
+	switch msg.String() {
+	case "q", "ctrl+c", "?", "/", "esc":
+		return true
+	}
+	return false
+}
+
 func (m *filesModel) move(delta int) {
 	if len(m.rows) == 0 {
 		return
@@ -779,12 +807,15 @@ func (m *filesModel) stateOf(e fileEntry) string {
 		if kind, ok := m.status[e.Path+"/"]; ok {
 			return kind
 		}
+		if m.selfIgnored(e.Path) {
+			return "ignored"
+		}
 		if kind, ok := m.dirState[e.Path]; ok {
 			return kind
 		}
 	}
 	for dir := path.Dir(e.Path); dir != "." && dir != "/"; dir = path.Dir(dir) {
-		if m.status[dir+"/"] == "ignored" {
+		if m.status[dir+"/"] == "ignored" || m.selfIgnored(dir) {
 			return "ignored"
 		}
 		if kind := m.status[dir+"/"]; kind == "untracked" {
@@ -792,6 +823,14 @@ func (m *filesModel) stateOf(e fileEntry) string {
 		}
 	}
 	return ""
+}
+
+// selfIgnored is a folder that ignores itself with a .gitignore of "*", as
+// ruff, pytest and mypy caches do. git reports what is inside such a folder
+// as ignored but not the folder, and its .gitignore, which an ordinary
+// .gitignore never is.
+func (m *filesModel) selfIgnored(dir string) bool {
+	return m.status[dir+"/.gitignore"] == "ignored"
 }
 
 func (m *filesModel) hidden(e fileEntry) bool {
@@ -1176,6 +1215,11 @@ func (m *filesModel) header(width int) string {
 	}
 	if m.watchGen > 0 && m.watchMode == "" {
 		dot = fsFaint.Render("○")
+	}
+	// A watch can answer while the listing itself fails (the session is
+	// gone, or the server refuses): the files are not live then.
+	if m.failed["."] != "" {
+		dot = fsDel.Render("●")
 	}
 	changed := 0
 	for _, kind := range m.status {

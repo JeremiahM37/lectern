@@ -119,7 +119,15 @@ func execArgv(argv []string) error {
 	if err != nil {
 		return err
 	}
-	return syscall.Exec(binary, argv, os.Environ())
+	return syscall.Exec(binary, argv, splitEnv(os.Environ()))
+}
+
+// splitEnv is the environment of a split's shell command. The split runs in
+// a pane of the attachment's private tmux (or of the operator's own tmux, for
+// `lectern split`), whose $TMUX would make a plain `tmux attach -t lec-…`
+// talk to that server instead of the sessions' one and refuse to nest.
+func splitEnv(env []string) []string {
+	return withoutEnv(withoutEnv(env, "TMUX"), "TMUX_PANE")
 }
 
 // ---- `lectern split`: a shell beside an attachment, from the terminal's own split

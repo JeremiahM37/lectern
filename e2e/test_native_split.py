@@ -106,3 +106,24 @@ def test_split_opens_a_tracked_shell_in_the_agents_directory_on_its_machine(requ
             split.close()
     finally:
         d.close()
+
+
+def test_new_window_and_splits_work_in_a_shell_sessions_attachment(real_terminal, tmp_path):
+    """A shell session's attachment opens its own shells too: Ctrl+] c (a new
+    window), Ctrl+] | and Ctrl+] -, each a tracked shell in its directory."""
+    import subprocess
+    t = real_terminal
+    where = t['root']
+    subprocess.run(['tmux', 'new-session', '-d', '-s', 'plain-shell', '-c', str(where), 'bash --norc'], env=t['env'], check=True)
+    row = t['api']('/sessions/adopt', {'target_id': t['target_id'], 'tmux_session': 'plain-shell', 'name': 'Plain shell',
+                                      'agent': 'shell', 'workdir': str(where)})
+    mark = tmp_path / 'answer'
+    d = Dashboard(t, args=('attach', 'session', str(row['id'])))
+    try:
+        d.wait('Ctrl+] menu')
+        for keys in ('\x1dc', '\x1d|', '\x1d-'):
+            d.send(keys)
+            check_here(d, str(where), '', mark)
+            close_shell(d)
+    finally:
+        d.close()

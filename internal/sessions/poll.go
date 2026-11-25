@@ -351,18 +351,23 @@ func (m *Manager) applyPane(s *store.Session, pane string, missing bool) {
 	// reached this session in the last 10 minutes (or ever) — status itself
 	// keeps being derived from the pane exactly as before, unconditionally,
 	// so nothing here changes what the UI's primary indicator shows.
-	if screenState, ok := screenAgentState(status); ok {
+	screenState, writeState := screenAgentState(status)
+	if writeState {
 		hookFresh := s.HookSeenAt != nil && now-*s.HookSeenAt < agentStateFallbackWindow
-		if !hookFresh && (screenState != s.AgentState || s.StateSource != agentevents.SourceScreen) {
-			fields["agent_state"] = screenState
-			fields["state_source"] = agentevents.SourceScreen
-			fields["state_at"] = now
-		}
+		writeState = !hookFresh && (screenState != s.AgentState || s.StateSource != agentevents.SourceScreen)
 	}
-	changed := status != s.Status || len(fields) > 1
+	changed := status != s.Status || len(fields) > 1 || writeState
 	fields["status"] = status
 	if err := m.DB.Update("sessions", s.ID, fields); err != nil {
 		return
+	}
+	if writeState {
+		// s was read before the screen; a hook that arrived since then is
+		// newer than this guess. Writing from the snapshot would replace the
+		// agent's own "working" with the screen's "idle", and restart-all
+		// would then restart it mid-turn. So the row decides, not s.
+		_, _ = m.DB.Exec("UPDATE sessions SET agent_state=?, state_source=?, state_at=? WHERE id=? AND (hook_seen_at IS NULL OR hook_seen_at < ?)",
+			screenState, agentevents.SourceScreen, now, s.ID, now-agentStateFallbackWindow)
 	}
 	if !missing {
 		m.Limits.ObservePane(s, pane, HasBusyMarker(pane))

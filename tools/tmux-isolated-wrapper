@@ -67,6 +67,18 @@ if [ -n "$label" ] && [ "$has_socket" -eq 0 ]; then
     socket=$default_socket
 fi
 
+# Real tmux takes the server from $TMUX when no -S or -L is given. Do the
+# same when it names a socket inside the test namespace (a private attach
+# server, say), so a command that forgets to unset TMUX fails here as it
+# would for a person. Anything else in TMUX is ignored, as before.
+if [ "$has_socket" -eq 0 ] && [ -z "$label" ] && [ -n "${TMUX:-}" ]; then
+    inherited=${TMUX%%,*}
+    if [ -S "$inherited" ] && socket_is_allowed "$inherited"; then
+        socket=$inherited
+        default_socket=$inherited
+    fi
+fi
+
 socket_is_allowed "$socket" || {
     echo "refusing tmux socket outside isolated test root: $socket" >&2
     exit 125

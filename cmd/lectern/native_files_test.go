@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	tea "github.com/charmbracelet/bubbletea"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -88,6 +89,56 @@ func TestFilesRowsHideGitAndIgnoredUntilAsked(t *testing.T) {
 	m.rebuild()
 	if len(m.rows) != 1 || m.rows[0].entry.Path != "main.go" {
 		t.Fatalf("changes view = %+v", m.rows)
+	}
+}
+
+// ruff, pytest and mypy caches ignore themselves with a .gitignore of "*";
+// git reports what is inside, not the folder, and the pane still dims it.
+func TestFilesRowsHideSelfIgnoredFolders(t *testing.T) {
+	m := &filesModel{
+		listings: map[string][]fileEntry{".": {
+			{Name: ".ruff_cache", Path: ".ruff_cache", Directory: true},
+			{Name: "main.go", Path: "main.go"},
+		}},
+		expanded: map[string]bool{".": true}, failed: map[string]string{},
+		status:   map[string]string{".ruff_cache/.gitignore": "ignored", ".ruff_cache/0.1/": "ignored"},
+		dirState: map[string]string{}, touched: map[string]bool{},
+		height: 20,
+	}
+	m.rebuild()
+	if len(m.rows) != 1 || m.rows[0].entry.Name != "main.go" {
+		t.Fatalf("rows = %+v", m.rows)
+	}
+	if m.stateOf(fileEntry{Name: "x", Path: ".ruff_cache/0.1/x"}) != "ignored" {
+		t.Fatal("what is inside a self-ignored folder is ignored too")
+	}
+}
+
+// Keys typed before the first listing arrives are kept and replayed, and
+// the header says when the listing itself failed.
+func TestFilesEarlyKeysReplayAndFailedDot(t *testing.T) {
+	m := &filesModel{
+		listings: map[string][]fileEntry{}, expanded: map[string]bool{".": true}, failed: map[string]string{},
+		status: map[string]string{}, dirState: map[string]string{}, touched: map[string]bool{},
+		previewCache: map[string][]string{}, previewFailed: map[string]bool{},
+		height: 20, width: 40,
+	}
+	j := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
+	m.Update(j)
+	m.Update(j)
+	if len(m.early) != 2 {
+		t.Fatalf("early keys = %d", len(m.early))
+	}
+	m.Update(filesListMsg{dir: ".", entries: []fileEntry{{Name: "a", Path: "a"}, {Name: "b", Path: "b"}, {Name: "c", Path: "c"}}})
+	if m.cursor != 2 || len(m.early) != 0 {
+		t.Fatalf("after the listing: cursor %d, early %d", m.cursor, len(m.early))
+	}
+	if strings.Contains(m.header(40), "●") {
+		t.Fatalf("no watch yet, so no live dot: %q", m.header(40))
+	}
+	m.failed["."] = "no such session"
+	if !strings.Contains(m.header(40), "●") {
+		t.Fatalf("a failed listing shows the red dot: %q", m.header(40))
 	}
 }
 
