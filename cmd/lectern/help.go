@@ -256,6 +256,13 @@ primed with its last handoff or the end of its conversation.`,
 		Examples: []string{"lectern split", "lectern split --session 4 --dir workdir"},
 	},
 	{
+		Name: "browse", Group: groupSessions, Synopsis: "browse",
+		Summary:  "Browse the files of the session you are connected to",
+		Usage:    []string{"lectern browse [--session current|ID|KIND/ID] [--pick]"},
+		About:    "A file tree with git state, changed files, find and preview, for a terminal split or a window of its own. Inside an attachment, Ctrl+] f opens the same pane beside the agent.",
+		Examples: []string{"lectern browse", "lectern browse --session 4"},
+	},
+	{
 		Name: "controls", Group: groupSessions, Synopsis: "controls [KIND ID]",
 		Summary:  "Lectern's session menu, without a new terminal",
 		Usage:    []string{"lectern controls [KIND ID] [--popup] [--action upload]"},

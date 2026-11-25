@@ -56,7 +56,7 @@ var clientVerbs = map[string]bool{
 // win — so a test asserts the sets are disjoint.
 var reservedVerbs = map[string]bool{
 	"autonomy-overlay": true, "autonomy-overlay-inspect": true,
-	"local": true, "up": true, "doctor": true, "serve": true, "attach": true, "split": true,
+	"local": true, "up": true, "doctor": true, "serve": true, "attach": true, "split": true, "browse": true,
 	"mcp": true, "version": true, "--version": true, "-v": true, "relay": true, "update": true,
 	"backup": true,
 	// Scribe, Lectern's coding agent (code.go).
@@ -105,6 +105,10 @@ func main() {
 	// Scrolling back in a native attachment (native_scrollback.go).
 	if len(os.Args) > 1 && os.Args[1] == terminalScrollbackFlag {
 		os.Exit(terminalScrollbackCommand(os.Args[2:]))
+	}
+	// The file pane of a native attachment (native_files.go).
+	if len(os.Args) > 1 && os.Args[1] == terminalFilesFlag {
+		os.Exit(terminalFilesCommand(os.Args[2:]))
 	}
 	// A new pane in a native attachment (native_split.go).
 	if len(os.Args) > 1 && os.Args[1] == terminalSplitFlag {
@@ -284,6 +288,13 @@ func main() {
 				return
 			}
 			insecureListen = insecure
+		case "browse":
+			// The file pane in a terminal window of its own (native_files.go).
+			if err := filesCommand(cfg, os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "lectern: "+err.Error())
+				os.Exit(1)
+			}
+			return
 		case "split":
 			// A shell beside an attached session, from the terminal's own split
 			// (native_split.go).

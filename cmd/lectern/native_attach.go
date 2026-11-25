@@ -188,6 +188,7 @@ type nativeWrapPlan struct {
 	linkScript     string
 	scrollScript   string
 	splitScript    string
+	filesScript    string
 	statusScript   string
 	statePath      string
 	controls       nativeControls
@@ -200,6 +201,7 @@ type nativeWrapPlan struct {
 	linkBody       string
 	scrollBody     string
 	splitBody      string
+	filesBody      string
 	statusBody     string
 }
 
@@ -222,6 +224,7 @@ func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []strin
 		linkScript:     filepath.Join(dir, "link.sh"),
 		scrollScript:   filepath.Join(dir, "scrollback.sh"),
 		splitScript:    filepath.Join(dir, "split.sh"),
+		filesScript:    filepath.Join(dir, "files.sh"),
 		statusScript:   filepath.Join(dir, "status.sh"),
 		statePath:      filepath.Join(attachStateDir(), strconv.Itoa(os.Getpid())+".json"),
 		controls:       controls,
@@ -250,6 +253,10 @@ func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []strin
 	// A new pane or window is a shell on the session's machine, in the agent
 	// pane's directory (native_split.go), not a shell here in $HOME.
 	plan.splitBody = execScript([]string{self, terminalSplitFlag, controls.Kind, controls.ID, controls.Base})
+	// Ctrl+] f: the workspace's files beside the agent (native_files.go).
+	// The binding passes only the window, its width and the client.
+	plan.filesBody = strings.TrimSuffix(execScriptWithEnv(append(insertEnv, linkDirEnv+"="+dir),
+		[]string{self, terminalFilesFlag, controls.Kind, controls.ID, controls.Base}), "\n") + ` "$@"` + "\n"
 	if controls.Kind == "session" && controls.Base != "" {
 		plan.statusBody = strings.TrimSuffix(execScript([]string{self, attachStatusFlag, controls.Kind, controls.ID, controls.Base}), "\n") + ` "$@"` + "\n"
 	}
@@ -304,7 +311,7 @@ func attachHints(tabView bool) string {
 	}
 	wide := "#[bold]Ctrl+]#[default] menu · " + leave + " · #[bold]Ctrl+\\#[default] send file · #[bold]double-click#[default] opens paths "
 	narrow := "#[bold]Ctrl+]#[default] menu · " + leave + " "
-	prefix := "#[reverse] Ctrl+] then #[default] m actions · d " + word + " · u send file · | shell right · - shell below · e open a link · ? all keys "
+	prefix := "#[reverse] Ctrl+] then #[default] m actions · d " + word + " · f files · u send file · | shell right · - shell below · e open a link · ? all keys "
 	return "#{?client_prefix," + prefix + ",#{?#{e|<:#{client_width},60}," + narrow + "," + wide + "}}"
 }
 
@@ -322,6 +329,7 @@ func (p *nativeWrapPlan) attachMenu() string {
 		`"Lectern actions for this session"`, "m", "{ " + controls + " }",
 		tmuxDQ(`Send a file to the agent (also Ctrl+\)`), "u", "{ " + upload + " }",
 		`"Pick a path or link on screen"`, "e", "{ " + links + " }",
+		`"Files beside the agent"`, "f", "{ " + p.filesBinding() + " }",
 		"''",
 		`"Shell to the right"`, "|", "{ split-window -h }",
 		`"Shell below"`, "-", "{ split-window -v }",
@@ -332,6 +340,11 @@ func (p *nativeWrapPlan) attachMenu() string {
 		`"Send Ctrl+] to the agent"`, "C-]", "{ send-prefix }",
 	}
 	return "display-menu -T " + tmuxDQ("#[align=centre]Attach keys · Ctrl-b d also leaves") + " -x C -y C " + strings.Join(items, " ")
+}
+
+// filesBinding opens, focuses or closes the file pane (native_files.go).
+func (p *nativeWrapPlan) filesBinding() string {
+	return "run-shell -b " + tmuxDQ(strings.ReplaceAll(shellq.Quote(p.filesScript), "#", "##")+" toggle '#{window_id}' '#{window_width}' '#{client_name}'")
 }
 
 func (p *nativeWrapPlan) tmuxConfig() string {
@@ -380,6 +393,7 @@ func (p *nativeWrapPlan) tmuxConfig() string {
 		// Label every path and link on screen; typing a label opens it
 		// (native_hints.go).
 		"bind-key -T prefix e run-shell -b " + tmuxDQ(strings.ReplaceAll(shellq.Quote(p.linkScript), "#", "##")+" hints-open '#{pane_id}' '#{client_name}' '#{pane_width}' '#{pane_height}'"),
+		"bind-key -T prefix f " + p.filesBinding(),
 		"bind-key -T prefix | split-window -h",
 		"bind-key -T prefix - split-window -v",
 		"bind-key -T prefix m display-popup -E -w 90% -h 85% -T 'Lectern controls' " + shellq.Quote(p.controlsScript),
@@ -418,6 +432,7 @@ func (p *nativeWrapPlan) write() error {
 		{p.controlsScript, p.controlsBody, 0o700},
 		{p.uploadScript, p.uploadBody, 0o700},
 		{p.splitScript, p.splitBody, 0o700},
+		{p.filesScript, p.filesBody, 0o700},
 		{p.linkScript, p.linkBody, 0o700},
 		{p.scrollScript, p.scrollBody, 0o700},
 	}

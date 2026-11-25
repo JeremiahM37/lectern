@@ -270,6 +270,7 @@ without tmux.
 | Ctrl+] then m | Lectern actions for this session. When it needs you, the first items answer the approval (y allow once, a allow for this session) and the popup closes back to the agent |
 | Ctrl+] then e | Label every path and link on screen; type a label to open it, Shift+label for its menu |
 | Ctrl+] then u | Same file sender as Ctrl+\\ |
+| Ctrl+] then f | The workspace's files beside the agent (see below): opens the pane, focuses it if it is open, closes it if it has focus |
 | Ctrl+] then \| | A shell on the session's machine, in the agent's directory, beside the agent |
 | Ctrl+] then - | The same shell, below the agent (Ctrl+] % and " split the same way; Ctrl+] c opens it in a new window) |
 | Ctrl+] then o / x | Without tmux: move to the next pane / close a shell pane (its shell session keeps running) |
@@ -313,6 +314,61 @@ menu. The path refers to the agent's workspace on its target, so it stays
 usable wherever the agent is running; submit it yourself when your prompt is
 ready. If the client cannot reach the attached pane, or the path cannot be
 typed literally, the popup reports the path instead of inserting it.
+
+### Files beside the agent
+
+**Ctrl+] f** opens the session's workspace as a file tree beside the agent.
+It reads the files through the same API as the web terminal's explorer, so a
+session on an SSH host or in a container works like a local one, and nothing
+is installed on the target.
+
+- **Fits the window.** In a window at least 100 columns wide it is a sidebar
+  on the left: 28% of the width, between 24 and 44 columns. If you drag it
+  wider or narrower, it reopens at that width. In a narrower window (a terminal
+  tiled to half a screen) it opens as an overlay instead, so the agent keeps
+  its width. Ctrl+] f opens the pane, focuses it if it is open elsewhere, and
+  closes it if it has focus. **Esc** goes back to the agent without closing it.
+- **Rows.** Folders come first. Git's state is shown on each file and folder:
+  `M` modified, `A` added, `U` untracked, `D` deleted, `!` conflict. A folder
+  shows the most important change inside it. A purple **●** marks what changed
+  since you first opened the pane in this attachment. Ignored files and `.git`
+  are hidden until you press **.**. Long names are cut in the middle, so the
+  extension stays visible.
+- **Tab** switches to a flat list of changed files. **Enter** on one shows its
+  diff; **d** does the same from the tree.
+- **/** finds a file anywhere in the workspace as you type (the same index as
+  Go to file). **Enter** opens its folders and selects it.
+- **Preview.** From 80 columns up (the overlay, or `lectern browse` in a
+  window of its own), the selected file or diff is shown beside the list.
+- **Opening files.** **Enter** or **v** views a file in a pager (`bat` when it
+  is installed, otherwise `less`). **e** edits it in `$VISUAL`, `$EDITOR`, or
+  the first of nvim, vim, micro, nano or vi that is installed. Both open in a
+  popup over the window. Saving sends the file back with the hash it was
+  opened at. If the agent wrote the file in the meantime, you are asked
+  whether to overwrite it, edit again, or keep the agent's version and save
+  yours as a copy in `~/Downloads`. Edits need your own identity, as in the
+  browser: a client signed in with a token can save, but an unauthenticated
+  local process on the server cannot.
+- **i** types the selected path into the agent's prompt without pressing
+  Enter, and puts you back there. **y** copies the path. **w** opens the file
+  in the web viewer. **r** refreshes. **?** lists every key. The mouse works
+  too: click to select, double-click to open, scroll with the wheel.
+- **Live.** The pane holds the server's file watch, which uses inotify on
+  Linux targets, so files the agent writes appear within about a second. The
+  dot in the header is green when the watch is live and amber when the pane
+  is polling every few seconds instead.
+
+`lectern browse` runs the same pane in a terminal of your own, next to the
+attachment you focused last (or `--session ID`), the same way `lectern split`
+finds it. Use it for a kitty or WezTerm split, or as its own tile in a tiling
+window manager:
+
+```
+# sway / i3: a files tile beside the focused terminal
+bindsym $mod+e exec foot lectern browse
+# kitty
+map ctrl+shift+e launch --location=vsplit lectern browse
+```
 
 ### A shell beside the agent
 

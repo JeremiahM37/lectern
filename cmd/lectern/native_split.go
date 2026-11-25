@@ -8,7 +8,6 @@ package main
 // $HOME. The operator's own tmux and its configuration are not involved.
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,7 +23,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/JeremiahM37/lectern/v2/cmd/lectern/localruntime"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 )
 
@@ -279,43 +277,9 @@ func splitCommand(cfg *config.Config, args []string) error {
 			return err
 		}
 	}
-	var state attachState
-	if session == "current" {
-		var err error
-		state, err = chooseAttachState(readAttachStates(), os.Getenv, pick, os.Stdin, os.Stderr, interactiveTerminal())
-		if err != nil {
-			return err
-		}
-	} else {
-		kind, id := "session", session
-		if k, rest, ok := strings.Cut(session, "/"); ok {
-			kind, id = k, rest
-		}
-		state = attachState{Kind: kind, ID: id, Base: env("LECTERN_API", "http://127.0.0.1:"+strconv.Itoa(cfg.Port)), AttachHost: os.Getenv("LECTERN_ATTACH_HOST")}
-		// The same session attached here already knows how it was reached.
-		for _, known := range readAttachStates() {
-			if known.Kind == kind && known.ID == id {
-				state = known
-				break
-			}
-		}
-	}
-	token := cfg.AuthToken
-	if state.Local {
-		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-		defer cancel()
-		binary, err := os.Executable()
-		if err != nil {
-			return err
-		}
-		ep, err := localruntime.Ensure(ctx, binary, cfg)
-		if err != nil {
-			return err
-		}
-		state.Base, token = ep.URL, ep.Token
-		_ = os.Setenv("TMUX_TMPDIR", ep.TmuxDir)
-	} else if state.TmuxDir != "" {
-		_ = os.Setenv("TMUX_TMPDIR", state.TmuxDir)
+	state, token, err := resolveAttachState(cfg, session, pick)
+	if err != nil {
+		return err
 	}
 	argv, shellID, err := splitShell(state.Kind, state.ID, state.Base, token, state.AttachHost, dirMode)
 	if err != nil {
