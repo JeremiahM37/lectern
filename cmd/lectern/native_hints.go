@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -133,6 +134,12 @@ func (e *linkEnv) flash(link filelinks.Link) {
 	}
 	cmd := exec.Command("tmux", "-S", e.socket, "display-popup", "-c", e.client, "-t", e.pane, "-B", "-x", "P", "-y", "P", "-w", w, "-h", h, "-E",
 		e.selfCommand("flash", file))
+	// What tmux says when it cannot show the popup, for whoever wonders why
+	// a click flashed nothing (the attachment's own private directory).
+	if log, err := os.Create(filepath.Join(e.dir, "flash.log")); err == nil {
+		cmd.Stdout, cmd.Stderr = log, log
+		defer log.Close()
+	}
 	if cmd.Start() == nil {
 		go cmd.Wait()
 		time.Sleep(50 * time.Millisecond)

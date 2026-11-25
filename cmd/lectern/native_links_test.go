@@ -778,7 +778,9 @@ func TestNativeClickFeedback(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("the path was never highlighted:\n%q", out)
+			flashLog, _ := os.ReadFile(filepath.Join(r.plan.dir, "flash.log"))
+			inner, _ := exec.Command(r.tmux, "-S", r.plan.socket, "list-clients", "-F", "#{client_name} #{client_flags} #{client_width}x#{client_height}").CombinedOutput()
+			t.Fatalf("the path was never highlighted:\n%q\nflash.log: %q\ninner clients: %q", out, flashLog, inner)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

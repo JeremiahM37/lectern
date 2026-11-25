@@ -123,6 +123,9 @@ def test_native_controls_upload_to_ssh_target(remote_terminal, tmp_path, entry):
         assert not (t['root']/'.lectern/context').exists()
         if entry!='shortcut':
             d.send('\x1b')
+            # The status row shows Ctrl+] under the popup too; wait for the
+            # popup itself to go (tmux 3.6+ takes a moment).
+            d.wait_gone('Uploaded:')
         d.wait('Ctrl+]')
         # The quoted path was appended to the unsubmitted command line, and the
         # upload did not run anything yet.
@@ -165,7 +168,7 @@ def test_hosted_attachment_keeps_controls_hint_visible_in_narrow_terminal(real_t
         assert 'Ctrl+] m' in d.screen.display[0]
         d.send('draft before controls')
         d.send('\x1dm');d.wait('Send message')
-        d.send('\x1b');d.wait('Ctrl+] m')
+        d.send('\x1b');d.wait_gone('Send message');d.wait('Ctrl+] m')
         assert 'Ctrl+] m' in d.screen.display[0]
         d.send(' after');d.send('\x1d\x1d')
         wait_bytes(output,b'draft before controls after\x1d')
