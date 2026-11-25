@@ -19,7 +19,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -144,10 +143,10 @@ type gitState struct {
 
 // gitStatus answers with paths relative to the workspace: git reports them
 // from the repository's top, which may be above it.
-func (a *filesAPI) gitStatus(ctx context.Context) (map[string]string, error) {
+func (a *filesAPI) gitStatus(ctx context.Context) (map[string]string, bool, error) {
 	var out gitState
 	if err := a.getJSON(ctx, "/git-status", &out); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	status := map[string]string{}
 	for name, kind := range out.Status {
@@ -157,7 +156,7 @@ func (a *filesAPI) gitStatus(ctx context.Context) (map[string]string, error) {
 		}
 		status[rel] = kind
 	}
-	return status, nil
+	return status, out.Repository, nil
 }
 
 func (a *filesAPI) index(ctx context.Context) ([]string, error) {
@@ -282,7 +281,9 @@ func terminalFilesCommand(args []string) int {
 			err = diffWorkspaceFile(api, rest[0])
 		}
 		if err != nil {
-			fmt.Println("\n" + err.Error())
+			// Clear what an earlier pager or message left on this screen.
+			fmt.Print("\x1b[H\x1b[2J")
+			fmt.Println(err.Error())
 			fmt.Print("\nPress Enter to close.")
 			_, _ = fmt.Scanln()
 			return 1
@@ -441,9 +442,22 @@ func pagerFor(file, title string) *exec.Cmd {
 		}
 	}
 	if p, err := exec.LookPath("less"); err == nil {
-		return exec.Command(p, "-R", "-N", "-P", title+" (q closes)", file)
+		return exec.Command(p, "-R", "-N", "-c", "-P", lessPrompt(title+" (q closes)"), file)
 	}
 	return exec.Command("more", file)
+}
+
+// lessPrompt escapes the characters less gives a meaning in a prompt, so
+// "README.md" is not shown as "READMEmd".
+func lessPrompt(text string) string {
+	var b strings.Builder
+	for _, r := range text {
+		if strings.ContainsRune(`?:.%\`, r) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func runAttached(cmd *exec.Cmd) error {
@@ -464,7 +478,7 @@ func viewWorkspaceFile(api *filesAPI, rel string) error {
 		}
 		return runAttached(exec.Command("sh", "-c", `pdftotext -layout "$1" - | less -R`, "sh", file))
 	case !textual(data):
-		return fmt.Errorf("%s is not text (%d KiB). Open it in the web viewer:\n%s", rel, len(data)>>10, api.webURL(rel))
+		return fmt.Errorf("%s is not text (%s). Open it in the web viewer:\n%s", rel, humanSize(int64(len(data))), api.webURL(rel))
 	}
 	return runAttached(pagerFor(file, rel))
 }
@@ -490,7 +504,7 @@ func diffWorkspaceFile(api *filesAPI, rel string) error {
 	if err := os.WriteFile(file, []byte(colorPatch(patch)), 0o600); err != nil {
 		return err
 	}
-	return runAttached(exec.Command("less", "-R", "-P", rel+" changes (q closes)", file))
+	return runAttached(exec.Command("less", "-R", "-c", "-P", lessPrompt(rel+" changes (q closes)"), file))
 }
 
 // colorPatch colours a unified diff for less -R.
@@ -518,7 +532,7 @@ func colorPatch(patch string) string {
 func editorArgv() []string {
 	for _, name := range []string{"VISUAL", "EDITOR"} {
 		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
-			return []string{"sh", "-c", value + ` "$1"`, "sh"}
+			return []string{"sh", "-c", value + ` "$@"`, "sh"}
 		}
 	}
 	for _, name := range []string{"nvim", "vim", "micro", "nano", "vi"} {
@@ -545,8 +559,18 @@ func editWorkspaceFile(api *filesAPI, rel string, in io.Reader, out io.Writer) e
 		return errors.New("no editor found; set $EDITOR")
 	}
 	before := sha256.Sum256(data)
+	theirsFile := ""
 	for {
-		if err := runAttached(exec.Command(argv[0], append(argv[1:], file)...)); err != nil {
+		args := append(argv[1:], file)
+		if theirsFile != "" {
+			switch filepath.Base(argv[0]) {
+			case "nvim", "vim", "vi":
+				args = append([]string{"-O"}, args...) // side by side
+			}
+			args = append(args, theirsFile)
+			fmt.Fprintf(out, "Opening yours (%s) and theirs (%s); only yours is saved.\n", filepath.Base(file), filepath.Base(theirsFile))
+		}
+		if err := runAttached(exec.Command(argv[0], args...)); err != nil {
 			return fmt.Errorf("the editor failed: %v", err)
 		}
 		edited, err := os.ReadFile(file)
@@ -568,7 +592,7 @@ func editWorkspaceFile(api *filesAPI, rel string, in io.Reader, out io.Writer) e
 			return fmt.Errorf("could not save %s: %v\nYour version is in %s", rel, err, keep)
 		}
 		fmt.Fprintf(out, "\n%s changed on disk while you were editing it (the agent may have written it).\n", rel)
-		fmt.Fprint(out, "[o] overwrite with yours  [e] edit again  [k] keep theirs, save yours as a copy  > ")
+		fmt.Fprint(out, "[o] overwrite with yours  [e] edit yours beside theirs  [k] keep theirs, save yours as a copy  > ")
 		var answer string
 		_, _ = fmt.Fscanln(in, &answer)
 		switch strings.ToLower(strings.TrimSpace(answer)) {
@@ -579,11 +603,19 @@ func editWorkspaceFile(api *filesAPI, rel string, in io.Reader, out io.Writer) e
 			fmt.Fprintf(out, "Saved %s.\n", rel)
 			return nil
 		case "e":
-			if problem.SHA != "" {
+			// Their version opens beside yours, read-only in spirit: only
+			// yours is saved, against the version you have now seen.
+			theirs, theirSHA, err := api.read(context.Background(), rel, linkFileLimit+1)
+			if err != nil {
+				return fmt.Errorf("could not read %s again: %v\nYour version is in %s", rel, err, keepCopy(rel, edited))
+			}
+			theirsFile = filepath.Join(filepath.Dir(file), "THEIRS."+filepath.Base(file))
+			if err := os.WriteFile(theirsFile, theirs, 0o600); err != nil {
+				return err
+			}
+			sha = theirSHA
+			if sha == "" {
 				sha = problem.SHA
-			} else {
-				sum := sha256.Sum256(edited)
-				sha = hex.EncodeToString(sum[:])
 			}
 			continue
 		default:

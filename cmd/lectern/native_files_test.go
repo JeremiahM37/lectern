@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -206,5 +207,39 @@ func TestAttachConfigBindsTheFilePane(t *testing.T) {
 	}
 	if !strings.Contains(plan.filesBody, terminalFilesFlag) || !strings.Contains(plan.filesBody, insertSocketEnv+"=/tmp/sock") {
 		t.Fatalf("files script = %q", plan.filesBody)
+	}
+}
+
+func TestLessPromptEscapesSpecialCharacters(t *testing.T) {
+	if got := lessPrompt("a.md (q: 50%?)"); got != `a\.md (q\: 50\%\?)` {
+		t.Fatalf("lessPrompt = %q", got)
+	}
+}
+
+func TestEditWorkspaceFileEditAgainShowsTheirsAndSavesAgainstIt(t *testing.T) {
+	ws := &fakeWorkspace{content: "one\n", sha: "aaa"}
+	srv := httptest.NewServer(ws.handler(t))
+	defer srv.Close()
+	// The editor gets every file it is given; it changes the first (yours)
+	// and records the others, so the test can see theirs was offered.
+	seen := t.TempDir() + "/seen"
+	t.Setenv("VISUAL", `sh -c 'sed -i s/one/mine/ "$1"; shift; for f; do cat "$f" >> `+seen+`; done' sh`)
+	api := newFilesAPI("session", "7", srv.URL, "")
+	api.client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method == "PUT" && len(ws.writes) == 0 {
+			ws.mu.Lock()
+			ws.content, ws.sha = "theirs\n", "bbb"
+			ws.mu.Unlock()
+		}
+		return http.DefaultTransport.RoundTrip(r)
+	})
+	if err := editWorkspaceFile(api, "notes.txt", strings.NewReader("e\n"), io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if ws.content != "mine\n" || len(ws.writes) != 2 || ws.writes[1] != "bbb" {
+		t.Fatalf("content %q writes %v", ws.content, ws.writes)
+	}
+	if data, _ := os.ReadFile(seen); string(data) != "theirs\n" {
+		t.Fatalf("their version was not opened beside yours: %q", data)
 	}
 }

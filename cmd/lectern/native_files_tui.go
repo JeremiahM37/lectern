@@ -19,7 +19,9 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -96,6 +98,7 @@ type (
 	}
 	filesGitMsg struct {
 		status map[string]string
+		repo   bool
 		err    error
 	}
 	filesWatchMsg struct {
@@ -109,8 +112,9 @@ type (
 		err   error
 	}
 	filesPreviewMsg struct {
-		key   string
-		lines []string
+		key    string
+		lines  []string
+		failed bool // shown, but read again on the next refresh
 	}
 	filesPreviewTick struct{ seq int }
 	filesDoneMsg     struct {
@@ -118,7 +122,8 @@ type (
 		reload bool
 		quit   bool
 	}
-	filesSayMsg struct{ text string }
+	filesSayMsg    struct{ text string }
+	filesWindowMsg struct{ width, set int }
 )
 
 type filesModel struct {
@@ -153,9 +158,10 @@ type filesModel struct {
 	fcursor    int
 	foffset    int
 
-	previewKey   string // the preview being fetched
-	previewCache map[string][]string
-	previewSeq   int
+	previewKey    string // the preview being fetched
+	previewCache  map[string][]string
+	previewFailed map[string]bool
+	previewSeq    int
 
 	watchGen  int
 	token     string
@@ -168,6 +174,48 @@ type filesModel struct {
 
 	lastClick     time.Time
 	lastClickPath string
+
+	window   int // the tmux window's width when the sidebar last measured it
+	ownWidth int // the width the sidebar last set itself to
+}
+
+// keepSidebarWidth runs when the sidebar's size changes. tmux shares a
+// resized window out in proportion, which would squeeze the sidebar to a
+// sliver in a narrow tile, so a new window width puts the sidebar back to
+// its width; a change at the same window width is the person dragging the
+// border, and that width is remembered for next time.
+func (m *filesModel) keepSidebarWidth() tea.Cmd {
+	pane := os.Getenv("TMUX_PANE")
+	if !m.host.tmux || m.host.popup || pane == "" {
+		return nil
+	}
+	width, last, own := m.width, m.window, m.ownWidth
+	return func() tea.Msg {
+		out, err := privateTmux("display-message", "-p", "-t", pane, "#{window_width}")
+		window, convErr := strconv.Atoi(strings.TrimSpace(out))
+		if err != nil || convErr != nil || window <= 0 {
+			return nil
+		}
+		file := filesWidthFile()
+		if last == 0 || window == last {
+			// The sidebar's own resize arriving is not a drag.
+			if last != 0 && width != own && file != "" {
+				_ = os.WriteFile(file, []byte(strconv.Itoa(width)), 0o600)
+			}
+			return filesWindowMsg{width: window}
+		}
+		remembered := 0
+		if file != "" {
+			if data, err := os.ReadFile(file); err == nil {
+				remembered, _ = strconv.Atoi(strings.TrimSpace(string(data)))
+			}
+		}
+		target := filesSidebarWidth(window, remembered)
+		if target != width {
+			_, _ = privateTmux("resize-pane", "-t", pane, "-x", strconv.Itoa(target))
+		}
+		return filesWindowMsg{width: window, set: target}
+	}
 }
 
 func runFilesPane(api *filesAPI, host filesHost) error {
@@ -179,8 +227,8 @@ func runFilesPane(api *filesAPI, host filesHost) error {
 		listings: map[string][]fileEntry{}, failed: map[string]string{},
 		expanded: map[string]bool{".": true}, status: map[string]string{},
 		dirState: map[string]string{}, touched: map[string]bool{},
-		previewCache: map[string][]string{},
-		opened:       filesSince(), input: input,
+		previewCache: map[string][]string{}, previewFailed: map[string]bool{},
+		opened: filesSince(), input: input,
 	}
 	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithReportFocus()).Run()
 	return err
@@ -221,8 +269,8 @@ func (m *filesModel) listCmd(dir string) tea.Cmd {
 func (m *filesModel) gitCmd() tea.Cmd {
 	api := m.api
 	return func() tea.Msg {
-		status, err := api.gitStatus(context.Background())
-		return filesGitMsg{status: status, err: err}
+		status, repo, err := api.gitStatus(context.Background())
+		return filesGitMsg{status: status, repo: repo, err: err}
 	}
 }
 
@@ -266,7 +314,8 @@ func (m *filesModel) refresh() tea.Cmd {
 	// A changed file has a new mtime and so a new key; a diff may change
 	// without one, so diffs are read again.
 	for key := range m.previewCache {
-		if strings.HasPrefix(key, "diff:") {
+		if strings.HasPrefix(key, "diff:") || m.previewFailed[key] {
+			delete(m.previewFailed, key)
 			delete(m.previewCache, key)
 		}
 	}
@@ -286,6 +335,15 @@ func (m *filesModel) say(text string) {
 	m.message, m.until = text, time.Now().Add(4*time.Second)
 }
 
+// plainError says what went wrong without Go's request dump.
+func plainError(err error) string {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return "Cannot reach the Lectern server; retrying"
+	}
+	return err.Error()
+}
+
 // ---- update
 
 func (m *filesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -293,22 +351,29 @@ func (m *filesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.clamp()
-		return m, m.schedulePreview()
+		return m, tea.Batch(m.schedulePreview(), m.keepSidebarWidth())
+	case filesWindowMsg:
+		m.window = msg.width
+		if msg.set > 0 {
+			m.ownWidth = msg.set
+		}
+		return m, nil
 	case tea.FocusMsg:
 		m.focused = true
 	case tea.BlurMsg:
 		m.focused = false
 	case filesListMsg:
 		if msg.err != nil {
-			m.failed[msg.dir] = msg.err.Error()
+			m.failed[msg.dir] = plainError(msg.err)
 			if msg.dir == "." {
-				m.say(msg.err.Error())
+				m.say(plainError(msg.err))
 			}
 		} else {
 			delete(m.failed, msg.dir)
 			m.listings[msg.dir] = msg.entries
 			for _, e := range msg.entries {
-				if e.Mtime > m.opened {
+				// git rewrites its own folder on every status; that is not the agent.
+				if e.Mtime > m.opened && e.Path != ".git" && !strings.HasPrefix(e.Path, ".git/") {
 					m.touched[e.Path] = true
 				}
 			}
@@ -317,7 +382,7 @@ func (m *filesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.schedulePreview()
 	case filesGitMsg:
 		if msg.err == nil {
-			m.repo = true
+			m.repo = msg.repo
 			m.status = msg.status
 			m.dirState = folderStates(msg.status)
 			m.rebuild()
@@ -345,7 +410,7 @@ func (m *filesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.refresh(), m.watchCmd())
 	case filesIndexMsg:
 		if msg.err != nil {
-			m.indexErr = msg.err.Error()
+			m.indexErr = plainError(msg.err)
 		} else {
 			m.index, m.indexErr = msg.files, ""
 		}
@@ -365,6 +430,9 @@ func (m *filesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case filesPreviewMsg:
 		m.previewCache[msg.key] = msg.lines
+		if msg.failed {
+			m.previewFailed[msg.key] = true
+		}
 		if msg.key == m.previewKey {
 			m.previewKey = ""
 		}
@@ -389,6 +457,14 @@ func (m *filesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		if m.finding {
 			cmd = m.findKey(msg)
+		} else if msg.Type == tea.KeyRunes && len(msg.Runes) > 1 && !msg.Paste {
+			// Keys typed faster than the screen reads them (a held j, or
+			// "jj") arrive as one event; each is its own command.
+			var cmds []tea.Cmd
+			for _, r := range msg.Runes {
+				cmds = append(cmds, m.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}, Alt: msg.Alt}))
+			}
+			cmd = tea.Batch(cmds...)
 		} else {
 			cmd = m.key(msg)
 		}
@@ -843,8 +919,15 @@ func (m *filesModel) previewWanted() string {
 	if m.view == viewChanges && m.status[row.entry.Path] != "untracked" {
 		return "diff:" + row.entry.Path
 	}
+	if row.entry.Size > filesPreviewLimit {
+		// The server sends a file whole; a preview is not worth megabytes.
+		return ""
+	}
 	return fmt.Sprintf("file:%s@%d", row.entry.Path, row.entry.Mtime)
 }
+
+// filesPreviewLimit is the largest file previewed beside the list.
+const filesPreviewLimit = 2 << 20
 
 func (m *filesModel) schedulePreview() tea.Cmd {
 	m.previewSeq++
@@ -859,7 +942,7 @@ func (m *filesModel) previewCmd(key string) tea.Cmd {
 		if kind == "diff" {
 			patch, err := api.diff(context.Background(), rest)
 			if err != nil {
-				return filesPreviewMsg{key: key, lines: []string{fsDim.Render(err.Error())}}
+				return filesPreviewMsg{key: key, lines: []string{fsDim.Render(plainError(err))}, failed: true}
 			}
 			var lines []string
 			for _, line := range strings.Split(patch, "\n") {
@@ -873,7 +956,10 @@ func (m *filesModel) previewCmd(key string) tea.Cmd {
 		rel := rest[:strings.LastIndex(rest, "@")]
 		data, _, err := api.read(context.Background(), rel, 128<<10)
 		if err != nil {
-			return filesPreviewMsg{key: key, lines: []string{fsDim.Render(err.Error())}}
+			return filesPreviewMsg{key: key, lines: []string{fsDim.Render(plainError(err))}, failed: true}
+		}
+		if strings.HasPrefix(string(data), "%PDF-") {
+			return filesPreviewMsg{key: key, lines: []string{fsDim.Render("PDF — ⏎ shows its text, w opens it in the web viewer")}}
 		}
 		if !textual(data) {
 			return filesPreviewMsg{key: key, lines: []string{fsDim.Render("Not text — w opens it in the web viewer")}}
@@ -1319,9 +1405,12 @@ func (m *filesModel) previewView(width int) string {
 		} else if row.entry.Size > 0 {
 			title += fsDim.Render("  " + humanSize(row.entry.Size))
 		}
-		if cached, ok := m.previewCache[m.previewWanted()]; ok {
+		switch cached, ok := m.previewCache[m.previewWanted()]; {
+		case m.previewWanted() == "":
+			lines = []string{fsDim.Render("Too large to preview — ⏎ views it")}
+		case ok:
 			lines = cached
-		} else {
+		default:
 			lines = []string{fsDim.Render("…")}
 		}
 	}
@@ -1362,24 +1451,48 @@ func humanSize(n int64) string {
 }
 
 func (m *filesModel) helpView() string {
+	// Most needed first: a short pane cuts from the end.
 	keys := [][2]string{
+		{"⏎", "open (diff in Changes)"}, {"e", "edit in $EDITOR"}, {"i", "type path into the agent's prompt"},
+		{"esc", "back to the agent"}, {"q", "close"}, {"/", "find a file"}, {"Tab", "tree ↔ changed files"},
 		{"↑↓ j k", "move"}, {"→ l", "open folder / view file"}, {"← h", "close folder / go up"},
-		{"⏎", "open (diff in Changes)"}, {"v", "view"}, {"e", "edit in $EDITOR"}, {"d", "diff"},
-		{"i", "type path into the agent's prompt"}, {"y", "copy path"}, {"w", "open in the web viewer"},
-		{"/", "find a file"}, {"Tab", "tree ↔ changed files"}, {".", "show ignored files"},
-		{"r", "refresh"}, {"esc", "back to the agent"}, {"q", "close"},
-		{"Ctrl+] f", "open / focus / close"},
+		{"v", "view"}, {"d", "diff"}, {"y", "copy path"}, {"w", "open in the web viewer"},
+		{".", "show ignored files"}, {"r", "refresh"}, {"Ctrl+] f", "open / focus / close"},
 	}
-	var b strings.Builder
-	b.WriteString(" " + fsTitle.Render("File pane keys") + "\n\n")
-	for _, k := range keys {
-		b.WriteString(" " + fsKey.Render(fmt.Sprintf("%-9s", k[0])) + " " + fsDim.Render(k[1]) + "\n")
+	cell := func(k [2]string, width int) string {
+		return fitStyled(" "+fsKey.Render(fmt.Sprintf("%-8s", k[0]))+" "+fsDim.Render(k[1]), width)
 	}
-	b.WriteString("\n " + fsTouched.Render("●") + fsDim.Render(" changed since you opened files here") + "\n")
-	b.WriteString(" " + fsDim.Render("M A U D ! git state; any key closes"))
-	lines := strings.Split(b.String(), "\n")
-	for i := range lines {
-		lines[i] = fitStyled(lines[i], m.width)
+	lines := []string{fitStyled(" "+fsTitle.Render("File pane keys")+fsDim.Render(" · any key closes"), m.width)}
+	legend := []string{
+		fitStyled(" "+fsTouched.Render("●")+fsDim.Render(" changed since you opened files here"), m.width),
+		fitStyled(" "+fsDim.Render("M A U D ! git state"), m.width),
+	}
+	rows := m.height - 1
+	if rows >= len(keys)+len(legend)+1 {
+		for _, k := range keys {
+			lines = append(lines, cell(k, m.width))
+		}
+		lines = append(lines, "")
+		lines = append(lines, legend...)
+	} else if columns := max(1, m.width/40); columns > 1 && rows*columns >= len(keys) {
+		per := (len(keys) + columns - 1) / columns
+		for r := 0; r < per; r++ {
+			line := ""
+			for c := 0; c < columns; c++ {
+				if i := c*per + r; i < len(keys) {
+					line += cell(keys[i], m.width/columns)
+				}
+			}
+			lines = append(lines, fitStyled(line, m.width))
+		}
+	} else {
+		shown := min(len(keys), max(0, rows-1))
+		for _, k := range keys[:shown] {
+			lines = append(lines, cell(k, m.width))
+		}
+		if shown < len(keys) {
+			lines = append(lines, fitStyled(" "+fsDim.Render(fmt.Sprintf("+%d more in a taller pane", len(keys)-shown)), m.width))
+		}
 	}
 	for len(lines) < m.height {
 		lines = append(lines, strings.Repeat(" ", m.width))

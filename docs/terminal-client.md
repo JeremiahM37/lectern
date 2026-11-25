@@ -324,7 +324,8 @@ is installed on the target.
 
 - **Fits the window.** In a window at least 100 columns wide it is a sidebar
   on the left: 28% of the width, between 24 and 44 columns. If you drag it
-  wider or narrower, it reopens at that width. In a narrower window (a terminal
+  wider or narrower, it reopens at that width, and it keeps its width when
+  the window is resized instead of being squeezed with it. In a narrower window (a terminal
   tiled to half a screen) it opens as an overlay instead, so the agent keeps
   its width. Ctrl+] f opens the pane, focuses it if it is open elsewhere, and
   closes it if it has focus. **Esc** goes back to the agent without closing it.
@@ -340,13 +341,15 @@ is installed on the target.
   Go to file). **Enter** opens its folders and selects it.
 - **Preview.** From 80 columns up (the overlay, or `lectern browse` in a
   window of its own), the selected file or diff is shown beside the list.
+  Files over 2 MiB are not previewed; Enter still views them.
 - **Opening files.** **Enter** or **v** views a file in a pager (`bat` when it
   is installed, otherwise `less`). **e** edits it in `$VISUAL`, `$EDITOR`, or
   the first of nvim, vim, micro, nano or vi that is installed. Both open in a
   popup over the window. Saving sends the file back with the hash it was
   opened at. If the agent wrote the file in the meantime, you are asked
-  whether to overwrite it, edit again, or keep the agent's version and save
-  yours as a copy in `~/Downloads`. Edits need your own identity, as in the
+  whether to overwrite it, edit yours again with the agent's version open
+  beside it (side by side in vim and nvim; only yours is saved), or keep the
+  agent's version and save yours as a copy in `~/Downloads`. Edits need your own identity, as in the
   browser: a client signed in with a token can save, but an unauthenticated
   local process on the server cannot.
 - **i** types the selected path into the agent's prompt without pressing
