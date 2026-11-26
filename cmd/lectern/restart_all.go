@@ -80,7 +80,18 @@ func restartAllCommand(c *console.Client, args []string, out io.Writer) error {
 		printRestartRows(out, started.Sessions)
 		return nil
 	}
-	fmt.Fprintln(out, "Restarting idle sessions one at a time…")
+	queued := 0
+	for _, r := range started.Sessions {
+		if r.Status == "restarting" {
+			queued++
+		}
+	}
+	fmt.Fprintf(out, "Restarting %d idle session(s) one at a time; each takes up to a minute and a half…\n", queued)
+	// Say each session's result as it lands, so a long run is visibly moving.
+	shown := map[int64]string{}
+	for _, r := range started.Sessions {
+		shown[r.ID] = r.Status
+	}
 	deadline := time.Now().Add(30 * time.Minute)
 	for {
 		_, last, err := status()
@@ -90,9 +101,24 @@ func restartAllCommand(c *console.Client, args []string, out io.Writer) error {
 		busy := false
 		for _, r := range last {
 			busy = busy || r.Status == "restarting"
+			if shown[r.ID] != r.Status && r.Status != "restarting" {
+				shown[r.ID] = r.Status
+				printRestartRows(out, []restartRow{r})
+			}
 		}
 		if !busy || time.Now().After(deadline) {
-			printRestartRows(out, last)
+			pending := 0
+			for _, r := range last {
+				if r.Status == "pending" {
+					pending++
+				}
+			}
+			if busy {
+				fmt.Fprintln(out, "Still restarting after 30 minutes; it carries on in the server (lectern restart --all --dry-run shows the plan).")
+			}
+			if pending > 0 {
+				fmt.Fprintf(out, "%d busy session(s) restart on their own once each is waiting for you; nothing more to do here.\n", pending)
+			}
 			return nil
 		}
 		time.Sleep(3 * time.Second)

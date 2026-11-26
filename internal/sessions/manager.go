@@ -1267,7 +1267,6 @@ func (m *Manager) primeWhenReady(id int64, text string, recalled memory.ContextR
 // waitReady waits, until ctx ends, for a session's pane to stop changing at
 // an input prompt, and reports whether it did.
 func (m *Manager) waitReady(ctx context.Context, id int64) bool {
-	var last string
 	stable := 0
 	for i := 0; i < 45; i++ {
 		select {
@@ -1289,13 +1288,16 @@ func (m *Manager) waitReady(ctx context.Context, id int64) bool {
 		if strings.TrimSpace(pane) == "" {
 			continue
 		}
-		if pane == last {
+		// Showing an input prompt on two consecutive polls. Not "the same
+		// bytes twice": a resumed claude redraws its footer (Remote Control
+		// connecting, a spinner, the context meter), and waiting for a still
+		// screen sat out the whole timeout on every session of a restart-all.
+		if DeriveStatus(pane, Hash(pane)) == StatusWaiting {
 			stable++
 		} else {
-			stable, last = 0, pane
+			stable = 0
 		}
-		// settled for two consecutive polls and showing an input prompt
-		if stable >= 1 && DeriveStatus(pane, Hash(pane)) == StatusWaiting {
+		if stable >= 2 {
 			return true
 		}
 	}

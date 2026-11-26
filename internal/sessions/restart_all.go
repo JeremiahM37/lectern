@@ -264,6 +264,14 @@ func (m *Manager) retryRestarts(ctx context.Context) {
 			continue
 		}
 		if m.restartBusy(ctx, sess) {
+			// Idle when the run started, busy by its turn: it waits like
+			// any busy session, and says so instead of "restarting".
+			m.mu.Lock()
+			if row, ok := m.restartResults[id]; ok && row.Status == RestartQueued {
+				row.Status, row.Reason = RestartPending, errRestartBusy.Error()
+				m.restartResults[id] = row
+			}
+			m.mu.Unlock()
 			continue
 		}
 		row := m.restartOne(ctx, RestartOutcome{ID: id, Name: sess.Name})
